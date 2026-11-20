@@ -1,4 +1,4 @@
-# Action75 Wallpaper
+# 从源码构建 Action75 Wallpaper
 
 面向 Action75 键盘屏的 Windows 互动壁纸软件。Rust/egui 管理界面与 C++17/D3D11 播放器，本地渲染，支持按键交互。
 
