@@ -1,3 +1,4 @@
+# Local build outputs and runtime state
 target/
 build/
 build-*/
