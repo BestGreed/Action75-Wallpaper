@@ -1,0 +1,51 @@
+{
+  "dllSha256": "8a8c6c2daa4bca304c6fefcb5299f8ce2405ed58eea9279332997188d6cfa125",
+  "deterministicWARP": [
+    {
+      "frame": 20,
+      "phase": "rest",
+      "maxChannel": 0,
+      "rms": 0.0,
+      "equalRGBA": true,
+      "darkAreaBefore": 13770,
+      "darkAreaAfter": 13770
+    },
+    {
+      "frame": 100,
+      "phase": "single",
+      "maxChannel": 0,
+      "rms": 0.0,
+      "equalRGBA": true,
+      "darkAreaBefore": 9104,
+      "darkAreaAfter": 9104
+    },
+    {
+      "frame": 155,
+      "phase": "chord",
+      "maxChannel": 0,
+      "rms": 0.0,
+      "equalRGBA": true,
+      "darkAreaBefore": 17292,
+      "darkAreaAfter": 17292
+    },
+    {
+      "frame": 230,
+      "phase": "release-newest",
+      "maxChannel": 0,
+      "rms": 0.0,
+      "equalRGBA": true,
+      "darkAreaBefore": 27327,
+      "darkAreaAfter": 27327
+    },
+    {
+      "frame": 499,
+      "phase": "released",
+      "maxChannel": 0,
+      "rms": 0.0,
+      "equalRGBA": true,
+      "darkAreaBefore": 13739,
+      "darkAreaAfter": 13739
+    }
+  ],
+  "maxLoggedMassError": 2.32e-07
+}

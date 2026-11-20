@@ -1,0 +1,331 @@
+{
+  "version": 1,
+  "orderedRange": [
+    "impactMin",
+    "impactMax"
+  ],
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "fracture",
+      "label": "碎裂",
+      "controls": [
+        {
+          "id": "impactMin",
+          "label": "力度下限",
+          "type": "slider",
+          "default": 0.6,
+          "min": 0,
+          "max": 3.2,
+          "step": 0.01,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "glassShatter.impactMin"
+          },
+          "advanced": true
+        },
+        {
+          "id": "impactMax",
+          "label": "力度上限",
+          "type": "slider",
+          "default": 1.45,
+          "min": 0,
+          "max": 3.2,
+          "step": 0.01,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "glassShatter.impactMax"
+          },
+          "advanced": true
+        },
+        {
+          "id": "spread",
+          "label": "裂纹范围",
+          "type": "slider",
+          "default": 1,
+          "min": 0.55,
+          "max": 2.15,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "glassShatter.spread"
+          }
+        },
+        {
+          "id": "coreSpread",
+          "label": "中心破碎范围",
+          "type": "slider",
+          "default": 1,
+          "min": 0.5,
+          "max": 3,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "effectScale"
+          }
+        },
+        {
+          "id": "branches",
+          "label": "分叉上限",
+          "type": "slider",
+          "default": 5,
+          "min": 0,
+          "max": 7,
+          "step": 1,
+          "surface": "foreground",
+          "binding": {
+            "target": "glassShatter.branches"
+          },
+          "advanced": true
+        },
+        {
+          "id": "duration",
+          "label": "裂纹留存时间",
+          "type": "slider",
+          "default": 1.2,
+          "min": 0.4,
+          "max": 2.8,
+          "step": 0.05,
+          "unit": "秒",
+          "surface": "foreground",
+          "binding": {
+            "target": "glassShatter.duration"
+          }
+        }
+      ]
+    },
+    {
+      "id": "material",
+      "label": "玻璃材质",
+      "controls": [
+        {
+          "id": "seamWidth",
+          "label": "裂口宽度",
+          "type": "slider",
+          "default": 1,
+          "min": 0.55,
+          "max": 1.5,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "glassShatter.seamWidth"
+          },
+          "advanced": true
+        },
+        {
+          "id": "glints",
+          "label": "断面反光",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "glassShatter.glints"
+          },
+          "advanced": true
+        },
+        {
+          "id": "refraction",
+          "label": "折射强度",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "glassShatter.refraction"
+          },
+          "advanced": true
+        },
+        {
+          "id": "chips",
+          "label": "飞散碎屑上限",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 4,
+          "step": 1,
+          "surface": "foreground",
+          "binding": {
+            "target": "glassShatter.chips"
+          },
+          "advanced": true
+        },
+        {
+          "id": "effectBrightness",
+          "label": "亮度",
+          "type": "slider",
+          "surface": "foreground",
+          "appearance": "brightness",
+          "advanced": false,
+          "binding": {
+            "target": "effectBrightness"
+          },
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "effectHue",
+          "label": "色相",
+          "type": "slider",
+          "surface": "foreground",
+          "appearance": "hue",
+          "advanced": false,
+          "binding": {
+            "target": "effectHue"
+          },
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "effectSaturation",
+          "label": "饱和度",
+          "type": "slider",
+          "surface": "foreground",
+          "appearance": "saturation",
+          "advanced": false,
+          "binding": {
+            "target": "effectSaturation"
+          },
+          "default": 1,
+          "min": 0,
+          "max": 2.5,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "effectColor",
+          "label": "颜色",
+          "type": "color",
+          "surface": "foreground",
+          "appearance": "color",
+          "advanced": false,
+          "binding": {
+            "target": "effectColor"
+          },
+          "default": [
+            255,
+            255,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "id": "background",
+      "label": "背景",
+      "controls": [
+        {
+          "id": "backdrop",
+          "label": "背景样式",
+          "type": "select",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "极夜蓝"
+            },
+            {
+              "value": 1,
+              "label": "琥珀暮光"
+            },
+            {
+              "value": 2,
+              "label": "银雾"
+            },
+            {
+              "value": 3,
+              "label": "纯色"
+            }
+          ],
+          "surface": "background",
+          "binding": {
+            "target": "glassShatter.backdrop"
+          },
+          "appearance": "style",
+          "advanced": false
+        },
+        {
+          "id": "brightness",
+          "label": "背景亮度",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "background",
+          "binding": {
+            "target": "background.brightness"
+          },
+          "appearance": "brightness",
+          "advanced": false
+        },
+        {
+          "id": "backgroundHue",
+          "label": "色相",
+          "type": "slider",
+          "surface": "background",
+          "appearance": "hue",
+          "advanced": false,
+          "binding": {
+            "target": "background.hue"
+          },
+          "default": 0,
+          "min": 0,
+          "max": 360,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "backgroundSaturation",
+          "label": "饱和度",
+          "type": "slider",
+          "surface": "background",
+          "appearance": "saturation",
+          "advanced": false,
+          "binding": {
+            "target": "background.saturation"
+          },
+          "default": 1,
+          "min": 0,
+          "max": 2.5,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "backgroundColor",
+          "label": "颜色",
+          "type": "color",
+          "surface": "background",
+          "appearance": "color",
+          "advanced": false,
+          "binding": {
+            "target": "background.color"
+          },
+          "default": [
+            255,
+            255,
+            255
+          ]
+        }
+      ]
+    }
+  ]
+}

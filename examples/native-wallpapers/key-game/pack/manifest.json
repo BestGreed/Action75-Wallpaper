@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "id": "night-platform-runner",
+  "name": "夜站拾光",
+  "kind": "native",
+  "abi": 1,
+  "entry": "wallpaper.dll",
+  "settings": "settings.json"
+}

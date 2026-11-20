@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "silk-nebula",
+  "name": "潮汐绢墨 · Tidal Ink",
+  "kind": "native",
+  "settings": "settings.json",
+  "preview": "preview.png",
+  "entry": "wallpaper.dll",
+  "abi": 1
+}

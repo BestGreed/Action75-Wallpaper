@@ -1,0 +1,1062 @@
+{
+  "pack": "meniscus-ferrofluid-v1",
+  "adapter": "Intel(R) UHD Graphics",
+  "luid": 95960,
+  "playerSha256": "4b6e28227837683416d6e2d854e4b2ed063aa193d1d11ff19eb2af9e81fce4db",
+  "phases": {
+    "idle": {
+      "frames": 0,
+      "seconds": 3.0017157000002044,
+      "keys": 0,
+      "fps": 0.0,
+      "gpuEngineMsPerFrame": null,
+      "samples": [
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 48.61328125,
+              "workingSetMiB": 53.0859375,
+              "cpuSeconds": 0.09375,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.1640625,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 62.12109375,
+              "workingSetMiB": 70.45703125,
+              "cpuSeconds": 0.1875,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 29.90625,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 0.5017564000008861,
+          "gpu": 0.0,
+          "workingMiB": 123.54296875,
+          "privateMiB": 110.734375,
+          "sharedMiB": 48.0703125
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 48.61328125,
+              "workingSetMiB": 53.0859375,
+              "cpuSeconds": 0.09375,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.1640625,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 62.12109375,
+              "workingSetMiB": 70.45703125,
+              "cpuSeconds": 0.1875,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 29.90625,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 1.001867900000434,
+          "gpu": 0.0,
+          "workingMiB": 123.54296875,
+          "privateMiB": 110.734375,
+          "sharedMiB": 48.0703125
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 48.61328125,
+              "workingSetMiB": 53.0859375,
+              "cpuSeconds": 0.09375,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.1640625,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 62.12109375,
+              "workingSetMiB": 70.45703125,
+              "cpuSeconds": 0.1875,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 29.90625,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 1.5018678000014916,
+          "gpu": 0.0,
+          "workingMiB": 123.54296875,
+          "privateMiB": 110.734375,
+          "sharedMiB": 48.0703125
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 48.61328125,
+              "workingSetMiB": 53.0859375,
+              "cpuSeconds": 0.09375,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.1640625,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 62.12109375,
+              "workingSetMiB": 70.45703125,
+              "cpuSeconds": 0.1875,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 29.90625,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 2.0016640000012558,
+          "gpu": 0.0,
+          "workingMiB": 123.54296875,
+          "privateMiB": 110.734375,
+          "sharedMiB": 48.0703125
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 48.61328125,
+              "workingSetMiB": 53.0859375,
+              "cpuSeconds": 0.09375,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.1640625,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 62.12109375,
+              "workingSetMiB": 70.45703125,
+              "cpuSeconds": 0.1875,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 29.90625,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 2.5018715000005614,
+          "gpu": 0.0,
+          "workingMiB": 123.54296875,
+          "privateMiB": 110.734375,
+          "sharedMiB": 48.0703125
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 48.61328125,
+              "workingSetMiB": 53.0859375,
+              "cpuSeconds": 0.09375,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.1640625,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 62.12109375,
+              "workingSetMiB": 70.45703125,
+              "cpuSeconds": 0.1875,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 29.90625,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 3.0017157000002044,
+          "gpu": 0.0,
+          "workingMiB": 123.54296875,
+          "privateMiB": 110.734375,
+          "sharedMiB": 48.0703125
+        }
+      ]
+    },
+    "typing": {
+      "frames": 241,
+      "seconds": 4.00182070000119,
+      "keys": 160,
+      "fps": 60.222588183405705,
+      "gpuEngineMsPerFrame": 2.1112472326033864,
+      "samples": [
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 3.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.7734375,
+              "cpuSeconds": 0.109375,
+              "engines": {
+                "0_eng_0_engtype_3D": 3.735278281851357,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 6.1,
+              "privateMiB": 62.5078125,
+              "workingSetMiB": 70.80078125,
+              "cpuSeconds": 0.21875,
+              "engines": {
+                "0_eng_0_engtype_3D": 10.228408479071529,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 30.234375,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 0.5015240000011545,
+          "gpu": 13.963686760922887,
+          "workingMiB": 124.57421875,
+          "privateMiB": 111.83203125,
+          "sharedMiB": 49.078125
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.78125,
+              "cpuSeconds": 0.109375,
+              "engines": {
+                "0_eng_0_engtype_3D": 3.542297520525678,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 15.6,
+              "privateMiB": 70.5234375,
+              "workingSetMiB": 78.80859375,
+              "cpuSeconds": 0.296875,
+              "engines": {
+                "0_eng_0_engtype_3D": 10.34127531986752,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 1.001693800000794,
+          "gpu": 13.8835728403932,
+          "workingMiB": 132.58984375,
+          "privateMiB": 119.84765625,
+          "sharedMiB": 57.09375
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.78515625,
+              "cpuSeconds": 0.109375,
+              "engines": {
+                "0_eng_0_engtype_3D": 3.371731975159891,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 12.5,
+              "privateMiB": 70.5234375,
+              "workingSetMiB": 78.80859375,
+              "cpuSeconds": 0.359375,
+              "engines": {
+                "0_eng_0_engtype_3D": 9.585719497501428,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 1.501720000000205,
+          "gpu": 12.957451472661319,
+          "workingMiB": 132.59375,
+          "privateMiB": 119.84765625,
+          "sharedMiB": 57.09375
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 9.4,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.7890625,
+              "cpuSeconds": 0.15625,
+              "engines": {
+                "0_eng_0_engtype_3D": 3.0797154729443004,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 6.2,
+              "privateMiB": 70.5234375,
+              "workingSetMiB": 78.81640625,
+              "cpuSeconds": 0.390625,
+              "engines": {
+                "0_eng_0_engtype_3D": 9.16477948312879,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 2.001462800000809,
+          "gpu": 12.24449495607309,
+          "workingMiB": 132.60546875,
+          "privateMiB": 119.84765625,
+          "sharedMiB": 57.09375
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.79296875,
+              "cpuSeconds": 0.15625,
+              "engines": {
+                "0_eng_0_engtype_3D": 3.2980756895702146,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 9.4,
+              "privateMiB": 70.5234375,
+              "workingSetMiB": 78.8203125,
+              "cpuSeconds": 0.4375,
+              "engines": {
+                "0_eng_0_engtype_3D": 9.044430865538054,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 2.501842300000135,
+          "gpu": 12.342506555108269,
+          "workingMiB": 132.61328125,
+          "privateMiB": 119.84765625,
+          "sharedMiB": 57.09375
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.796875,
+              "cpuSeconds": 0.15625,
+              "engines": {
+                "0_eng_0_engtype_3D": 3.1547857725402437,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 6.2,
+              "privateMiB": 70.5234375,
+              "workingSetMiB": 78.8203125,
+              "cpuSeconds": 0.46875,
+              "engines": {
+                "0_eng_0_engtype_3D": 8.80202218108389,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 3.001741199999742,
+          "gpu": 11.956807953624134,
+          "workingMiB": 132.6171875,
+          "privateMiB": 119.84765625,
+          "sharedMiB": 57.09375
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.8046875,
+              "cpuSeconds": 0.15625,
+              "engines": {
+                "0_eng_0_engtype_3D": 3.210302387023778,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 6.2,
+              "privateMiB": 70.5234375,
+              "workingSetMiB": 78.82421875,
+              "cpuSeconds": 0.5,
+              "engines": {
+                "0_eng_0_engtype_3D": 9.022391665574578,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 3.501545000000988,
+          "gpu": 12.232694052598355,
+          "workingMiB": 132.62890625,
+          "privateMiB": 119.84765625,
+          "sharedMiB": 57.09375
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.80859375,
+              "cpuSeconds": 0.15625,
+              "engines": {
+                "0_eng_0_engtype_3D": 3.0486077112911767,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 6.2,
+              "privateMiB": 70.5234375,
+              "workingSetMiB": 78.82421875,
+              "cpuSeconds": 0.53125,
+              "engines": {
+                "0_eng_0_engtype_3D": 9.081798835013538,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 4.00182070000119,
+          "gpu": 12.130406546304716,
+          "workingMiB": 132.6328125,
+          "privateMiB": 119.84765625,
+          "sharedMiB": 57.09375
+        }
+      ]
+    },
+    "paused": {
+      "frames": 0,
+      "seconds": 2.0018153000000893,
+      "keys": 0,
+      "fps": 0.0,
+      "gpuEngineMsPerFrame": null,
+      "samples": [
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.80859375,
+              "cpuSeconds": 0.15625,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 70.5234375,
+              "workingSetMiB": 78.83203125,
+              "cpuSeconds": 0.53125,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 0.5014480000008916,
+          "gpu": 0.0,
+          "workingMiB": 132.640625,
+          "privateMiB": 119.84765625,
+          "sharedMiB": 57.09375
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.80859375,
+              "cpuSeconds": 0.15625,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 70.1171875,
+              "workingSetMiB": 78.5625,
+              "cpuSeconds": 0.53125,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 1.001515100000688,
+          "gpu": 0.0,
+          "workingMiB": 132.37109375,
+          "privateMiB": 119.44140625,
+          "sharedMiB": 57.09375
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.80859375,
+              "cpuSeconds": 0.15625,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 70.02734375,
+              "workingSetMiB": 78.5078125,
+              "cpuSeconds": 0.53125,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 1.5017771999991965,
+          "gpu": 0.0,
+          "workingMiB": 132.31640625,
+          "privateMiB": 119.3515625,
+          "sharedMiB": 57.09375
+        },
+        {
+          "processes": [
+            {
+              "pid": 39356,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 49.32421875,
+              "workingSetMiB": 53.80859375,
+              "cpuSeconds": 0.15625,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 18.84375,
+              "dedicatedMiB": 0.0
+            },
+            {
+              "pid": 13696,
+              "cpuOneCorePct": 0.0,
+              "privateMiB": 70.02734375,
+              "workingSetMiB": 78.5078125,
+              "cpuSeconds": 0.53125,
+              "engines": {
+                "0_eng_0_engtype_3D": 0.0,
+                "0_eng_10_engtype_GDI Render": 0.0,
+                "0_eng_11_engtype_VideoProcessing": 0.0,
+                "0_eng_12_engtype_": 0.0,
+                "0_eng_1_engtype_VideoDecode": 0.0,
+                "0_eng_2_engtype_Copy": 0.0,
+                "0_eng_3_engtype_VideoProcessing": 0.0,
+                "0_eng_4_engtype_VideoDecode": 0.0,
+                "0_eng_5_engtype_": 0.0,
+                "0_eng_6_engtype_": 0.0,
+                "0_eng_7_engtype_": 0.0,
+                "0_eng_8_engtype_": 0.0,
+                "0_eng_9_engtype_": 0.0
+              },
+              "sharedMiB": 38.25,
+              "dedicatedMiB": 0.0
+            }
+          ],
+          "at": 2.0018153000000893,
+          "gpu": 0.0,
+          "workingMiB": 132.31640625,
+          "privateMiB": 119.3515625,
+          "sharedMiB": 57.09375
+        }
+      ]
+    }
+  },
+  "dllSha256": "ee24be330edb67132eb8a05da1dae28b628b835e87040bd69b09f66d9ac528be"
+}

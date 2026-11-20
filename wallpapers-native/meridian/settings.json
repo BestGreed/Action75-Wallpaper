@@ -1,0 +1,427 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "appearance",
+      "label": "外观",
+      "controls": [
+        {
+          "id": "brightness",
+          "type": "slider",
+          "label": "光弧亮度",
+          "default": 80,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectBrightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          },
+          "surface": "foreground",
+          "advanced": false,
+          "appearance": "brightness"
+        },
+        {
+          "id": "size",
+          "type": "slider",
+          "label": "轨道大小",
+          "default": 1.6,
+          "min": 0.5,
+          "max": 3,
+          "step": 0.05,
+          "binding": {
+            "target": "effectScale"
+          },
+          "unit": "×",
+          "surface": "foreground",
+          "advanced": false
+        }
+      ]
+    },
+    {
+      "id": "motion",
+      "label": "动效",
+      "controls": [
+        {
+          "id": "duration",
+          "type": "slider",
+          "label": "消散时长",
+          "default": 0.9,
+          "min": 0.2,
+          "max": 3.0,
+          "step": 0.01,
+          "binding": {
+            "target": "sprite.duration"
+          },
+          "unit": "秒",
+          "surface": "foreground",
+          "advanced": false
+        }
+      ]
+    },
+    {
+      "id": "color",
+      "label": "颜色",
+      "controls": [
+        {
+          "id": "palette",
+          "type": "palette",
+          "label": "配色",
+          "default": {
+            "preset": "corona",
+            "colors": [
+              [
+                255,
+                197,
+                106
+              ],
+              [
+                255,
+                152,
+                102
+              ],
+              [
+                255,
+                224,
+                163
+              ]
+            ]
+          },
+          "maxColors": 9,
+          "binding": {
+            "target": "effectPalette"
+          },
+          "allowSingleHue": true,
+          "palettes": [
+            {
+              "id": "corona",
+              "name": "日冕",
+              "colors": [
+                [
+                  255,
+                  197,
+                  106
+                ],
+                [
+                  255,
+                  152,
+                  102
+                ],
+                [
+                  255,
+                  224,
+                  163
+                ]
+              ]
+            },
+            {
+              "id": "blueshift",
+              "name": "蓝移",
+              "colors": [
+                [
+                  114,
+                  216,
+                  242
+                ],
+                [
+                  111,
+                  168,
+                  255
+                ],
+                [
+                  181,
+                  155,
+                  255
+                ]
+              ]
+            },
+            {
+              "id": "rose-nebula",
+              "name": "玫瑰星云",
+              "colors": [
+                [
+                  242,
+                  153,
+                  124
+                ],
+                [
+                  232,
+                  137,
+                  170
+                ],
+                [
+                  198,
+                  160,
+                  242
+                ]
+              ]
+            }
+          ],
+          "surface": "foreground",
+          "advanced": false,
+          "appearance": "color"
+        },
+        {
+          "id": "saturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectSaturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          },
+          "surface": "foreground",
+          "advanced": false,
+          "appearance": "saturation"
+        },
+        {
+          "id": "hue",
+          "type": "slider",
+          "label": "前景色相",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "surface": "foreground",
+          "appearance": "hue",
+          "advanced": false,
+          "unit": "°",
+          "binding": {
+            "target": "effectHue"
+          }
+        }
+      ]
+    },
+    {
+      "id": "background",
+      "label": "背景",
+      "controls": [
+        {
+          "id": "backgroundStyle",
+          "type": "select",
+          "label": "背景样式",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "原作背景"
+            },
+            {
+              "value": 1,
+              "label": "纯色"
+            }
+          ],
+          "binding": {
+            "target": "background.style"
+          },
+          "surface": "background",
+          "appearance": "style",
+          "advanced": false
+        },
+        {
+          "id": "backgroundBrightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.brightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "brightness"
+        },
+        {
+          "id": "backgroundSaturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.saturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "saturation"
+        },
+        {
+          "id": "backgroundHue",
+          "type": "slider",
+          "label": "色相",
+          "default": 0,
+          "min": 0,
+          "max": 360,
+          "step": 1,
+          "unit": "°",
+          "binding": {
+            "target": "background.hue",
+            "mapping": {
+              "type": "identity"
+            }
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "hue"
+        },
+        {
+          "id": "backgroundColor",
+          "type": "color",
+          "label": "颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "binding": {
+            "target": "background.color"
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "color",
+          "visibleWhen": {
+            "id": "backgroundStyle",
+            "equals": 0
+          }
+        },
+        {
+          "id": "backgroundSolidColor",
+          "type": "color",
+          "label": "纯色背景颜色",
+          "default": [
+            33,
+            23,
+            32
+          ],
+          "binding": {
+            "target": "background.solidColor"
+          },
+          "visibleWhen": {
+            "id": "backgroundStyle",
+            "equals": 1
+          },
+          "surface": "background",
+          "appearance": "color",
+          "advanced": false
+        }
+      ]
+    },
+    {
+      "id": "orbitMotion",
+      "label": "连续光弧",
+      "controls": [
+        {
+          "id": "arcCount",
+          "label": "轨道层数",
+          "type": "slider",
+          "default": 2,
+          "min": 1,
+          "max": 3,
+          "step": 1,
+          "binding": {
+            "target": "field.arcCount"
+          },
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "arcWidth",
+          "label": "光弧宽度",
+          "type": "slider",
+          "default": 1,
+          "min": 0.4,
+          "max": 2.5,
+          "step": 0.05,
+          "binding": {
+            "target": "field.arcWidth"
+          },
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "arcSweep",
+          "label": "沿弧运动速度",
+          "type": "slider",
+          "default": 1,
+          "min": 0.2,
+          "max": 2,
+          "step": 0.05,
+          "binding": {
+            "target": "field.arcSweep"
+          },
+          "surface": "foreground",
+          "advanced": false
+        },
+        {
+          "id": "arcEccentricity",
+          "label": "轨道开合",
+          "type": "slider",
+          "default": 0.56,
+          "min": 0.25,
+          "max": 0.9,
+          "step": 0.01,
+          "binding": {
+            "target": "field.arcEccentricity"
+          },
+          "surface": "foreground",
+          "advanced": true
+        }
+      ]
+    }
+  ],
+  "presentation": "layered"
+}

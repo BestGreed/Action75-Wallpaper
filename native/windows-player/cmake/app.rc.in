@@ -1,0 +1,23 @@
+1 ICON "@ACTION75_ROOT@/assets/app.ico"
+1 VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEOS 0x00040004
+FILETYPE 0x1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "Action75 Wallpaper\0"
+            VALUE "FileVersion", "@PROJECT_VERSION@\0"
+            VALUE "OriginalFilename", "Action75Native.exe\0"
+            VALUE "ProductName", "Action75 Wallpaper\0"
+            VALUE "ProductVersion", "@PROJECT_VERSION@\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

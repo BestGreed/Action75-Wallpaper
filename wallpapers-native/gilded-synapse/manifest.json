@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "gilded-synapse",
+  "name": "鎏金脉络 · Gilded Synapse",
+  "kind": "native",
+  "settings": "settings.json",
+  "preview": "preview.png",
+  "entry": "wallpaper.dll",
+  "abi": 1
+}

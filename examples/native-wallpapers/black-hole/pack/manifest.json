@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "event-horizon-native",
+  "name": "黑洞 · Black Hole",
+  "kind": "native",
+  "description": "引力透镜弯折星云、虚空或星空，按键点亮带星芒的恒星。黑洞可拖动、缩放，阴影覆盖的键位保持静默。",
+  "settings": "settings.json",
+  "preview": "preview.png",
+  "entry": "wallpaper.dll",
+  "abi": 1
+}

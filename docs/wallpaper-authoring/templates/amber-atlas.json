@@ -1,0 +1,35 @@
+{
+  "$include": "library.json#/panels/atlas",
+  "$overrides": {
+    "brightness": {
+      "label": "余波亮度",
+      "default": 62,
+      "unit": "%"
+    },
+    "size": {
+      "label": "余波大小",
+      "default": 1.25,
+      "min": 0.5,
+      "max": 2.4
+    },
+    "duration": {
+      "default": 0.75,
+      "min": 0.2,
+      "max": 2,
+      "unit": "秒",
+      "binding": {
+        "target": "sprite.duration",
+        "mapping": {
+          "type": "linear",
+          "inputMin": 0.2,
+          "inputMax": 2,
+          "outputMin": 0.2,
+          "outputMax": 1.6
+        }
+      }
+    },
+    "backgroundColor": {
+      "default": [255, 238, 212]
+    }
+  }
+}

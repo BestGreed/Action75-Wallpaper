@@ -1,0 +1,333 @@
+{
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "fluidLook",
+      "label": "液体外观",
+      "controls": [
+        {
+          "id": "fluidStyle",
+          "label": "液体材质",
+          "type": "select",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "黑磁液"
+            },
+            {
+              "value": 1,
+              "label": "铜色磁液"
+            },
+            {
+              "value": 2,
+              "label": "钴蓝磁液"
+            }
+          ],
+          "surface": "foreground",
+          "appearance": "style"
+        },
+        {
+          "id": "fluidBrightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 1,
+          "surface": "foreground",
+          "appearance": "brightness",
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "fluidHue",
+          "type": "slider",
+          "label": "色相",
+          "default": 0,
+          "surface": "foreground",
+          "appearance": "hue",
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "fluidSaturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 1,
+          "surface": "foreground",
+          "appearance": "saturation",
+          "min": 0,
+          "max": 3,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "fluidColor",
+          "type": "color",
+          "label": "颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "surface": "foreground",
+          "appearance": "color"
+        }
+      ],
+      "entity": "磁流体"
+    },
+    {
+      "id": "shape",
+      "label": "液滴与接触线",
+      "controls": [
+        {
+          "id": "radius",
+          "label": "液滴半径",
+          "type": "slider",
+          "default": 0.15,
+          "min": 0.085,
+          "max": 0.23,
+          "step": 0.005,
+          "surface": "foreground"
+        },
+        {
+          "id": "edge",
+          "label": "接触线不规则度",
+          "type": "slider",
+          "default": 0.9,
+          "min": 0,
+          "max": 1.7,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "viscosity",
+          "label": "黏性阻尼",
+          "type": "slider",
+          "default": 0.88,
+          "min": 0.35,
+          "max": 1.8,
+          "step": 0.01,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "tension",
+          "label": "表面张力",
+          "type": "slider",
+          "default": 1,
+          "min": 0.65,
+          "max": 1.65,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        }
+      ],
+      "entity": "磁流体"
+    },
+    {
+      "id": "finish",
+      "label": "材质与灯光",
+      "controls": [
+        {
+          "id": "spikes",
+          "label": "尖峰高度",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 1.6,
+          "step": 0.05,
+          "surface": "foreground"
+        },
+        {
+          "id": "spacing",
+          "label": "尖峰间距",
+          "type": "slider",
+          "default": 0.04,
+          "min": 0.034,
+          "max": 0.078,
+          "step": 0.002,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "shine",
+          "label": "湿润反光",
+          "type": "slider",
+          "default": 1,
+          "min": 0.55,
+          "max": 1.35,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        }
+      ],
+      "entity": "磁流体"
+    },
+    {
+      "id": "magnet",
+      "label": "按键磁力",
+      "controls": [
+        {
+          "id": "field",
+          "label": "磁场强度",
+          "type": "slider",
+          "default": 1,
+          "min": 0.65,
+          "max": 1.45,
+          "step": 0.05,
+          "surface": "foreground"
+        },
+        {
+          "id": "priority",
+          "label": "新键相对磁力",
+          "type": "slider",
+          "default": 5,
+          "min": 2,
+          "max": 10,
+          "step": 0.5,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "follow",
+          "label": "吸附速度",
+          "type": "slider",
+          "default": 9,
+          "min": 4,
+          "max": 16,
+          "step": 0.5,
+          "surface": "foreground"
+        },
+        {
+          "id": "returnRate",
+          "label": "回流速度",
+          "type": "slider",
+          "default": 5.5,
+          "min": 3,
+          "max": 12,
+          "step": 0.5,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "stretch",
+          "label": "磁力拉伸",
+          "type": "slider",
+          "default": 1.65,
+          "min": 0,
+          "max": 3.2,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "holdMotion",
+          "label": "长按磁场起伏",
+          "default": 0.85,
+          "min": 0,
+          "max": 1.5,
+          "step": 0.05,
+          "type": "slider",
+          "unit": "×",
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "holdHz",
+          "label": "长按变化频率",
+          "default": 0.6,
+          "min": 0.15,
+          "max": 1.6,
+          "step": 0.05,
+          "type": "slider",
+          "unit": "Hz",
+          "surface": "foreground",
+          "advanced": true
+        }
+      ],
+      "entity": "磁场"
+    },
+    {
+      "id": "dishLook",
+      "label": "底板外观",
+      "controls": [
+        {
+          "id": "tone",
+          "label": "底板材质",
+          "type": "select",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "青瓷"
+            },
+            {
+              "value": 1,
+              "label": "暖陶"
+            },
+            {
+              "value": 2,
+              "label": "石墨"
+            }
+          ],
+          "surface": "background",
+          "appearance": "style"
+        },
+        {
+          "id": "dishBrightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 1,
+          "surface": "background",
+          "appearance": "brightness",
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "dishHue",
+          "type": "slider",
+          "label": "色相",
+          "default": 0,
+          "surface": "background",
+          "appearance": "hue",
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "dishSaturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 1,
+          "surface": "background",
+          "appearance": "saturation",
+          "min": 0,
+          "max": 3,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "dishColor",
+          "type": "color",
+          "label": "颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "surface": "background",
+          "appearance": "color"
+        }
+      ],
+      "entity": "底板"
+    }
+  ]
+}

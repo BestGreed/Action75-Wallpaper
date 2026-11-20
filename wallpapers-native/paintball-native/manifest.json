@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "paintball-native",
+  "name": "水彩喷溅 · Paintball",
+  "description": "使用原作贴图与解码运动曲线的原生复现；九组配色、喷溅、水滴与淡出。当前为移植试用版，色彩显示管线仍待原版对照。",
+  "settings": "settings.json",
+  "kind": "native",
+  "abi": 1,
+  "entry": "wallpaper.dll",
+  "preview": "preview.png"
+}

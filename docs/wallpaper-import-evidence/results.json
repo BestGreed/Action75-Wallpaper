@@ -1,0 +1,181 @@
+{
+  "release": {
+    "nativeSHA256": "8c96c33eb65443fb0c3f158d96a9814ae9eceb6983c2be0ad474506a42ca5203",
+    "managerSHA256": "4567e6df3733eb87abd0c4bebeba47573bb9997721a221ac637c7a2ed6ce063c",
+    "installerSHA256": "1d746e2c8373caf13e64f617a31406f92709e0ef3205a20664c5972b204907e0",
+    "sourceArchiveSHA256": "17cfc61127f8e37672a452c4b4aca5fcd95be59fb9681ec43964d64b89012dd8"
+  },
+  "material": {
+    "templateSHA256": "14596e63b4ef2c277898ef91fffff0c324c7104bd33cb6d507bebdbae46b4bc3",
+    "materialSHA256": "ee960ae278ab81c030d04b6c93db96d2583eb6d868aa0ab23d1b70efd515ccec",
+    "authorUniform": "AuthorTintScale",
+    "sourceChange": "Added a green-biased emissive tint",
+    "tintOnlyFixture": {
+      "templateSHA256": "14596e63b4ef2c277898ef91fffff0c324c7104bd33cb6d507bebdbae46b4bc3",
+      "materialSHA256": "e23abe551a8e466177942d5f13847c5a2ce16cde8fce43a0fc4f6d6b7d03300c",
+      "authorUniform": "RuntimePipeline",
+      "sourceChange": "Added a green-biased emissive tint"
+    },
+    "controlMaterial": {
+      "backend": "D3D11/Effekseer",
+      "materialUniformStored": 1.2,
+      "activeParticles": 33
+    },
+    "changedShaderOnly": {
+      "timedOutAfterSeconds": 8,
+      "selectionOnDiskAfterAttempt": "qa-glow-c16286d26f"
+    },
+    "changedMaterial": {
+      "timedOutAfterSeconds": 8,
+      "selectionOnDiskAfterAttempt": "qa-glow-c16286d26f"
+    }
+  },
+  "discovery": {
+    "freshIDs": [
+      "qa-glow-c16286d26f",
+      "qa-material-c16286d26f"
+    ],
+    "startedWith": "tidal-glass",
+    "externalToRuntimeRoot": true,
+    "filesystemCopyThenListPacks": true,
+    "manifestKinds": [
+      "spriteBurst",
+      "effekseer"
+    ]
+  },
+  "sprite": {
+    "backend": "D3D11/SpriteBurst",
+    "diagnosticHits": [
+      {
+        "fixtureKey": "KeyF",
+        "pixel": [
+          611.2000122070312,
+          421.4000244140625
+        ]
+      },
+      {
+        "fixtureKey": "Space",
+        "pixel": [
+          810.4000244140625,
+          667.3999633789062
+        ]
+      }
+    ],
+    "activeEffects": 2,
+    "previewPreservedFile": true,
+    "committed": {
+      "authorBackground": 0.75,
+      "authorGlow": 0.65,
+      "authorScale": 1
+    },
+    "staleRevisionError": "Wallpaper settings changed; refresh before applying",
+    "releasePerformance": {
+      "events": 160,
+      "seconds": 4.0004695000025094,
+      "fps": 60.24292898617245,
+      "workingSetMB": 50.58984375,
+      "adapter": "NVIDIA GeForce RTX 4060 Laptop GPU",
+      "cpuSubmitMs": {
+        "count": 241,
+        "max": 0.2282000035047531,
+        "mean": 0.028477593410095484,
+        "p50": 0.01899999938905239,
+        "p95": 0.05939999967813492
+      },
+      "frameIntervalMs": {
+        "count": 240,
+        "max": 17.6227,
+        "mean": 16.667080833333337,
+        "p50": 16.6688,
+        "p95": 17.1115
+      },
+      "gpuDisjoint": 0,
+      "gpuLocalMB": 30.58984375,
+      "gpuMs": {
+        "count": 241,
+        "max": 0.083968,
+        "mean": 0.04982984232365139,
+        "p50": 0.037888,
+        "p95": 0.080896
+      },
+      "gpuNonLocalMB": 9.30859375,
+      "gpuSkipped": 0,
+      "logicalProcessors": 32
+    }
+  },
+  "managerScreenshot": true,
+  "failure": {
+    "missingAsset": "Wallpaper pack is unavailable or not supported",
+    "invalidImage": "Decode background image failed (0x88982f50)",
+    "unknownBackend": "Wallpaper pack is unavailable or not supported",
+    "futureSchema": "Wallpaper settings: Unsupported wallpaper settings schema",
+    "futureManifestOmitted": true,
+    "foreignWebOmitted": true,
+    "activePackSurvived": true
+  },
+  "identity": {
+    "configuredLibraryWinsCaseFoldCollision": true,
+    "rangeCompatibleValueSurvivesSchemaUpdate": 0.65,
+    "newControlDefault": 1,
+    "profileRevision": 3
+  },
+  "restart": {
+    "selection": "qa-glow-c16286d26f",
+    "values": {
+      "authorBackground": 0.75,
+      "authorGlow": 0.65,
+      "authorScale": 1,
+      "authorSpeed": 1
+    },
+    "diagnosticKeyAfterRestart": true
+  },
+  "integratedTrial": {
+    "nativeSHA256": "3b0b1e0233a76c9c9124cc1f6d01f2a796741fa750bdaa35afc5398ce50eee81",
+    "adapterReported": "Intel(R) UHD Graphics",
+    "preferenceReported": "integrated",
+    "sprite": {
+      "events": 160,
+      "seconds": 4.0002693999995245,
+      "fps": 59.745976108516196,
+      "workingSetMB": 61.2734375,
+      "adapter": "Intel(R) UHD Graphics",
+      "cpuSubmitMs": {
+        "count": 239,
+        "max": 1.0793999433517456,
+        "mean": 0.033104602302031036,
+        "p50": 0.025100000202655792,
+        "p95": 0.04830000177025795
+      },
+      "frameIntervalMs": {
+        "count": 238,
+        "max": 31.8219,
+        "mean": 16.738690336134454,
+        "p50": 16.6789,
+        "p95": 17.1686
+      },
+      "gpuDisjoint": 0,
+      "gpuLocalMB": 18.99609375,
+      "gpuMs": {
+        "count": 239,
+        "max": 4.330208333333333,
+        "mean": 0.9337604602510469,
+        "p50": 0.9297395833333333,
+        "p95": 0.96296875
+      },
+      "gpuNonLocalMB": 0.0,
+      "gpuSkipped": 0,
+      "logicalProcessors": 32
+    },
+    "material": {
+      "timedOutAfterSeconds": 8
+    }
+  },
+  "independentEffekseerEffect": {
+    "id": "qa-sdk-effect-c16286d26f",
+    "effectSHA256": "386ccf0483f3da686f0a187d0bdefd9013263e5b65e1cac8e88cbb6cbef96a2d",
+    "backend": "D3D11/Effekseer",
+    "activeParticles": 2,
+    "storedAuthorSize": 1.35,
+    "selectionAndValueSurvivedRestart": true
+  }
+}

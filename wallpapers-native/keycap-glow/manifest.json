@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "keycap-glow",
+  "name": "键影 · Keycap Glow",
+  "kind": "native",
+  "settings": "settings.json",
+  "entry": "wallpaper.dll",
+  "abi": 1,
+  "preview": "preview.png"
+}

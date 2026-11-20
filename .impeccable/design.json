@@ -1,0 +1,289 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-18T03:10:05.082Z",
+  "title": "Design System: ACTION75",
+  "extensions": {
+    "colorMeta": {
+      "paper-highlight": {
+        "role": "neutral",
+        "displayName": "Paper Highlight",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "paper-ground": {
+        "role": "neutral",
+        "displayName": "Paper Ground",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "paper-shade": {
+        "role": "neutral",
+        "displayName": "Paper Shade",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "paper-ink": {
+        "role": "neutral",
+        "displayName": "Paper Ink",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "paper-muted": {
+        "role": "neutral",
+        "displayName": "Paper Muted Ink",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "paper-face": {
+        "role": "neutral",
+        "displayName": "Paper Control Face",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "paper-edge": {
+        "role": "neutral",
+        "displayName": "Paper Control Edge",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "paper-selection": {
+        "role": "primary",
+        "displayName": "Paper Selection",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "paper-trace": {
+        "role": "neutral",
+        "displayName": "Paper Trace",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "graphite-highlight": {
+        "role": "neutral",
+        "displayName": "Graphite Highlight",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "graphite-ground": {
+        "role": "neutral",
+        "displayName": "Graphite Ground",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "graphite-shade": {
+        "role": "neutral",
+        "displayName": "Graphite Shade",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "graphite-ink": {
+        "role": "neutral",
+        "displayName": "Graphite Ink",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "graphite-muted": {
+        "role": "neutral",
+        "displayName": "Graphite Muted Ink",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "graphite-face": {
+        "role": "neutral",
+        "displayName": "Graphite Control Face",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "graphite-edge": {
+        "role": "neutral",
+        "displayName": "Graphite Control Edge",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "graphite-selection": {
+        "role": "primary",
+        "displayName": "Graphite Selection",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "graphite-trace": {
+        "role": "neutral",
+        "displayName": "Graphite Trace",
+        "tonalRamp": ["#101010", "#1c1c1c", "#333333", "#4e4e4e", "#686868", "#b5b5b5", "#d3d3d3", "#f5f5f5"]
+      },
+      "paper-error": {
+        "role": "secondary",
+        "displayName": "Paper Error",
+        "tonalRamp": ["#2c1010", "#4c1b17", "#702822", "#99312a", "#bf5045", "#db756b", "#f8a49b", "#fce4df"]
+      },
+      "graphite-error": {
+        "role": "secondary",
+        "displayName": "Graphite Error",
+        "tonalRamp": ["#2c1010", "#4c1b17", "#702822", "#99312a", "#bf5045", "#db756b", "#f8a49b", "#fce4df"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Library Heading",
+        "purpose": "Library heading. Compact height uses 33 logical units."
+      },
+      "headline": {
+        "displayName": "Heading",
+        "purpose": "Default egui heading style. Calibration and devices titles use 32 logical units."
+      },
+      "title": {
+        "displayName": "Inspector Title",
+        "purpose": "Selected wallpaper name in the inspector."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Control labels, fields and action buttons."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Navigation, wallpaper captions, preset names and library count."
+      },
+      "small": {
+        "displayName": "Small",
+        "purpose": "Parameter values, theme name and shortcut hint."
+      },
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "Tracked ACTION75 label in the top bar."
+      }
+    },
+    "motion": [
+      {
+        "name": "feedback",
+        "value": "130ms",
+        "purpose": "Hover, active wallpaper marker, and theme key press."
+      },
+      {
+        "name": "page-reveal",
+        "value": "170ms",
+        "purpose": "Navigation selection and page or inspector content opacity."
+      },
+      {
+        "name": "theme-change",
+        "value": "200ms",
+        "purpose": "Interpolate shell tones and keep text legible during the transition."
+      },
+      {
+        "name": "inspector-reveal",
+        "value": "220ms",
+        "purpose": "Adjust inspector width and opacity on open or close."
+      },
+      {
+        "name": "ease-out",
+        "value": "cubic",
+        "purpose": "Use 1 − (1 − t)³. Windows Animation effects off sets duration to zero."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-height",
+        "value": "760px"
+      },
+      {
+        "name": "gallery-two-columns-below",
+        "value": "536px"
+      },
+      {
+        "name": "gallery-tight-gap-below",
+        "value": "650px"
+      }
+    ],
+    "nativeLayout": {
+      "units": "egui logical units",
+      "windowDefault": [
+        1380,
+        880
+      ],
+      "windowMinimum": [
+        1080,
+        680
+      ],
+      "topBarHeight": 50,
+      "navigationWidth": 122,
+      "inspectorWidth": 262,
+      "inspectorWidthRange": [
+        224,
+        400
+      ],
+      "inspectorContentReserve": 470,
+      "gridColumns": [
+        2,
+        3
+      ],
+      "previewRatio": "8:3"
+    },
+    "elevation": {
+      "workspace": "One viewport mesh with an upper-left highlight, lower-right shade and low-opacity case traces.",
+      "themeKeyBaseOffset": 1.7
+    }
+  },
+  "components": [
+    {
+      "name": "Action button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "A compact native action button in Paper.",
+      "html": "<button type=\"button\" class=\"ds-button\">启动壁纸</button>",
+      "css": ".ds-button{font:14px \"Microsoft YaHei\",sans-serif;color:#202020;background:#f9f9f9;border:1px solid #b5b5b5;border-radius:5px;padding:7px 12px}.ds-button:hover{background:#e9e9e9}.ds-button:active{background:#d3d3d3}.ds-button:focus-visible{outline:1px solid #4f4f4f;outline-offset:2px}"
+    },
+    {
+      "name": "Graphite action button",
+      "kind": "button",
+      "refersTo": "button-graphite",
+      "description": "The same control in the Graphite theme.",
+      "html": "<div class=\"ds-graphite\"><button type=\"button\" class=\"ds-graphite-button\">启动壁纸</button></div>",
+      "css": ".ds-graphite{background:#1c1c1c;padding:9px}.ds-graphite-button{font:14px \"Microsoft YaHei\",sans-serif;color:#f0f0f0;background:#393939;border:1px solid #686868;border-radius:5px;padding:7px 12px}.ds-graphite-button:hover{background:#424242}.ds-graphite-button:active{background:#4e4e4e}.ds-graphite-button:focus-visible{outline:1px solid #c0c0c0;outline-offset:2px}"
+    },
+    {
+      "name": "Search field",
+      "kind": "input",
+      "refersTo": "search",
+      "description": "A single-line field with an open magnifying glass, focus underline, and shortcut indicator.",
+      "html": "<label class=\"ds-search\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.45\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"10.4\" cy=\"10.4\" r=\"6.1\"/><path d=\"m14.9 14.9 5.1 5.1\"/></svg><input placeholder=\"搜索壁纸\" aria-label=\"搜索壁纸\" aria-keyshortcuts=\"/\"><kbd>/</kbd></label>",
+      "css": ".ds-search{display:inline-flex;align-items:center;gap:9px;color:#4f4f4f;font:14px \"Microsoft YaHei\",sans-serif}.ds-search input{width:110px;font:inherit;color:#202020;border:0;border-bottom:1px solid transparent;background:transparent;outline:0}.ds-search input::placeholder{color:#4f4f4f}.ds-search input:hover{border-color:#b5b5b5}.ds-search input:focus{border-color:#4f4f4f}.ds-search kbd{display:grid;place-items:center;font:12px \"Microsoft YaHei\",sans-serif;width:18px;height:17px;border-radius:3px;background:#f9f9f9;box-shadow:0 1px #b5b5b5;cursor:pointer}"
+    },
+    {
+      "name": "Navigation item",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "The open-stroke library icon above an active row label and horizontal wash.",
+      "html": "<nav class=\"ds-rail\" aria-label=\"应用导航\"><button type=\"button\" class=\"ds-nav\" aria-current=\"page\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.45\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 15.5 2-.9 2.3-3.3 2.2-.8 2 .8 2.6 3.3 1.9.9h3M6 19h12\"/><circle cx=\"16.3\" cy=\"7.8\" r=\"1.55\"/></svg><span>壁纸库</span></button></nav>",
+      "css": ".ds-rail{width:90px;padding:0 16px}.ds-nav{display:grid;place-content:center;justify-items:center;gap:9px;width:100%;height:111px;font:13px \"Microsoft YaHei\",sans-serif;color:#4f4f4f;border:0;border-radius:13px 0 0 13px;background:transparent;cursor:pointer}.ds-nav[aria-current]{color:#202020;background:linear-gradient(90deg,rgba(32,32,32,.22),rgba(32,32,32,.077) 45%,rgba(32,32,32,.02) 74%,transparent)}.ds-nav:not([aria-current]):hover{color:#202020;background:linear-gradient(90deg,rgba(32,32,32,.055),transparent)}.ds-nav:focus-visible{outline:1px solid #4f4f4f;outline-offset:-2px}"
+    },
+    {
+      "name": "Wallpaper preview",
+      "kind": "card",
+      "refersTo": "preview",
+      "description": "An 8:3 frame for cached artwork with the current-wallpaper marker beside the caption.",
+      "html": "<button type=\"button\" class=\"ds-preview\" aria-pressed=\"true\"><span class=\"ds-art\"></span><span class=\"ds-caption\">水彩喷溅</span></button>",
+      "css": ".ds-preview{display:grid;gap:10px;width:min(240px,100%);padding:0;border:0;color:#202020;background:transparent;text-align:left;font:13px \"Microsoft YaHei\",sans-serif;cursor:pointer}.ds-art{aspect-ratio:8/3;border-radius:3px;background:rgba(249,249,249,.42);transition:background 130ms ease-out}.ds-preview:hover .ds-art{background:rgba(255,255,255,.49)}.ds-preview[aria-pressed=\"true\"] .ds-caption:before{display:inline-block;vertical-align:2px;width:5px;height:5px;margin-right:5px;border-radius:50%;background:currentColor;content:\"\"}.ds-preview:focus-visible{outline:1px solid #202020;outline-offset:2px}@media(prefers-reduced-motion:reduce){.ds-art{transition:none}}"
+    },
+    {
+      "name": "Theme keys",
+      "kind": "button",
+      "refersTo": "theme-key",
+      "description": "Paper and Graphite keycaps with an offset base and selected outline.",
+      "html": "<div class=\"ds-keys\"><button type=\"button\" class=\"ds-theme-key ds-paper-key\" aria-label=\"纸白\" aria-pressed=\"true\"><span></span></button><button type=\"button\" class=\"ds-theme-key ds-graphite-key\" aria-label=\"石墨灰\" aria-pressed=\"false\"><span></span></button></div>",
+      "css": ".ds-keys{display:flex;gap:9px}.ds-theme-key{display:grid;place-items:center;width:28px;height:29px;padding:0;border:0;background:transparent;cursor:pointer}.ds-theme-key span{width:17px;height:15px;border-radius:4px;background:var(--ds-face);box-shadow:0 1.7px var(--ds-base);transition:transform 130ms ease-out,box-shadow 130ms ease-out}.ds-paper-key{--ds-face:#f6f6f6;--ds-base:#a9a9a9}.ds-graphite-key{--ds-face:#393939;--ds-base:#1b1b1b}.ds-theme-key:is([aria-pressed=\"true\"],:hover,:focus-visible) span{outline:1px solid #4f4f4f;outline-offset:2px}.ds-theme-key:active span{transform:translateY(1px);box-shadow:0 .7px var(--ds-base)}@media(prefers-reduced-motion:reduce){.ds-theme-key span{transition:none}}"
+    },
+    {
+      "name": "Inspector slider",
+      "kind": "custom",
+      "refersTo": "slider",
+      "description": "A parameter label and value over a two-unit track with a rectangular handle.",
+      "html": "<label class=\"ds-slider\"><span>亮度</span><span class=\"ds-value\">85</span><input type=\"range\" value=\"85\" aria-label=\"亮度\"></label>",
+      "css": ".ds-slider{display:grid;grid-template-columns:1fr auto;gap:6px;width:min(208px,100%);font:14px \"Microsoft YaHei\",sans-serif;color:#202020}.ds-value{font-size:12px;color:#4f4f4f}.ds-slider input{appearance:none;grid-column:1/-1;width:100%;height:12px;margin:0;background:transparent;cursor:pointer}.ds-slider input::-webkit-slider-runnable-track{height:2px;background:linear-gradient(90deg,#555 85%,#b5b5b5 85%)}.ds-slider input::-webkit-slider-thumb{appearance:none;width:9px;height:10px;margin-top:-4px;background:#b5b5b5;border:1px solid #202020;border-radius:2px}.ds-slider input:hover::-webkit-slider-thumb{background:#d3d3d3}.ds-slider input:focus-visible{outline:1px solid #4f4f4f;outline-offset:2px}"
+    },
+    {
+      "name": "Palette preset",
+      "kind": "custom",
+      "refersTo": "palette",
+      "description": "A compact picker row with a preset name and right-aligned color dots.",
+      "html": "<details class=\"ds-palette\"><summary>经典颜料</summary><button type=\"button\" aria-pressed=\"true\">经典颜料 <span aria-hidden=\"true\"><i style=\"--ds-color:#f12e29\"></i><i style=\"--ds-color:#ee8e20\"></i><i style=\"--ds-color:#f5d12c\"></i></span></button></details>",
+      "css": ".ds-palette{max-width:218px;font:14px \"Microsoft YaHei\",sans-serif;color:#202020}.ds-palette summary,.ds-palette button{padding:3px 12px;background:#f9f9f9;border:1px solid #b5b5b5;border-radius:5px;cursor:pointer}.ds-palette button{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:28px;font:13px \"Microsoft YaHei\",sans-serif;color:inherit;border:0;border-radius:4px;padding:0 8px}.ds-palette button[aria-pressed=\"true\"],.ds-palette button:hover{background:#d3d3d3}.ds-palette :is(button,summary):focus-visible{outline:1px solid #4f4f4f;outline-offset:2px}.ds-palette i{display:inline-block;width:9px;height:9px;margin-left:3px;border-radius:50%;background:var(--ds-color)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "外壳刻线",
+    "overview": "A continuous surface carries the contours of the ACTION75 case across the navigation, wallpaper wall, and inspector. Paper and Graphite share the same geometry and use a neutral palette so the wallpaper artwork remains the focus.\n\nOpen-line icons and a horizontal wash mark the active page. The wall uses real wallpaper artwork at the display’s 8:3 ratio, and the right inspector keeps live controls within reach.",
+    "keyCharacteristics": [
+      "One case surface across the full workspace.",
+      "Real wallpaper artwork in its original proportions.",
+      "An adjustable inspector with separate foreground and background controls."
+    ],
+    "dos": [
+      "Do preserve preview proportions and use the caption dot to mark the current wallpaper.",
+      "Do keep the case traces continuous and leave controls and previews legible.",
+      "Do keep parameter values visible and foreground and background controls independent.",
+      "Do keep labels functional and respect Windows Animation effects."
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.24)
+project(Action75FieldWallpapers LANGUAGES CXX)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+get_filename_component(ACTION75_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+include("${ACTION75_ROOT}/native/windows-player/cmake/FieldPacks.cmake")

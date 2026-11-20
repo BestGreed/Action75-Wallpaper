@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "playback",
+      "label": "原版花型",
+      "presentation": "variant-playback",
+      "playback": {"selection": "shape", "randomize": "shuffle", "interval": "keyInterval", "order": [8, 1, 4]},
+      "controls": [
+        {
+          "id": "shape", "type": "select", "label": "花型", "default": 0,
+          "binding": {"target": "fireworks.shape"},
+          "options": [
+            {"value": 0, "label": "组合轮换"},
+            {"value": 1, "label": "垂柳", "toggleId": "useWillow"},
+            {"value": 4, "label": "棕榈", "toggleId": "usePalm"},
+            {"value": 8, "label": "心形", "toggleId": "useHeart"}
+          ]
+        },
+        {"id": "shuffle", "type": "toggle", "label": "随机花型", "default": false, "binding": {"target": "fireworks.shuffle"}},
+        {"id": "useWillow", "type": "toggle", "label": "垂柳", "default": true, "binding": {"target": "fireworks.willow"}},
+        {"id": "usePalm", "type": "toggle", "label": "棕榈", "default": false, "binding": {"target": "fireworks.palm"}},
+        {"id": "useHeart", "type": "toggle", "label": "心形", "default": true, "binding": {"target": "fireworks.heart"}},
+        {"id": "keyInterval", "type": "slider", "label": "击键触发间隔", "default": 2, "min": 1, "max": 8, "step": 1, "binding": {"target": "fireworks.keyInterval"}}
+      ]
+    }
+  ]
+}

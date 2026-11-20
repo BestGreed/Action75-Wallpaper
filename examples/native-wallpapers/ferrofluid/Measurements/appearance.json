@@ -1,0 +1,73 @@
+{
+  "defaultEqualsExplicit": true,
+  "settingsEventCases": {
+    "fluidStyle": {
+      "value": 2,
+      "fluidInteriorMaxDelta": 70,
+      "distantFloorMaxDelta": 0,
+      "wholeImageMaxDelta": 117
+    },
+    "fluidBrightness": {
+      "value": 0.5,
+      "fluidInteriorMaxDelta": 42,
+      "distantFloorMaxDelta": 0,
+      "wholeImageMaxDelta": 111
+    },
+    "fluidHue": {
+      "value": 120,
+      "fluidInteriorMaxDelta": 25,
+      "distantFloorMaxDelta": 0,
+      "wholeImageMaxDelta": 30
+    },
+    "fluidSaturation": {
+      "value": 0,
+      "fluidInteriorMaxDelta": 15,
+      "distantFloorMaxDelta": 0,
+      "wholeImageMaxDelta": 17
+    },
+    "fluidColor": {
+      "value": [
+        255,
+        68,
+        36
+      ],
+      "fluidInteriorMaxDelta": 71,
+      "distantFloorMaxDelta": 0,
+      "wholeImageMaxDelta": 191
+    },
+    "tone": {
+      "value": 2,
+      "fluidInteriorMaxDelta": 0,
+      "distantFloorMaxDelta": 107,
+      "wholeImageMaxDelta": 108
+    },
+    "dishBrightness": {
+      "value": 0.5,
+      "fluidInteriorMaxDelta": 0,
+      "distantFloorMaxDelta": 104,
+      "wholeImageMaxDelta": 106
+    },
+    "dishHue": {
+      "value": 120,
+      "fluidInteriorMaxDelta": 0,
+      "distantFloorMaxDelta": 33,
+      "wholeImageMaxDelta": 37
+    },
+    "dishSaturation": {
+      "value": 0,
+      "fluidInteriorMaxDelta": 0,
+      "distantFloorMaxDelta": 24,
+      "wholeImageMaxDelta": 26
+    },
+    "dishColor": {
+      "value": [
+        255,
+        68,
+        36
+      ],
+      "fluidInteriorMaxDelta": 0,
+      "distantFloorMaxDelta": 172,
+      "wholeImageMaxDelta": 174
+    }
+  }
+}

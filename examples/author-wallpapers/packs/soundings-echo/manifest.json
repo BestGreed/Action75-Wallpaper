@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "soundings-echo",
+  "name": "海图回声",
+  "kind": "spriteBurst",
+  "settings": "settings.json",
+  "preview": "cover.png",
+  "background": "depths.png",
+  "effect": "echo.png",
+  "columns": 6,
+  "rows": 4,
+  "duration": 0.85,
+  "diameter": 300
+}

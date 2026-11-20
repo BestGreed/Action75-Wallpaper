@@ -1,0 +1,589 @@
+{
+  "coordinateSpace": [
+    1920,
+    555
+  ],
+  "keys": [
+    {
+      "code": "Escape",
+      "usage": 41,
+      "unrealName": "Escape",
+      "x": 96,
+      "y": 52.725
+    },
+    {
+      "code": "F1",
+      "usage": 58,
+      "unrealName": "F1",
+      "x": 211.2,
+      "y": 52.725
+    },
+    {
+      "code": "F2",
+      "usage": 59,
+      "unrealName": "F2",
+      "x": 326.4,
+      "y": 52.725
+    },
+    {
+      "code": "F3",
+      "usage": 60,
+      "unrealName": "F3",
+      "x": 441.59999999999997,
+      "y": 52.725
+    },
+    {
+      "code": "F4",
+      "usage": 61,
+      "unrealName": "F4",
+      "x": 556.8000000000001,
+      "y": 52.725
+    },
+    {
+      "code": "F5",
+      "usage": 62,
+      "unrealName": "F5",
+      "x": 672,
+      "y": 52.725
+    },
+    {
+      "code": "F6",
+      "usage": 63,
+      "unrealName": "F6",
+      "x": 787.2,
+      "y": 52.725
+    },
+    {
+      "code": "F7",
+      "usage": 64,
+      "unrealName": "F7",
+      "x": 902.4,
+      "y": 52.725
+    },
+    {
+      "code": "F8",
+      "usage": 65,
+      "unrealName": "F8",
+      "x": 1017.6,
+      "y": 52.725
+    },
+    {
+      "code": "F9",
+      "usage": 66,
+      "unrealName": "F9",
+      "x": 1132.8,
+      "y": 52.725
+    },
+    {
+      "code": "F10",
+      "usage": 67,
+      "unrealName": "F10",
+      "x": 1248,
+      "y": 52.725
+    },
+    {
+      "code": "F11",
+      "usage": 68,
+      "unrealName": "F11",
+      "x": 1363.1999999999998,
+      "y": 52.725
+    },
+    {
+      "code": "F12",
+      "usage": 69,
+      "unrealName": "F12",
+      "x": 1478.4,
+      "y": 52.725
+    },
+    {
+      "code": "PrintScreen",
+      "usage": 70,
+      "unrealName": "PrintScreen",
+      "x": 1593.6,
+      "y": 52.725
+    },
+    {
+      "code": "Delete",
+      "usage": 76,
+      "unrealName": "Delete",
+      "x": 1708.8,
+      "y": 52.725
+    },
+    {
+      "code": "Home",
+      "usage": 74,
+      "unrealName": "Home",
+      "x": 1824,
+      "y": 52.725
+    },
+    {
+      "code": "Backquote",
+      "usage": 53,
+      "unrealName": "Tilde",
+      "x": 96,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit1",
+      "usage": 30,
+      "unrealName": "One",
+      "x": 211.2,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit2",
+      "usage": 31,
+      "unrealName": "Two",
+      "x": 326.4,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit3",
+      "usage": 32,
+      "unrealName": "Three",
+      "x": 441.59999999999997,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit4",
+      "usage": 33,
+      "unrealName": "Four",
+      "x": 556.8000000000001,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit5",
+      "usage": 34,
+      "unrealName": "Five",
+      "x": 672,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit6",
+      "usage": 35,
+      "unrealName": "Six",
+      "x": 787.2,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit7",
+      "usage": 36,
+      "unrealName": "Seven",
+      "x": 902.4,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit8",
+      "usage": 37,
+      "unrealName": "Eight",
+      "x": 1017.6,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit9",
+      "usage": 38,
+      "unrealName": "Nine",
+      "x": 1132.8,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Digit0",
+      "usage": 39,
+      "unrealName": "Zero",
+      "x": 1248,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Minus",
+      "usage": 45,
+      "unrealName": "Hyphen",
+      "x": 1363.1999999999998,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Equal",
+      "usage": 46,
+      "unrealName": "Equals",
+      "x": 1478.4,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Backspace",
+      "usage": 42,
+      "unrealName": "BackSpace",
+      "x": 1651.2,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "PageUp",
+      "usage": 75,
+      "unrealName": "PageUp",
+      "x": 1824,
+      "y": 156.78750000000002
+    },
+    {
+      "code": "Tab",
+      "usage": 43,
+      "unrealName": "Tab",
+      "x": 124.80000000000001,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyQ",
+      "usage": 20,
+      "unrealName": "Q",
+      "x": 268.79999999999995,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyW",
+      "usage": 26,
+      "unrealName": "W",
+      "x": 383.99999999999994,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyE",
+      "usage": 8,
+      "unrealName": "E",
+      "x": 499.20000000000005,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyR",
+      "usage": 21,
+      "unrealName": "R",
+      "x": 614.4,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyT",
+      "usage": 23,
+      "unrealName": "T",
+      "x": 729.6,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyY",
+      "usage": 28,
+      "unrealName": "Y",
+      "x": 844.8,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyU",
+      "usage": 24,
+      "unrealName": "U",
+      "x": 960,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyI",
+      "usage": 12,
+      "unrealName": "I",
+      "x": 1075.2,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyO",
+      "usage": 18,
+      "unrealName": "O",
+      "x": 1190.4,
+      "y": 240.0375
+    },
+    {
+      "code": "KeyP",
+      "usage": 19,
+      "unrealName": "P",
+      "x": 1305.6,
+      "y": 240.0375
+    },
+    {
+      "code": "BracketLeft",
+      "usage": 47,
+      "unrealName": "LeftBracket",
+      "x": 1420.8,
+      "y": 240.0375
+    },
+    {
+      "code": "BracketRight",
+      "usage": 48,
+      "unrealName": "RightBracket",
+      "x": 1536,
+      "y": 240.0375
+    },
+    {
+      "code": "Backslash",
+      "usage": 49,
+      "unrealName": "Backslash",
+      "x": 1680,
+      "y": 240.0375
+    },
+    {
+      "code": "PageDown",
+      "usage": 78,
+      "unrealName": "PageDown",
+      "x": 1824,
+      "y": 240.0375
+    },
+    {
+      "code": "CapsLock",
+      "usage": 57,
+      "unrealName": "CapsLock",
+      "x": 139.2,
+      "y": 323.2875
+    },
+    {
+      "code": "KeyA",
+      "usage": 4,
+      "unrealName": "A",
+      "x": 297.6,
+      "y": 323.2875
+    },
+    {
+      "code": "KeyS",
+      "usage": 22,
+      "unrealName": "S",
+      "x": 412.8,
+      "y": 323.2875
+    },
+    {
+      "code": "KeyD",
+      "usage": 7,
+      "unrealName": "D",
+      "x": 528,
+      "y": 323.2875
+    },
+    {
+      "code": "KeyF",
+      "usage": 9,
+      "unrealName": "F",
+      "x": 643.2,
+      "y": 323.2875
+    },
+    {
+      "code": "KeyG",
+      "usage": 10,
+      "unrealName": "G",
+      "x": 758.4000000000001,
+      "y": 323.2875
+    },
+    {
+      "code": "KeyH",
+      "usage": 11,
+      "unrealName": "H",
+      "x": 873.6,
+      "y": 323.2875
+    },
+    {
+      "code": "KeyJ",
+      "usage": 13,
+      "unrealName": "J",
+      "x": 988.8000000000001,
+      "y": 323.2875
+    },
+    {
+      "code": "KeyK",
+      "usage": 14,
+      "unrealName": "K",
+      "x": 1104,
+      "y": 323.2875
+    },
+    {
+      "code": "KeyL",
+      "usage": 15,
+      "unrealName": "L",
+      "x": 1219.2,
+      "y": 323.2875
+    },
+    {
+      "code": "Semicolon",
+      "usage": 51,
+      "unrealName": "Semicolon",
+      "x": 1334.3999999999999,
+      "y": 323.2875
+    },
+    {
+      "code": "Quote",
+      "usage": 52,
+      "unrealName": "Quote",
+      "x": 1449.6,
+      "y": 323.2875
+    },
+    {
+      "code": "Enter",
+      "usage": 40,
+      "unrealName": "Enter",
+      "x": 1636.8000000000002,
+      "y": 323.2875
+    },
+    {
+      "code": "End",
+      "usage": 77,
+      "unrealName": "End",
+      "x": 1824,
+      "y": 323.2875
+    },
+    {
+      "code": "ShiftLeft",
+      "usage": 225,
+      "unrealName": "LeftShift",
+      "x": 168.00000000000003,
+      "y": 406.5375
+    },
+    {
+      "code": "KeyZ",
+      "usage": 29,
+      "unrealName": "Z",
+      "x": 355.19999999999993,
+      "y": 406.5375
+    },
+    {
+      "code": "KeyX",
+      "usage": 27,
+      "unrealName": "X",
+      "x": 470.3999999999999,
+      "y": 406.5375
+    },
+    {
+      "code": "KeyC",
+      "usage": 6,
+      "unrealName": "C",
+      "x": 585.6,
+      "y": 406.5375
+    },
+    {
+      "code": "KeyV",
+      "usage": 25,
+      "unrealName": "V",
+      "x": 700.8,
+      "y": 406.5375
+    },
+    {
+      "code": "KeyB",
+      "usage": 5,
+      "unrealName": "B",
+      "x": 816,
+      "y": 406.5375
+    },
+    {
+      "code": "KeyN",
+      "usage": 17,
+      "unrealName": "N",
+      "x": 931.1999999999999,
+      "y": 406.5375
+    },
+    {
+      "code": "KeyM",
+      "usage": 16,
+      "unrealName": "M",
+      "x": 1046.4,
+      "y": 406.5375
+    },
+    {
+      "code": "Comma",
+      "usage": 54,
+      "unrealName": "Comma",
+      "x": 1161.6,
+      "y": 406.5375
+    },
+    {
+      "code": "Period",
+      "usage": 55,
+      "unrealName": "Period",
+      "x": 1276.8000000000002,
+      "y": 406.5375
+    },
+    {
+      "code": "Slash",
+      "usage": 56,
+      "unrealName": "Slash",
+      "x": 1392,
+      "y": 406.5375
+    },
+    {
+      "code": "ShiftRight",
+      "usage": 229,
+      "unrealName": "RightShift",
+      "x": 1550.4,
+      "y": 406.5375
+    },
+    {
+      "code": "ArrowUp",
+      "usage": 82,
+      "unrealName": "Up",
+      "x": 1708.8,
+      "y": 406.5375
+    },
+    {
+      "code": "Insert",
+      "usage": 73,
+      "unrealName": "Insert",
+      "x": 1824,
+      "y": 406.5375
+    },
+    {
+      "code": "ControlLeft",
+      "usage": 224,
+      "unrealName": "LeftControl",
+      "x": 110.39999999999999,
+      "y": 489.78749999999997
+    },
+    {
+      "code": "MetaLeft",
+      "usage": 227,
+      "unrealName": "LeftCommand",
+      "x": 254.39999999999995,
+      "y": 489.78749999999997
+    },
+    {
+      "code": "AltLeft",
+      "usage": 226,
+      "unrealName": "LeftAlt",
+      "x": 398.4,
+      "y": 489.78749999999997
+    },
+    {
+      "code": "Space",
+      "usage": 44,
+      "unrealName": "SpaceBar",
+      "x": 830.4,
+      "y": 489.78749999999997
+    },
+    {
+      "code": "AltRight",
+      "usage": 230,
+      "unrealName": "RightAlt",
+      "x": 1248,
+      "y": 489.78749999999997
+    },
+    {
+      "code": "ControlRight",
+      "usage": 228,
+      "unrealName": "RightControl",
+      "x": 1478.4,
+      "y": 489.78749999999997
+    },
+    {
+      "code": "ArrowLeft",
+      "usage": 80,
+      "unrealName": "Left",
+      "x": 1593.6,
+      "y": 489.78749999999997
+    },
+    {
+      "code": "ArrowDown",
+      "usage": 81,
+      "unrealName": "Down",
+      "x": 1708.8,
+      "y": 489.78749999999997
+    },
+    {
+      "code": "ArrowRight",
+      "usage": 79,
+      "unrealName": "Right",
+      "x": 1824,
+      "y": 489.78749999999997
+    }
+  ]
+}

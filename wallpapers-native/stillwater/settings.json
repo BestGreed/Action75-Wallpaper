@@ -1,0 +1,316 @@
+{
+  "version": 1,
+  "orderedRange": [
+    "impactMin",
+    "impactMax"
+  ],
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "ripples",
+      "label": "涟漪",
+      "controls": [
+        {
+          "id": "impactMin",
+          "type": "slider",
+          "label": "力度下限",
+          "default": 0.62,
+          "min": 0,
+          "max": 2.4,
+          "step": 0.01,
+          "unit": "×",
+          "binding": {
+            "target": "waterSurface.impactMin"
+          },
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "impactMax",
+          "type": "slider",
+          "label": "力度上限",
+          "default": 1.45,
+          "min": 0,
+          "max": 2.4,
+          "step": 0.01,
+          "unit": "×",
+          "binding": {
+            "target": "waterSurface.impactMax"
+          },
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "crest",
+          "type": "slider",
+          "label": "波峰高光",
+          "default": 1.35,
+          "min": 0,
+          "max": 3.5,
+          "step": 0.05,
+          "unit": "×",
+          "binding": {
+            "target": "effectBrightness"
+          },
+          "surface": "foreground",
+          "appearance": "brightness",
+          "advanced": false
+        },
+        {
+          "id": "speed",
+          "type": "slider",
+          "label": "传播速度",
+          "default": 1,
+          "min": 0.6,
+          "max": 1.45,
+          "step": 0.05,
+          "binding": {
+            "target": "effect.speed"
+          },
+          "surface": "foreground"
+        },
+        {
+          "id": "damping",
+          "type": "slider",
+          "label": "消散速度",
+          "default": 1.8,
+          "min": 0.8,
+          "max": 3.6,
+          "step": 0.1,
+          "binding": {
+            "target": "waterSurface.damping"
+          },
+          "surface": "foreground"
+        },
+        {
+          "id": "radius",
+          "type": "slider",
+          "label": "触水范围",
+          "default": 1,
+          "min": 0.75,
+          "max": 1.6,
+          "step": 0.05,
+          "unit": "×",
+          "binding": {
+            "target": "effectScale"
+          },
+          "surface": "foreground",
+          "advanced": false
+        },
+        {
+          "id": "strength",
+          "type": "slider",
+          "label": "总力度倍率",
+          "default": 1,
+          "min": 0,
+          "max": 1.65,
+          "step": 0.05,
+          "unit": "×",
+          "binding": {
+            "target": "effectIntensity"
+          },
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "effectHue",
+          "label": "色相",
+          "type": "slider",
+          "surface": "foreground",
+          "appearance": "hue",
+          "advanced": false,
+          "binding": {
+            "target": "effectHue"
+          },
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "effectSaturation",
+          "label": "饱和度",
+          "type": "slider",
+          "surface": "foreground",
+          "appearance": "saturation",
+          "advanced": false,
+          "binding": {
+            "target": "effectSaturation"
+          },
+          "default": 1,
+          "min": 0,
+          "max": 2.5,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "effectColor",
+          "label": "颜色",
+          "type": "color",
+          "surface": "foreground",
+          "appearance": "color",
+          "advanced": false,
+          "binding": {
+            "target": "effectColor"
+          },
+          "default": [
+            255,
+            255,
+            255
+          ]
+        }
+      ],
+      "entity": "涟漪"
+    },
+    {
+      "id": "water",
+      "label": "水面",
+      "controls": [
+        {
+          "id": "backdrop",
+          "type": "select",
+          "label": "背景样式",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "月下深池"
+            },
+            {
+              "value": 1,
+              "label": "海盐浅湾"
+            },
+            {
+              "value": 2,
+              "label": "暮霞"
+            },
+            {
+              "value": 3,
+              "label": "黑曜石"
+            },
+            {
+              "value": 4,
+              "label": "自定义底色"
+            }
+          ],
+          "binding": {
+            "target": "waterSurface.backdrop"
+          },
+          "surface": "background",
+          "appearance": "style",
+          "advanced": false
+        },
+        {
+          "id": "brightness",
+          "type": "slider",
+          "label": "背景亮度",
+          "default": 1.15,
+          "min": 0,
+          "max": 4,
+          "step": 0.05,
+          "unit": "×",
+          "binding": {
+            "target": "background.brightness"
+          },
+          "surface": "background",
+          "appearance": "brightness",
+          "advanced": false
+        },
+        {
+          "id": "waterColor",
+          "type": "color",
+          "label": "背景颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "binding": {
+            "target": "background.color"
+          },
+          "surface": "background",
+          "appearance": "color",
+          "advanced": false
+        },
+        {
+          "id": "texture",
+          "type": "slider",
+          "label": "背景纹理",
+          "default": 0.5,
+          "min": 0,
+          "max": 2,
+          "step": 0.01,
+          "unit": "×",
+          "binding": {
+            "target": "waterSurface.texture"
+          },
+          "surface": "background",
+          "advanced": true
+        },
+        {
+          "id": "caustics",
+          "type": "slider",
+          "label": "水底光纹",
+          "default": 0.45,
+          "min": 0,
+          "max": 2,
+          "step": 0.01,
+          "unit": "×",
+          "binding": {
+            "target": "waterSurface.caustics"
+          },
+          "surface": "background",
+          "advanced": true
+        },
+        {
+          "id": "ambient",
+          "type": "slider",
+          "label": "背景微动",
+          "default": 0.72,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "binding": {
+            "target": "waterSurface.ambient"
+          },
+          "surface": "background",
+          "advanced": true
+        },
+        {
+          "id": "saturation",
+          "type": "slider",
+          "label": "背景饱和度",
+          "default": 1,
+          "min": 0,
+          "max": 2.5,
+          "step": 0.05,
+          "unit": "×",
+          "binding": {
+            "target": "background.saturation"
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "saturation"
+        },
+        {
+          "id": "backgroundHue",
+          "label": "色相",
+          "type": "slider",
+          "surface": "background",
+          "appearance": "hue",
+          "advanced": false,
+          "binding": {
+            "target": "background.hue"
+          },
+          "default": 0,
+          "min": 0,
+          "max": 360,
+          "step": 1,
+          "unit": "°"
+        }
+      ],
+      "entity": "水面"
+    }
+  ]
+}

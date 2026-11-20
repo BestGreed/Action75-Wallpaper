@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "harmonic-textile",
+  "name": "声纹织物 · Harmonic Textile",
+  "kind": "native",
+  "settings": "settings.json",
+  "preview": "preview.png",
+  "entry": "wallpaper.dll",
+  "abi": 1
+}

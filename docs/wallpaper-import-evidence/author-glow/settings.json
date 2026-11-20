@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "author",
+      "label": "作者参数",
+      "controls": [
+        {
+          "id": "authorGlow",
+          "type": "slider",
+          "label": "光纹强度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "surface": "foreground",
+          "unit": "×",
+          "binding": {
+            "target": "effectBrightness"
+          }
+        },
+        {
+          "id": "authorScale",
+          "type": "slider",
+          "label": "光纹范围",
+          "default": 1,
+          "min": 0.5,
+          "max": 2,
+          "step": 0.05,
+          "surface": "foreground",
+          "unit": "×",
+          "binding": {
+            "target": "effectScale"
+          }
+        },
+        {
+          "id": "authorBackground",
+          "type": "slider",
+          "label": "底图亮度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "surface": "background",
+          "unit": "×",
+          "binding": {
+            "target": "background.brightness"
+          }
+        }
+      ]
+    }
+  ]
+}

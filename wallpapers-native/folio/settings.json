@@ -1,0 +1,386 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "appearance",
+      "label": "外观",
+      "controls": [
+        {
+          "id": "brightness",
+          "type": "slider",
+          "label": "颜料浓度",
+          "default": 70,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectBrightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          },
+          "surface": "foreground",
+          "advanced": false,
+          "appearance": "brightness"
+        },
+        {
+          "id": "size",
+          "type": "slider",
+          "label": "拓印范围",
+          "default": 2.0,
+          "min": 0.5,
+          "max": 3,
+          "step": 0.05,
+          "binding": {
+            "target": "effectScale"
+          },
+          "unit": "×",
+          "surface": "foreground",
+          "advanced": false
+        }
+      ]
+    },
+    {
+      "id": "motion",
+      "label": "动效",
+      "controls": [
+        {
+          "id": "duration",
+          "type": "slider",
+          "label": "晕染时长",
+          "default": 1.1,
+          "min": 0.3,
+          "max": 3.0,
+          "step": 0.01,
+          "binding": {
+            "target": "sprite.duration"
+          },
+          "unit": "秒",
+          "surface": "foreground",
+          "advanced": false
+        }
+      ]
+    },
+    {
+      "id": "color",
+      "label": "颜色",
+      "controls": [
+        {
+          "id": "palette",
+          "type": "palette",
+          "label": "配色",
+          "default": {
+            "preset": "cinnabar",
+            "colors": [
+              [
+                201,
+                54,
+                35
+              ],
+              [
+                232,
+                91,
+                59
+              ],
+              [
+                157,
+                37,
+                28
+              ]
+            ]
+          },
+          "maxColors": 9,
+          "binding": {
+            "target": "effectPalette"
+          },
+          "allowSingleHue": true,
+          "palettes": [
+            {
+              "id": "cinnabar",
+              "name": "朱砂",
+              "colors": [
+                [
+                  201,
+                  54,
+                  35
+                ],
+                [
+                  232,
+                  91,
+                  59
+                ],
+                [
+                  157,
+                  37,
+                  28
+                ]
+              ]
+            },
+            {
+              "id": "blue-ink",
+              "name": "青墨",
+              "colors": [
+                [
+                  34,
+                  70,
+                  94
+                ],
+                [
+                  18,
+                  106,
+                  105
+                ],
+                [
+                  54,
+                  95,
+                  66
+                ]
+              ]
+            },
+            {
+              "id": "old-seal",
+              "name": "旧印",
+              "colors": [
+                [
+                  107,
+                  43,
+                  43
+                ],
+                [
+                  146,
+                  72,
+                  45
+                ],
+                [
+                  61,
+                  72,
+                  88
+                ]
+              ]
+            },
+            {
+              "id": "mineral",
+              "name": "矿物",
+              "colors": [
+                [
+                  53,
+                  85,
+                  122
+                ],
+                [
+                  74,
+                  114,
+                  104
+                ],
+                [
+                  108,
+                  60,
+                  104
+                ]
+              ]
+            }
+          ],
+          "surface": "foreground",
+          "advanced": false,
+          "appearance": "color"
+        },
+        {
+          "id": "saturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectSaturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          },
+          "surface": "foreground",
+          "advanced": false,
+          "appearance": "saturation"
+        },
+        {
+          "id": "hue",
+          "type": "slider",
+          "label": "前景色相",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "surface": "foreground",
+          "appearance": "hue",
+          "advanced": false,
+          "unit": "°",
+          "binding": {
+            "target": "effectHue"
+          }
+        }
+      ]
+    },
+    {
+      "id": "background",
+      "label": "背景",
+      "controls": [
+        {
+          "id": "backgroundStyle",
+          "type": "select",
+          "label": "背景样式",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "原作背景"
+            },
+            {
+              "value": 1,
+              "label": "纯色"
+            }
+          ],
+          "binding": {
+            "target": "background.style"
+          },
+          "surface": "background",
+          "appearance": "style",
+          "advanced": false
+        },
+        {
+          "id": "backgroundBrightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.brightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "brightness"
+        },
+        {
+          "id": "backgroundSaturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.saturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "saturation"
+        },
+        {
+          "id": "backgroundHue",
+          "type": "slider",
+          "label": "色相",
+          "default": 0,
+          "min": 0,
+          "max": 360,
+          "step": 1,
+          "unit": "°",
+          "binding": {
+            "target": "background.hue",
+            "mapping": {
+              "type": "identity"
+            }
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "hue"
+        },
+        {
+          "id": "backgroundColor",
+          "type": "color",
+          "label": "颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "binding": {
+            "target": "background.color"
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "color",
+          "visibleWhen": {
+            "id": "backgroundStyle",
+            "equals": 0
+          }
+        },
+        {
+          "id": "backgroundSolidColor",
+          "type": "color",
+          "label": "纯色背景颜色",
+          "default": [
+            214,
+            191,
+            161
+          ],
+          "binding": {
+            "target": "background.solidColor"
+          },
+          "visibleWhen": {
+            "id": "backgroundStyle",
+            "equals": 1
+          },
+          "surface": "background",
+          "appearance": "color",
+          "advanced": false
+        }
+      ]
+    }
+  ],
+  "presentation": "layered"
+}

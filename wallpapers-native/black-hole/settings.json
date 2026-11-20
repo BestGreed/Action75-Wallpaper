@@ -1,0 +1,462 @@
+{
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "blackHole",
+      "label": "黑洞",
+      "controls": [
+        {
+          "id": "diskPalette",
+          "type": "select",
+          "label": "吸积盘配色",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "暖白热辐射"
+            },
+            {
+              "value": 1,
+              "label": "高温蓝白"
+            },
+            {
+              "value": 2,
+              "label": "M87* 射电伪彩"
+            }
+          ],
+          "binding": {
+            "target": "blackHole.diskPalette"
+          },
+          "surface": "background",
+          "appearance": "color"
+        },
+        {
+          "id": "holeSize",
+          "type": "slider",
+          "label": "黑洞大小",
+          "default": 1,
+          "min": 0.25,
+          "max": 3.5,
+          "step": 0.05,
+          "unit": "×",
+          "binding": {
+            "target": "blackHole.size"
+          },
+          "surface": "background"
+        },
+        {
+          "id": "lensStrength",
+          "type": "slider",
+          "label": "引力透镜强度",
+          "default": 1,
+          "min": 0,
+          "max": 1.25,
+          "step": 0.05,
+          "binding": {
+            "target": "blackHole.lensStrength"
+          },
+          "surface": "background",
+          "advanced": true
+        },
+        {
+          "id": "diskBrightness",
+          "type": "slider",
+          "label": "吸积盘亮度",
+          "default": 1,
+          "min": 0.25,
+          "max": 2,
+          "step": 0.05,
+          "binding": {
+            "target": "blackHole.diskBrightness"
+          },
+          "surface": "background",
+          "appearance": "brightness"
+        },
+        {
+          "id": "centerX",
+          "type": "slider",
+          "label": "黑洞横向位置",
+          "default": 58,
+          "min": 0,
+          "max": 100,
+          "step": 0.1,
+          "unit": "%",
+          "binding": {
+            "target": "blackHole.centerX",
+            "mapping": {
+              "type": "linear",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 1
+            }
+          },
+          "surface": "background",
+          "advanced": true
+        },
+        {
+          "id": "centerY",
+          "type": "slider",
+          "label": "黑洞纵向位置",
+          "default": 46,
+          "min": 0,
+          "max": 100,
+          "step": 0.1,
+          "unit": "%",
+          "binding": {
+            "target": "blackHole.centerY",
+            "mapping": {
+              "type": "linear",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 1
+            }
+          },
+          "surface": "background",
+          "advanced": true
+        }
+      ],
+      "entity": "黑洞与吸积盘"
+    },
+    {
+      "id": "stars",
+      "label": "按键恒星",
+      "controls": [
+        {
+          "id": "starBrightness",
+          "type": "slider",
+          "label": "恒星亮度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "binding": {
+            "target": "effectBrightness"
+          },
+          "surface": "foreground",
+          "appearance": "brightness",
+          "advanced": false
+        },
+        {
+          "id": "starSize",
+          "type": "slider",
+          "label": "恒星整体尺寸",
+          "default": 1,
+          "min": 0.5,
+          "max": 1.8,
+          "step": 0.05,
+          "binding": {
+            "target": "effectScale"
+          },
+          "surface": "foreground"
+        },
+        {
+          "id": "starFlare",
+          "type": "slider",
+          "label": "星芒强度",
+          "default": 1.25,
+          "min": 0,
+          "max": 2.5,
+          "step": 0.05,
+          "binding": {
+            "target": "blackHole.starFlare"
+          },
+          "surface": "foreground"
+        },
+        {
+          "id": "starHue",
+          "type": "slider",
+          "label": "恒星色相",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "surface": "foreground",
+          "appearance": "hue",
+          "advanced": false,
+          "unit": "°"
+        },
+        {
+          "id": "starSaturation",
+          "type": "slider",
+          "label": "恒星饱和度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "surface": "foreground",
+          "appearance": "saturation",
+          "advanced": false,
+          "unit": "×"
+        },
+        {
+          "id": "starColor",
+          "type": "color",
+          "label": "恒星颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "surface": "foreground",
+          "appearance": "color",
+          "advanced": false
+        }
+      ],
+      "entity": "恒星"
+    },
+    {
+      "id": "sky",
+      "label": "远景背景",
+      "controls": [
+        {
+          "id": "skyMode",
+          "type": "select",
+          "label": "远景背景",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "星云"
+            },
+            {
+              "value": 1,
+              "label": "虚空"
+            },
+            {
+              "value": 2,
+              "label": "星空"
+            },
+            {
+              "value": 3,
+              "label": "纯色"
+            }
+          ],
+          "binding": {
+            "target": "blackHole.sky"
+          },
+          "surface": "background",
+          "appearance": "style",
+          "advanced": false
+        },
+        {
+          "id": "nebulaBrightness",
+          "type": "slider",
+          "label": "星云亮度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "visibleWhen": {
+            "id": "skyMode",
+            "equals": 0
+          },
+          "binding": {
+            "target": "blackHole.nebulaBrightness"
+          },
+          "surface": "background"
+        },
+        {
+          "id": "nebulaSpeed",
+          "type": "slider",
+          "label": "星云漂移速度",
+          "default": 0.75,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "visibleWhen": {
+            "id": "skyMode",
+            "equals": 0
+          },
+          "binding": {
+            "target": "blackHole.nebulaSpeed"
+          },
+          "surface": "background",
+          "advanced": true
+        },
+        {
+          "id": "nebulaTint",
+          "type": "color",
+          "label": "星云色调",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "visibleWhen": {
+            "id": "skyMode",
+            "equals": 0
+          },
+          "binding": {
+            "target": "blackHole.nebulaTint"
+          },
+          "surface": "background"
+        },
+        {
+          "id": "voidBrightness",
+          "type": "slider",
+          "label": "虚空余辉",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "visibleWhen": {
+            "id": "skyMode",
+            "equals": 1
+          },
+          "binding": {
+            "target": "blackHole.voidBrightness"
+          },
+          "surface": "background"
+        },
+        {
+          "id": "voidSpeed",
+          "type": "slider",
+          "label": "浮尘漂移速度",
+          "default": 0.65,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "visibleWhen": {
+            "id": "skyMode",
+            "equals": 1
+          },
+          "binding": {
+            "target": "blackHole.voidSpeed"
+          },
+          "surface": "background",
+          "advanced": true
+        },
+        {
+          "id": "voidTint",
+          "type": "color",
+          "label": "虚空色调",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "visibleWhen": {
+            "id": "skyMode",
+            "equals": 1
+          },
+          "binding": {
+            "target": "blackHole.voidTint"
+          },
+          "surface": "background"
+        },
+        {
+          "id": "starfieldBrightness",
+          "type": "slider",
+          "label": "星空亮度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "visibleWhen": {
+            "id": "skyMode",
+            "equals": 2
+          },
+          "binding": {
+            "target": "blackHole.starfieldBrightness"
+          },
+          "surface": "background"
+        },
+        {
+          "id": "starfieldSpeed",
+          "type": "slider",
+          "label": "星空动效速度",
+          "default": 0.8,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "visibleWhen": {
+            "id": "skyMode",
+            "equals": 2
+          },
+          "binding": {
+            "target": "blackHole.starfieldSpeed"
+          },
+          "surface": "background",
+          "advanced": true
+        },
+        {
+          "id": "starfieldTint",
+          "type": "color",
+          "label": "星空色调",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "visibleWhen": {
+            "id": "skyMode",
+            "equals": 2
+          },
+          "binding": {
+            "target": "blackHole.starfieldTint"
+          },
+          "surface": "background"
+        },
+        {
+          "id": "backgroundBrightness",
+          "type": "slider",
+          "label": "天空总亮度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "surface": "background",
+          "appearance": "brightness",
+          "advanced": false,
+          "unit": "×"
+        },
+        {
+          "id": "backgroundHue",
+          "type": "slider",
+          "label": "天空色相",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "surface": "background",
+          "appearance": "hue",
+          "advanced": false,
+          "unit": "°"
+        },
+        {
+          "id": "backgroundSaturation",
+          "type": "slider",
+          "label": "天空饱和度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "surface": "background",
+          "appearance": "saturation",
+          "advanced": false,
+          "unit": "×"
+        },
+        {
+          "id": "backgroundColor",
+          "type": "color",
+          "label": "天空颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "surface": "background",
+          "appearance": "color",
+          "advanced": false
+        }
+      ],
+      "entity": "远景天空"
+    }
+  ]
+}

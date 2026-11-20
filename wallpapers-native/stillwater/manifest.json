@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "stillwater",
+  "name": "水波",
+  "kind": "native",
+  "description": "点击副屏或按下 Action75 键位，力度各异的涟漪从触点扩散、交叠。背景可换成月下深池、海盐浅湾、暮霞、黑曜石或自定义底色。",
+  "settings": "settings.json",
+  "preview": "preview.png",
+  "entry": "wallpaper.dll",
+  "abi": 1
+}

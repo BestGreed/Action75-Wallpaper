@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="length" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="white" stop-opacity=".73"/>
+      <stop offset=".4" stop-color="white" stop-opacity=".16"/>
+      <stop offset=".71" stop-color="white" stop-opacity=".56"/>
+      <stop offset="1" stop-color="white" stop-opacity=".83"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#length)" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Parallel inset lines follow the radiused lip of the keyboard case. -->
+    <path d="M-36 74H1018C1099 74 1112 29 1163 29H1644" stroke-width="1.65"/>
+    <path d="M-36 84H1019C1100 84 1117 39 1166 39H1644" stroke-width="1.1"/>
+    <path d="M-36 93H1020C1102 93 1122 48 1169 48H1644" stroke-width=".9"/>
+    <path d="M-40 891H119C203 891 236 929 306 929H1239Q1302 929 1340 895L1424 820Q1453 794 1496 794H1640" stroke-width="1.65"/>
+    <path d="M-40 904H118C201 904 234 942 306 942H1239Q1308 942 1349 905L1433 830Q1465 807 1504 807H1640" stroke-width="1.1"/>
+    <path d="M-40 914H117C200 914 232 952 306 952H1239Q1313 952 1358 914L1441 840Q1471 817 1509 817H1640" stroke-width=".9"/>
+    <!-- The side traces use the same short machining slots at both ends. -->
+    <path d="M-22 463H61q29 0 47 18l26 26q15 15 40 15H253" stroke-width="1.35"/>
+    <path d="M-22 473H61q25 0 41 16l25 25q17 18 47 18H253" stroke-width=".86"/>
+    <path d="M1626 548H1529q-23 0-40 15l-44 41q-18 16-43 16h-147" stroke-width="1.35"/>
+    <path d="M1626 558H1529q-19 0-33 12l-43 41q-22 19-51 19h-147" stroke-width=".86"/>
+  </g>
+  <g stroke="white" stroke-opacity=".48" stroke-width="1.15" stroke-linecap="round">
+    <path d="M765 929v-9m14 9v-9m14 9v-9m14 9v-9m14 9v-9m14 9v-9"/>
+    <path d="M826 64v10m14-10v10m14-10v10m14-10v10m14-10v10m14-10v10"/>
+    <path d="M44 463v-9m11 9v-9m11 10v-9M1551 548v-9m11 9v-9m11 9v-9"/>
+  </g>
+</svg>

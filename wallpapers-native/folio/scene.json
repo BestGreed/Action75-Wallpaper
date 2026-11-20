@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "id": "folio",
+  "name": "朱砂拓印 · Folio",
+  "kind": "spriteBurst",
+  "description": "有纸纹的暖色留白与赭红浮雕；按键在纸面晕染出矿物颜料。",
+  "background": "background.png",
+  "effect": "burst.png",
+  "columns": 6,
+  "rows": 4,
+  "duration": 1.33,
+  "diameter": 420,
+  "composition": "multiply",
+  "settings": "settings.json"
+}

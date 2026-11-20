@@ -1,0 +1,298 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "appearance",
+      "label": "外观",
+      "controls": [
+        {
+          "id": "brightness",
+          "type": "slider",
+          "label": "信号亮度",
+          "default": 75,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectBrightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          }
+        },
+        {
+          "id": "size",
+          "type": "slider",
+          "label": "信号范围",
+          "default": 1.5,
+          "min": 0.5,
+          "max": 3,
+          "step": 0.05,
+          "binding": {
+            "target": "effectScale"
+          },
+          "unit": "×"
+        }
+      ]
+    },
+    {
+      "id": "motion",
+      "label": "动效",
+      "controls": [
+        {
+          "id": "duration",
+          "type": "slider",
+          "label": "脉冲时长",
+          "default": 0.8,
+          "min": 0.15,
+          "max": 2.0,
+          "step": 0.01,
+          "binding": {
+            "target": "sprite.duration"
+          },
+          "unit": "秒"
+        }
+      ]
+    },
+    {
+      "id": "color",
+      "label": "颜色",
+      "controls": [
+        {
+          "id": "palette",
+          "type": "palette",
+          "label": "配色",
+          "default": {
+            "preset": "phosphor",
+            "colors": [
+              [
+                197,
+                237,
+                87
+              ],
+              [
+                120,
+                230,
+                163
+              ],
+              [
+                246,
+                220,
+                120
+              ]
+            ]
+          },
+          "maxColors": 9,
+          "binding": {
+            "target": "effectPalette"
+          },
+          "allowSingleHue": true,
+          "palettes": [
+            {
+              "id": "phosphor",
+              "name": "磷光",
+              "colors": [
+                [
+                  197,
+                  237,
+                  87
+                ],
+                [
+                  120,
+                  230,
+                  163
+                ],
+                [
+                  246,
+                  220,
+                  120
+                ]
+              ]
+            },
+            {
+              "id": "amber-signal",
+              "name": "琥珀信号",
+              "colors": [
+                [
+                  255,
+                  209,
+                  102
+                ],
+                [
+                  255,
+                  164,
+                  91
+                ],
+                [
+                  195,
+                  242,
+                  108
+                ]
+              ]
+            },
+            {
+              "id": "icewave",
+              "name": "冰蓝载波",
+              "colors": [
+                [
+                  120,
+                  230,
+                  218
+                ],
+                [
+                  140,
+                  191,
+                  255
+                ],
+                [
+                  216,
+                  242,
+                  138
+                ]
+              ]
+            },
+            {
+              "id": "warning",
+              "name": "警示脉冲",
+              "colors": [
+                [
+                  255,
+                  71,
+                  100
+                ],
+                [
+                  255,
+                  142,
+                  99
+                ],
+                [
+                  255,
+                  209,
+                  102
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "id": "saturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectSaturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "background",
+      "label": "背景",
+      "controls": [
+        {
+          "id": "backgroundBrightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.brightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          }
+        },
+        {
+          "id": "backgroundSaturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.saturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "backgroundHue",
+          "type": "slider",
+          "label": "色相",
+          "default": 0,
+          "min": 0,
+          "max": 360,
+          "step": 1,
+          "unit": "°",
+          "binding": {
+            "target": "background.hue",
+            "mapping": {
+              "type": "identity"
+            }
+          }
+        },
+        {
+          "id": "backgroundColor",
+          "type": "color",
+          "label": "颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "binding": {
+            "target": "background.color"
+          }
+        }
+      ]
+    }
+  ]
+}

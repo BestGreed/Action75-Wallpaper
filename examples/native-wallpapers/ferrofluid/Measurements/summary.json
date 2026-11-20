@@ -1,0 +1,46 @@
+[
+  {
+    "trial": "trial-1-old",
+    "cpu": 12.5,
+    "playerCpu": 1.55,
+    "engineMs": 1.973108142852082,
+    "fps": 60.224552115520936,
+    "workerPeakMiB": 70.79296875,
+    "totalPeakMiB": 119.375,
+    "idle": 0,
+    "pause": 0
+  },
+  {
+    "trial": "trial-2-new",
+    "cpu": 11.299999999999999,
+    "playerCpu": 1.5374999999999999,
+    "engineMs": 2.171367970864711,
+    "fps": 60.22327291147679,
+    "workerPeakMiB": 72.1015625,
+    "totalPeakMiB": 121.4140625,
+    "idle": 0,
+    "pause": 0
+  },
+  {
+    "trial": "trial-3-new",
+    "cpu": 8.55,
+    "playerCpu": 1.55,
+    "engineMs": 2.1112472326033864,
+    "fps": 60.222588183405705,
+    "workerPeakMiB": 70.5234375,
+    "totalPeakMiB": 119.84765625,
+    "idle": 0,
+    "pause": 0
+  },
+  {
+    "trial": "trial-4-old",
+    "cpu": 12.9,
+    "playerCpu": 0.3875,
+    "engineMs": 2.354184610032166,
+    "fps": 60.2233285933575,
+    "workerPeakMiB": 70.796875,
+    "totalPeakMiB": 120.0703125,
+    "idle": 0,
+    "pause": 0
+  }
+]

@@ -1,0 +1,716 @@
+{
+  "afterimage": {
+    "$include": "library.json#/panels/atlas"
+  },
+  "black-hole": {
+    "version": 1,
+    "presentation": "layered",
+    "groups": [
+      {
+        "$include": "../../../wallpapers-native/black-hole/settings.json#/groups/0"
+      },
+      {
+        "$include": "../../../wallpapers-native/black-hole/settings.json#/groups/1",
+        "controls": [
+          {
+            "$include": "library.json#/controls/background-choice",
+            "id": "skyMode",
+            "label": "远景背景",
+            "options": [
+              {
+                "value": 0,
+                "label": "星云"
+              },
+              {
+                "value": 1,
+                "label": "虚空"
+              },
+              {
+                "value": 2,
+                "label": "星空"
+              }
+            ],
+            "binding": {
+              "target": "blackHole.sky"
+            }
+          },
+          {
+            "$include": "library.json#/controls/conditional-brightness"
+          },
+          {
+            "$include": "library.json#/controls/conditional-speed"
+          },
+          {
+            "$include": "library.json#/controls/conditional-tint"
+          },
+          {
+            "$include": "library.json#/controls/conditional-brightness",
+            "id": "voidBrightness",
+            "label": "虚空余辉",
+            "visibleWhen": {
+              "id": "skyMode",
+              "equals": 1
+            },
+            "binding": {
+              "target": "blackHole.voidBrightness"
+            }
+          },
+          {
+            "$include": "library.json#/controls/conditional-speed",
+            "id": "voidSpeed",
+            "label": "浮尘漂移速度",
+            "default": 0.65,
+            "visibleWhen": {
+              "id": "skyMode",
+              "equals": 1
+            },
+            "binding": {
+              "target": "blackHole.voidSpeed"
+            }
+          },
+          {
+            "$include": "library.json#/controls/conditional-tint",
+            "id": "voidTint",
+            "label": "虚空色调",
+            "visibleWhen": {
+              "id": "skyMode",
+              "equals": 1
+            },
+            "binding": {
+              "target": "blackHole.voidTint"
+            }
+          },
+          {
+            "$include": "library.json#/controls/conditional-brightness",
+            "id": "starfieldBrightness",
+            "label": "星空亮度",
+            "visibleWhen": {
+              "id": "skyMode",
+              "equals": 2
+            },
+            "binding": {
+              "target": "blackHole.starfieldBrightness"
+            }
+          },
+          {
+            "$include": "library.json#/controls/conditional-speed",
+            "id": "starfieldSpeed",
+            "label": "星空动效速度",
+            "default": 0.8,
+            "visibleWhen": {
+              "id": "skyMode",
+              "equals": 2
+            },
+            "binding": {
+              "target": "blackHole.starfieldSpeed"
+            }
+          },
+          {
+            "$include": "library.json#/controls/conditional-tint",
+            "id": "starfieldTint",
+            "label": "星空色调",
+            "visibleWhen": {
+              "id": "skyMode",
+              "equals": 2
+            },
+            "binding": {
+              "target": "blackHole.starfieldTint"
+            }
+          }
+        ]
+      },
+      {
+        "$include": "../../../wallpapers-native/black-hole/settings.json#/groups/2"
+      }
+    ]
+  },
+  "carrier": {
+    "$include": "library.json#/panels/atlas",
+    "$overrides": {
+      "brightness": {
+        "label": "信号亮度",
+        "default": 75
+      },
+      "size": {
+        "label": "信号范围",
+        "default": 1.5
+      },
+      "duration": {
+        "label": "脉冲时长",
+        "default": 0.8,
+        "min": 0.15,
+        "max": 2.0
+      },
+      "palette": {
+        "default": {
+          "preset": "phosphor",
+          "colors": [
+            [
+              197,
+              237,
+              87
+            ],
+            [
+              120,
+              230,
+              163
+            ],
+            [
+              246,
+              220,
+              120
+            ]
+          ]
+        },
+        "palettes": {
+          "$include": "../../../wallpapers-native/carrier/settings.json#/groups/2/controls/0/palettes"
+        }
+      }
+    }
+  },
+  "folio": {
+    "$include": "library.json#/panels/atlas",
+    "$overrides": {
+      "brightness": {
+        "label": "颜料浓度",
+        "default": 70
+      },
+      "size": {
+        "label": "拓印范围",
+        "default": 2.0
+      },
+      "duration": {
+        "label": "晕染时长",
+        "default": 1.1,
+        "min": 0.3,
+        "max": 3.0
+      },
+      "palette": {
+        "default": {
+          "preset": "cinnabar",
+          "colors": [
+            [
+              201,
+              54,
+              35
+            ],
+            [
+              232,
+              91,
+              59
+            ],
+            [
+              157,
+              37,
+              28
+            ]
+          ]
+        },
+        "palettes": {
+          "$include": "../../../wallpapers-native/folio/settings.json#/groups/2/controls/0/palettes"
+        }
+      }
+    }
+  },
+  "gilded-synapse": {
+    "$include": "library.json#/panels/field"
+  },
+  "glass-shatter": {
+    "version": 1,
+    "presentation": "layered",
+    "groups": [
+      {
+        "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0",
+        "controls": [
+          {
+            "$include": "library.json#/controls/impact-min"
+          },
+          {
+            "$include": "library.json#/controls/impact-max"
+          },
+          {
+            "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0/controls/2"
+          },
+          {
+            "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0/controls/3"
+          },
+          {
+            "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0/controls/4"
+          },
+          {
+            "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0/controls/5"
+          }
+        ]
+      },
+      {
+        "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/1"
+      },
+      {
+        "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/2",
+        "controls": [
+          {
+            "$include": "library.json#/controls/background-choice"
+          },
+          {
+            "$include": "library.json#/controls/background-brightness-factor"
+          }
+        ]
+      }
+    ]
+  },
+  "harmonic-textile": {
+    "$include": "library.json#/panels/field",
+    "$overrides": {
+      "palette": {
+        "default": {
+          "preset": "moon-lilac",
+          "colors": [
+            [
+              19,
+              20,
+              34
+            ],
+            [
+              57,
+              54,
+              82
+            ],
+            [
+              105,
+              96,
+              134
+            ],
+            [
+              169,
+              151,
+              174
+            ],
+            [
+              232,
+              219,
+              209
+            ]
+          ]
+        }
+      },
+      "brightness": {
+        "default": 2
+      },
+      "bloom": {
+        "default": 0.3
+      },
+      "ambient": {
+        "default": 0.8
+      },
+      "persistence": {
+        "default": 4
+      },
+      "turbulence": {
+        "default": 0.65
+      },
+      "sparks": {
+        "default": 0.1
+      }
+    }
+  },
+  "keycap-glow": {
+    "version": 1,
+    "presentation": "layered",
+    "groups": [
+      {
+        "$include": "../../../wallpapers-native/keycap-glow/settings.json#/groups/0"
+      },
+      {
+        "$include": "../../../wallpapers-native/keycap-glow/settings.json#/groups/1"
+      },
+      {
+        "$include": "../../../wallpapers-native/keycap-glow/settings.json#/groups/2"
+      },
+      {
+        "$include": "../../../wallpapers-native/keycap-glow/settings.json#/groups/3"
+      },
+      {
+        "$include": "../../../wallpapers-native/keycap-glow/settings.json#/groups/4"
+      },
+      {
+        "$include": "library.json#/groups/performance"
+      }
+    ]
+  },
+  "meridian": {
+    "version": 1,
+    "presentation": "layered",
+    "groups": [
+      {
+        "$include": "library.json#/groups/atlas-appearance"
+      },
+      {
+        "$include": "library.json#/groups/atlas-motion"
+      },
+      {
+        "$include": "library.json#/groups/foreground-color"
+      },
+      {
+        "$include": "library.json#/groups/image-background"
+      },
+      {
+        "$include": "../../../wallpapers-native/meridian/settings.json#/groups/4"
+      }
+    ],
+    "$overrides": {
+      "brightness": {
+        "label": "光弧亮度"
+      },
+      "size": {
+        "label": "轨道大小",
+        "default": 1.6
+      },
+      "duration": {
+        "label": "消散时长",
+        "default": 0.9,
+        "min": 0.2,
+        "max": 3.0
+      },
+      "palette": {
+        "default": {
+          "preset": "corona",
+          "colors": [
+            [
+              255,
+              197,
+              106
+            ],
+            [
+              255,
+              152,
+              102
+            ],
+            [
+              255,
+              224,
+              163
+            ]
+          ]
+        },
+        "palettes": {
+          "$include": "../../../wallpapers-native/meridian/settings.json#/groups/2/controls/0/palettes"
+        }
+      }
+    }
+  },
+  "night-fireworks": {
+    "$include": "../../../wallpapers-native/night-fireworks/settings.json"
+  },
+  "paintball-native": {
+    "version": 1,
+    "presentation": "layered",
+    "groups": [
+      {
+        "$include": "../../../wallpapers-native/paintball-native/settings.json#/groups/0",
+        "controls": [
+          {
+            "$include": "library.json#/controls/effect-brightness",
+            "label": "亮度",
+            "default": 85,
+            "binding": {
+              "target": "effectBrightness",
+              "mapping": {
+                "type": "piecewise",
+                "points": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    85,
+                    1
+                  ],
+                  [
+                    100,
+                    2
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "$include": "library.json#/controls/effect-size",
+            "label": "喷溅大小",
+            "default": 1.2
+          },
+          {
+            "$include": "../../../wallpapers-native/paintball-native/settings.json#/groups/0/controls/2"
+          },
+          {
+            "$include": "../../../wallpapers-native/paintball-native/settings.json#/groups/0/controls/3"
+          }
+        ]
+      },
+      {
+        "$include": "../../../wallpapers-native/paintball-native/settings.json#/groups/1"
+      },
+      {
+        "$include": "library.json#/groups/foreground-color",
+        "$overrides": {
+          "palette": {
+            "default": {
+              "preset": "classic-pigments",
+              "colors": [
+                [
+                  241,
+                  46,
+                  41
+                ],
+                [
+                  238,
+                  142,
+                  32
+                ],
+                [
+                  245,
+                  209,
+                  44
+                ],
+                [
+                  92,
+                  157,
+                  90
+                ],
+                [
+                  69,
+                  193,
+                  165
+                ],
+                [
+                  116,
+                  177,
+                  243
+                ],
+                [
+                  143,
+                  98,
+                  165
+                ],
+                [
+                  253,
+                  110,
+                  163
+                ],
+                [
+                  32,
+                  46,
+                  219
+                ]
+              ]
+            },
+            "palettes": {
+              "$include": "../../../wallpapers-native/paintball-native/settings.json#/groups/2/controls/0/palettes"
+            }
+          },
+          "saturation": {
+            "default": 75
+          }
+        }
+      },
+      {
+        "$include": "library.json#/groups/image-background"
+      }
+    ]
+  },
+  "silk-nebula": {
+    "$include": "library.json#/panels/field",
+    "$overrides": {
+      "palette": {
+        "default": {
+          "preset": "ink-tide",
+          "colors": [
+            [
+              12,
+              21,
+              33
+            ],
+            [
+              35,
+              61,
+              76
+            ],
+            [
+              65,
+              112,
+              119
+            ],
+            [
+              133,
+              163,
+              151
+            ],
+            [
+              228,
+              219,
+              194
+            ]
+          ]
+        }
+      },
+      "brightness": {
+        "default": 2.2
+      },
+      "bloom": {
+        "default": 0.35
+      },
+      "ambient": {
+        "default": 0.65
+      },
+      "persistence": {
+        "default": 4
+      },
+      "turbulence": {
+        "default": 1.1
+      },
+      "sparks": {
+        "default": 0.15
+      }
+    }
+  },
+  "stillwater": {
+    "version": 1,
+    "presentation": "layered",
+    "groups": [
+      {
+        "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0",
+        "controls": [
+          {
+            "$include": "library.json#/controls/impact-min",
+            "default": 0.62,
+            "max": 2.4,
+            "binding": {
+              "target": "waterSurface.impactMin"
+            }
+          },
+          {
+            "$include": "library.json#/controls/impact-max",
+            "max": 2.4,
+            "binding": {
+              "target": "waterSurface.impactMax"
+            }
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0/controls/2"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0/controls/3"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0/controls/4"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0/controls/5"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0/controls/6"
+          }
+        ]
+      },
+      {
+        "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1",
+        "controls": [
+          {
+            "$include": "library.json#/controls/background-choice",
+            "options": [
+              {
+                "value": 0,
+                "label": "月下深池"
+              },
+              {
+                "value": 1,
+                "label": "海盐浅湾"
+              },
+              {
+                "value": 2,
+                "label": "暮霞"
+              },
+              {
+                "value": 3,
+                "label": "黑曜石"
+              },
+              {
+                "value": 4,
+                "label": "自定义底色"
+              }
+            ],
+            "binding": {
+              "target": "waterSurface.backdrop"
+            }
+          },
+          {
+            "$include": "library.json#/controls/background-brightness-factor",
+            "default": 1.15,
+            "max": 4
+          },
+          {
+            "$include": "library.json#/controls/background-tint"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1/controls/3"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1/controls/4"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1/controls/5"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1/controls/6"
+          }
+        ]
+      }
+    ]
+  },
+  "tidal-glass": {
+    "$include": "library.json#/panels/atlas",
+    "$overrides": {
+      "brightness": {
+        "label": "波纹亮度",
+        "default": 70
+      },
+      "size": {
+        "label": "波纹范围",
+        "default": 1.25
+      },
+      "duration": {
+        "label": "扩散时长",
+        "default": 0.82,
+        "min": 0.2,
+        "max": 2.5
+      },
+      "palette": {
+        "default": {
+          "preset": "sea-ice",
+          "colors": [
+            [
+              54,
+              222,
+              216
+            ],
+            [
+              104,
+              198,
+              255
+            ],
+            [
+              160,
+              243,
+              238
+            ]
+          ]
+        },
+        "palettes": {
+          "$include": "../../../wallpapers-native/tidal-glass/settings.json#/groups/2/controls/0/palettes"
+        }
+      },
+      "saturation": {
+        "default": 55
+      }
+    }
+  }
+}

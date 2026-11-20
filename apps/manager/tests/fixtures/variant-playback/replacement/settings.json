@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "playback",
+      "label": "新包样式",
+      "presentation": "variant-playback",
+      "playback": {"selection": "pattern", "randomize": "randomOrder", "interval": "keysPerBeat", "order": [7, 3]},
+      "controls": [
+        {
+          "id": "pattern", "type": "select", "label": "样式", "default": 7,
+          "binding": {"target": "fireworks.shape"},
+          "options": [
+            {"value": 0, "label": "组合播放", "toggleId": null},
+            {"value": 3, "label": "花芯", "toggleId": "enablePetal"},
+            {"value": 7, "label": "银色星环", "toggleId": "enableRing"}
+          ]
+        },
+        {"id": "randomOrder", "type": "toggle", "label": "打乱样式", "default": false, "binding": {"target": "fireworks.shuffle"}},
+        {"id": "enablePetal", "type": "toggle", "label": "花芯", "default": true, "binding": {"target": "fireworks.peony"}},
+        {"id": "enableRing", "type": "toggle", "label": "银色星环", "default": false, "binding": {"target": "fireworks.saturn"}},
+        {"id": "keysPerBeat", "type": "slider", "label": "节拍间隔", "default": 4, "min": 3, "max": 7, "step": 1, "binding": {"target": "fireworks.keyInterval"}},
+        {"id": "intensity", "type": "slider", "label": "光斑亮度", "default": 1, "min": 0, "max": 2, "step": 0.05, "binding": {"target": "effectBrightness"}}
+      ]
+    }
+  ]
+}

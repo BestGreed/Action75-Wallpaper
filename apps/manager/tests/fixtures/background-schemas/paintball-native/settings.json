@@ -1,0 +1,398 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "appearance",
+      "label": "颜料",
+      "controls": [
+        {
+          "id": "brightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 85,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectBrightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          }
+        },
+        {
+          "id": "size",
+          "type": "slider",
+          "label": "喷溅大小",
+          "default": 1.2,
+          "min": 0.5,
+          "max": 3,
+          "step": 0.05,
+          "binding": {
+            "target": "effectScale"
+          },
+          "unit": "×"
+        },
+        {
+          "id": "density",
+          "type": "slider",
+          "label": "颜料浓度",
+          "default": 40,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectIntensity",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  1.2
+                ]
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "motion",
+      "label": "喷溅",
+      "controls": [
+        {
+          "id": "speed",
+          "type": "slider",
+          "label": "喷溅速度",
+          "default": 1,
+          "min": 0.25,
+          "max": 3,
+          "step": 0.05,
+          "binding": {
+            "target": "effect.speed"
+          },
+          "unit": "×"
+        }
+      ]
+    },
+    {
+      "id": "color",
+      "label": "颜色",
+      "controls": [
+        {
+          "id": "palette",
+          "type": "palette",
+          "label": "配色",
+          "default": {
+            "preset": "classic-pigments",
+            "colors": [
+              [
+                241,
+                46,
+                41
+              ],
+              [
+                238,
+                142,
+                32
+              ],
+              [
+                245,
+                209,
+                44
+              ],
+              [
+                92,
+                157,
+                90
+              ],
+              [
+                69,
+                193,
+                165
+              ],
+              [
+                116,
+                177,
+                243
+              ],
+              [
+                143,
+                98,
+                165
+              ],
+              [
+                253,
+                110,
+                163
+              ],
+              [
+                32,
+                46,
+                219
+              ]
+            ]
+          },
+          "maxColors": 9,
+          "binding": {
+            "target": "effectPalette"
+          },
+          "allowSingleHue": true,
+          "palettes": [
+            {
+              "id": "classic-pigments",
+              "name": "经典颜料",
+              "colors": [
+                [
+                  241,
+                  46,
+                  41
+                ],
+                [
+                  238,
+                  142,
+                  32
+                ],
+                [
+                  245,
+                  209,
+                  44
+                ],
+                [
+                  92,
+                  157,
+                  90
+                ],
+                [
+                  69,
+                  193,
+                  165
+                ],
+                [
+                  116,
+                  177,
+                  243
+                ],
+                [
+                  143,
+                  98,
+                  165
+                ],
+                [
+                  253,
+                  110,
+                  163
+                ],
+                [
+                  32,
+                  46,
+                  219
+                ]
+              ],
+              "source": true
+            },
+            {
+              "id": "summer-watercolor",
+              "name": "漫夏水彩",
+              "colors": [
+                [
+                  233,
+                  75,
+                  93
+                ],
+                [
+                  240,
+                  165,
+                  43
+                ],
+                [
+                  45,
+                  156,
+                  138
+                ],
+                [
+                  57,
+                  123,
+                  203
+                ]
+              ]
+            },
+            {
+              "id": "mineral-pigments",
+              "name": "矿物颜料",
+              "colors": [
+                [
+                  185,
+                  71,
+                  54
+                ],
+                [
+                  169,
+                  127,
+                  40
+                ],
+                [
+                  59,
+                  129,
+                  120
+                ],
+                [
+                  92,
+                  91,
+                  161
+                ]
+              ]
+            },
+            {
+              "id": "ink-cinnabar",
+              "name": "墨与朱砂",
+              "colors": [
+                [
+                  40,
+                  50,
+                  65
+                ],
+                [
+                  198,
+                  50,
+                  45
+                ],
+                [
+                  216,
+                  156,
+                  59
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "id": "saturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 75,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectSaturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "background",
+      "label": "背景",
+      "controls": [
+        {
+          "id": "backgroundBrightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.brightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          }
+        },
+        {
+          "id": "backgroundSaturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.saturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "backgroundHue",
+          "type": "slider",
+          "label": "色相",
+          "default": 0,
+          "min": 0,
+          "max": 360,
+          "step": 1,
+          "unit": "°",
+          "binding": {
+            "target": "background.hue",
+            "mapping": {
+              "type": "identity"
+            }
+          }
+        },
+        {
+          "id": "backgroundColor",
+          "type": "color",
+          "label": "颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "binding": {
+            "target": "background.color"
+          }
+        }
+      ]
+    }
+  ]
+}

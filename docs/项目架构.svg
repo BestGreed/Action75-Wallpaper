@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1000" width="1500" height="1000" role="img"><title>Action75 Wallpaper 项目架构</title><desc>控制台通过本机命名管道控制原生播放器。按键直接进入播放器，经校准映射和特效模拟后在键盘副屏显示。</desc>
+<rect x="0" y="0" width="1500" height="1000" rx="0" fill="#F4F3EE" stroke="none"/>
+<text x="48" y="84" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="49" font-weight="700" fill="#16282D">Action75 Wallpaper</text>
+<text x="49" y="136" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="24" font-weight="400" fill="#485B60">Windows 项目架构   /   当前源码</text>
+<rect x="48" y="174" width="432" height="367" rx="18" fill="#FFFFFF" stroke="#CFD7D3"/>
+<rect x="49" y="195" width="5" height="55" rx="2" fill="#116E68" stroke="none"/>
+<text x="75" y="222" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="30" font-weight="700" fill="#116E68">控制台</text>
+<text x="76" y="257" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="400" fill="#485B60">Action75Manager.exe   ·   Rust / egui</text>
+<text x="78" y="305" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="23" font-weight="700" fill="#116E68">壁纸库与参数面板</text>
+<text x="78" y="337" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="19" font-weight="400" fill="#16282D">选壁纸、调前景与背景、加载可见封面</text>
+<text x="78" y="391" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="23" font-weight="700" fill="#116E68">设备、校准与性能监控</text>
+<text x="78" y="423" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="19" font-weight="400" fill="#16282D">选择输出屏和键盘，查看播放器用量</text>
+<text x="78" y="487" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="400" fill="#485B60">后台任务队列提交请求、处理回执。</text>
+<rect x="700" y="174" width="752" height="367" rx="18" fill="#FFFFFF" stroke="#CFD7D3"/>
+<rect x="701" y="195" width="5" height="55" rx="2" fill="#235782" stroke="none"/>
+<text x="727" y="222" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="30" font-weight="700" fill="#235782">常驻播放器</text>
+<text x="728" y="257" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="400" fill="#485B60">Action75Native.exe   ·   C++ / Win32 / Direct3D 11</text>
+<text x="730" y="303" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="23" font-weight="700" fill="#235782">命令分发与壁纸加载</text>
+<text x="730" y="335" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="19" font-weight="400" fill="#16282D">窗口线程处理切换和设置；候选壁纸通过首帧检查后生效。</text>
+<text x="730" y="388" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="23" font-weight="700" fill="#235782">特效与渲染</text>
+<text x="730" y="420" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="19" font-weight="400" fill="#16282D">精灵图集、程序化场景、Effekseer 粒子共用 D3D11 输出。</text>
+<text x="730" y="487" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="400" fill="#485B60">播放器负责屏幕绑定、设备恢复、托盘和副屏鼠标保护。</text>
+<text x="502" y="299" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="22" font-weight="700" fill="#16282D">本机命名管道</text>
+<text x="530" y="329" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="400" fill="#485B60">JSON 命令</text>
+<polyline points="483,350 695,350" fill="none" stroke="#116E68" stroke-width="3"/>
+<polyline points="686,344 695,350 686,356" fill="none" stroke="#116E68" stroke-width="3"/>
+<polyline points="695,387 483,387" fill="none" stroke="#235782" stroke-width="3"/>
+<polyline points="492,381 483,387 492,393" fill="none" stroke="#235782" stroke-width="3"/>
+<text x="514" y="421" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="17" font-weight="400" fill="#485B60">状态、列表、回执</text>
+<rect x="48" y="565" width="1404" height="150" rx="16" fill="#E4EEED" stroke="none"/>
+<text x="75" y="606" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="25" font-weight="700" fill="#116E68">一次击键如何到达副屏</text>
+<text x="78" y="673" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="22" font-weight="700" fill="#16282D">Action75 键盘</text>
+<text x="320" y="673" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="22" font-weight="700" fill="#16282D">Windows Raw Input</text>
+<text x="661" y="673" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="22" font-weight="700" fill="#16282D">设备筛选与键位坐标</text>
+<text x="1035" y="673" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="22" font-weight="700" fill="#16282D">触发特效</text>
+<text x="1299" y="673" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="22" font-weight="700" fill="#16282D">副屏呈现</text>
+<polyline points="254,669 299,669" fill="none" stroke="#116E68" stroke-width="3"/>
+<polyline points="290,663 299,669 290,675" fill="none" stroke="#116E68" stroke-width="3"/>
+<polyline points="569,669 633,669" fill="none" stroke="#116E68" stroke-width="3"/>
+<polyline points="624,663 633,669 624,675" fill="none" stroke="#116E68" stroke-width="3"/>
+<polyline points="904,669 1001,669" fill="none" stroke="#116E68" stroke-width="3"/>
+<polyline points="992,663 1001,669 992,675" fill="none" stroke="#116E68" stroke-width="3"/>
+<polyline points="1162,669 1263,669" fill="none" stroke="#116E68" stroke-width="3"/>
+<polyline points="1254,663 1263,669 1254,675" fill="none" stroke="#116E68" stroke-width="3"/>
+<rect x="48" y="743" width="685" height="199" rx="18" fill="#FFFFFF" stroke="#CFD7D3"/>
+<rect x="49" y="764" width="5" height="55" rx="2" fill="#116E68" stroke="none"/>
+<text x="75" y="791" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="30" font-weight="700" fill="#116E68">导入一款壁纸</text>
+<text x="76" y="826" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="400" fill="#485B60">文件夹 → 校验清单和资源 → 隔离播放器试播</text>
+<text x="76" y="864" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="19" font-weight="400" fill="#16282D">试播成功后发布到壁纸库；更新时保留可回退的版本。</text>
+<text x="76" y="905" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="17" font-weight="400" fill="#485B60">支持的作者包后端：精灵图集、Effekseer。</text>
+<rect x="753" y="743" width="699" height="199" rx="18" fill="#FFFFFF" stroke="#CFD7D3"/>
+<rect x="754" y="764" width="5" height="55" rx="2" fill="#235782" stroke="none"/>
+<text x="780" y="791" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="30" font-weight="700" fill="#235782">本地资源与状态</text>
+<text x="781" y="826" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="400" fill="#485B60">内置分发目录、自定义壁纸库和兼容旧库</text>
+<text x="781" y="864" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="19" font-weight="400" fill="#16282D">每包包含 manifest.json 及素材，可附 settings.json。</text>
+<text x="781" y="905" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="17" font-weight="400" fill="#485B60">data/ 保存应用偏好、键位校准和逐款壁纸参数。</text>
+<text x="49" y="976" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="18" font-weight="400" fill="#485B60">关闭控制台后，常驻播放器仍可接收按键并播放壁纸。</text></svg>

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "meridian",
+  "name": "日蚀经线 · Meridian",
+  "description": "连续时间解析轨道弧：平滑生长、沿弧流光和自然淡出。保留原背景及配色。",
+  "settings": "settings.json",
+  "kind": "native",
+  "abi": 1,
+  "entry": "wallpaper.dll",
+  "preview": "preview.png"
+}

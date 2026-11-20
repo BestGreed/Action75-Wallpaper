@@ -1,0 +1,194 @@
+{
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "night_sky",
+      "label": "夜空花型",
+      "presentation": "variant-playback",
+      "playback": {
+        "selection": "sky_program",
+        "randomize": "mix_stars",
+        "interval": "tap_cadence",
+        "order": [
+          7,
+          1,
+          4
+        ]
+      },
+      "controls": [
+        {
+          "id": "sky_program",
+          "label": "花型",
+          "type": "select",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "组合"
+            },
+            {
+              "value": 1,
+              "label": "垂柳",
+              "toggleId": "willow_arc"
+            },
+            {
+              "value": 4,
+              "label": "棕榈",
+              "toggleId": "palm_fan"
+            },
+            {
+              "value": 7,
+              "label": "土星",
+              "toggleId": "saturn_ring"
+            }
+          ],
+          "surface": "foreground",
+          "appearance": "style"
+        },
+        {
+          "id": "willow_arc",
+          "label": "垂柳",
+          "type": "toggle",
+          "default": true,
+          "surface": "foreground"
+        },
+        {
+          "id": "palm_fan",
+          "label": "棕榈",
+          "type": "toggle",
+          "default": true,
+          "surface": "foreground"
+        },
+        {
+          "id": "saturn_ring",
+          "label": "土星",
+          "type": "toggle",
+          "default": true,
+          "surface": "foreground"
+        },
+        {
+          "id": "mix_stars",
+          "label": "随机顺序",
+          "type": "toggle",
+          "default": false,
+          "surface": "foreground"
+        },
+        {
+          "id": "tap_cadence",
+          "label": "击键间隔",
+          "type": "slider",
+          "default": 2,
+          "min": 1,
+          "max": 99,
+          "step": 1,
+          "surface": "foreground"
+        }
+      ]
+    },
+    {
+      "id": "background",
+      "label": "背景",
+      "controls": [
+        {
+          "id": "backgroundStyle",
+          "type": "select",
+          "label": "背景",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "原作"
+            },
+            {
+              "value": 1,
+              "label": "纯色"
+            }
+          ],
+          "appearance": "style",
+          "surface": "background",
+          "advanced": false,
+          "binding": {
+            "target": "background.style",
+            "mapping": {
+              "type": "identity"
+            }
+          }
+        },
+        {
+          "id": "backgroundBrightness",
+          "type": "slider",
+          "label": "背景亮度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "appearance": "brightness",
+          "surface": "background",
+          "advanced": false,
+          "binding": {
+            "target": "background.brightness",
+            "mapping": {
+              "type": "identity"
+            }
+          }
+        },
+        {
+          "id": "backgroundHue",
+          "type": "slider",
+          "label": "背景色相",
+          "default": 0,
+          "min": 0,
+          "max": 360,
+          "step": 1,
+          "unit": "°",
+          "appearance": "hue",
+          "surface": "background",
+          "advanced": false,
+          "binding": {
+            "target": "background.hue",
+            "mapping": {
+              "type": "identity"
+            }
+          }
+        },
+        {
+          "id": "backgroundSaturation",
+          "type": "slider",
+          "label": "背景饱和度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "appearance": "saturation",
+          "surface": "background",
+          "advanced": false,
+          "binding": {
+            "target": "background.saturation",
+            "mapping": {
+              "type": "identity"
+            }
+          }
+        },
+        {
+          "id": "backgroundColor",
+          "type": "color",
+          "label": "背景颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "appearance": "color",
+          "surface": "background",
+          "advanced": false,
+          "binding": {
+            "target": "background.color"
+          }
+        }
+      ]
+    }
+  ]
+}

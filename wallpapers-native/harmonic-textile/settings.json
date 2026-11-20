@@ -1,0 +1,479 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "background",
+      "label": "背景",
+      "controls": [
+        {
+          "id": "backgroundStyle",
+          "type": "select",
+          "label": "背景",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "原作"
+            },
+            {
+              "value": 1,
+              "label": "纯色"
+            }
+          ],
+          "appearance": "style",
+          "surface": "background",
+          "advanced": false
+        },
+        {
+          "id": "backgroundBrightness",
+          "type": "slider",
+          "label": "背景亮度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "appearance": "brightness",
+          "surface": "background",
+          "advanced": false
+        },
+        {
+          "id": "backgroundHue",
+          "type": "slider",
+          "label": "背景色相",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "unit": "°",
+          "appearance": "hue",
+          "surface": "background",
+          "advanced": false
+        },
+        {
+          "id": "backgroundSaturation",
+          "type": "slider",
+          "label": "背景饱和度",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "appearance": "saturation",
+          "surface": "background",
+          "advanced": false
+        },
+        {
+          "id": "backgroundColor",
+          "type": "color",
+          "label": "背景颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "appearance": "color",
+          "surface": "background",
+          "advanced": false
+        }
+      ]
+    },
+    {
+      "id": "color",
+      "label": "色彩与光",
+      "controls": [
+        {
+          "id": "palette",
+          "type": "palette",
+          "label": "配色",
+          "default": {
+            "preset": "moon-lilac",
+            "colors": [
+              [
+                19,
+                20,
+                34
+              ],
+              [
+                57,
+                54,
+                82
+              ],
+              [
+                105,
+                96,
+                134
+              ],
+              [
+                169,
+                151,
+                174
+              ],
+              [
+                232,
+                219,
+                209
+              ]
+            ]
+          },
+          "maxColors": 9,
+          "allowSingleHue": false,
+          "palettes": [
+            {
+              "id": "ink-tide",
+              "name": "青瓷烟墨",
+              "colors": [
+                [
+                  12,
+                  21,
+                  33
+                ],
+                [
+                  35,
+                  61,
+                  76
+                ],
+                [
+                  65,
+                  112,
+                  119
+                ],
+                [
+                  133,
+                  163,
+                  151
+                ],
+                [
+                  228,
+                  219,
+                  194
+                ]
+              ]
+            },
+            {
+              "id": "copper-obsidian",
+              "name": "黑曜铜金",
+              "colors": [
+                [
+                  18,
+                  21,
+                  24
+                ],
+                [
+                  49,
+                  68,
+                  68
+                ],
+                [
+                  118,
+                  96,
+                  65
+                ],
+                [
+                  185,
+                  148,
+                  88
+                ],
+                [
+                  242,
+                  224,
+                  179
+                ]
+              ]
+            },
+            {
+              "id": "moon-lilac",
+              "name": "烟紫月白",
+              "colors": [
+                [
+                  19,
+                  20,
+                  34
+                ],
+                [
+                  57,
+                  54,
+                  82
+                ],
+                [
+                  105,
+                  96,
+                  134
+                ],
+                [
+                  169,
+                  151,
+                  174
+                ],
+                [
+                  232,
+                  219,
+                  209
+                ]
+              ]
+            },
+            {
+              "id": "glacier",
+              "name": "冰川石墨",
+              "colors": [
+                [
+                  10,
+                  23,
+                  32
+                ],
+                [
+                  35,
+                  66,
+                  85
+                ],
+                [
+                  77,
+                  118,
+                  138
+                ],
+                [
+                  151,
+                  184,
+                  192
+                ],
+                [
+                  229,
+                  237,
+                  229
+                ]
+              ]
+            },
+            {
+              "id": "viridis",
+              "name": "Viridis · 感知均匀",
+              "colors": [
+                [
+                  68,
+                  1,
+                  84
+                ],
+                [
+                  59,
+                  82,
+                  139
+                ],
+                [
+                  33,
+                  145,
+                  140
+                ],
+                [
+                  94,
+                  201,
+                  98
+                ],
+                [
+                  253,
+                  231,
+                  37
+                ]
+              ]
+            },
+            {
+              "id": "magma",
+              "name": "Magma · 感知均匀",
+              "colors": [
+                [
+                  0,
+                  0,
+                  4
+                ],
+                [
+                  81,
+                  18,
+                  124
+                ],
+                [
+                  183,
+                  55,
+                  121
+                ],
+                [
+                  252,
+                  137,
+                  97
+                ],
+                [
+                  252,
+                  253,
+                  191
+                ]
+              ]
+            }
+          ],
+          "surface": "foreground",
+          "advanced": false,
+          "appearance": "color"
+        },
+        {
+          "id": "brightness",
+          "type": "slider",
+          "label": "曝光",
+          "default": 2,
+          "min": 0,
+          "max": 4,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": false,
+          "appearance": "brightness"
+        },
+        {
+          "id": "bloom",
+          "type": "slider",
+          "label": "柔光扩散",
+          "default": 0.3,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "ambient",
+          "type": "slider",
+          "label": "环境层",
+          "default": 0.8,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "surface": "background",
+          "advanced": true
+        }
+      ]
+    },
+    {
+      "id": "movement",
+      "label": "运动与互动",
+      "controls": [
+        {
+          "id": "intensity",
+          "type": "slider",
+          "label": "击键能量",
+          "default": 1.2,
+          "min": 0,
+          "max": 3,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": false
+        },
+        {
+          "id": "size",
+          "type": "slider",
+          "label": "结构尺度",
+          "default": 1,
+          "min": 0.5,
+          "max": 3,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "speed",
+          "type": "slider",
+          "label": "运动速度",
+          "default": 0.65,
+          "min": 0.25,
+          "max": 3,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": false
+        },
+        {
+          "id": "persistence",
+          "type": "slider",
+          "label": "余韵时长",
+          "default": 4,
+          "min": 0.4,
+          "max": 8,
+          "step": 0.1,
+          "unit": "秒",
+          "surface": "foreground",
+          "advanced": false
+        },
+        {
+          "id": "turbulence",
+          "type": "slider",
+          "label": "流场扰动",
+          "default": 0.65,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "propagation",
+          "type": "slider",
+          "label": "传播与生长",
+          "default": 1,
+          "min": 0.2,
+          "max": 2.5,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        }
+      ]
+    },
+    {
+      "id": "detail",
+      "label": "材质细节",
+      "controls": [
+        {
+          "id": "detail",
+          "type": "slider",
+          "label": "细节层次",
+          "default": 0.85,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "sparks",
+          "type": "slider",
+          "label": "微光颗粒",
+          "default": 0.1,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "surface": "foreground",
+          "advanced": true
+        },
+        {
+          "id": "quality",
+          "type": "select",
+          "label": "渲染精度",
+          "default": 1,
+          "options": [
+            {
+              "value": 0,
+              "label": "轻量"
+            },
+            {
+              "value": 1,
+              "label": "精细"
+            },
+            {
+              "value": 2,
+              "label": "极致"
+            }
+          ],
+          "surface": "foreground",
+          "advanced": true
+        }
+      ]
+    },
+    {
+      "id": "performance",
+      "label": "性能与待机",
+      "controls": []
+    }
+  ],
+  "presentation": "layered"
+}

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "id": "carrier",
+  "name": "载波 · Carrier",
+  "kind": "spriteBurst",
+  "description": "暗橄榄色底上的磷光信号束；击键发出左右传播的分段脉冲。",
+  "background": "background.png",
+  "effect": "burst.png",
+  "columns": 6,
+  "rows": 4,
+  "duration": 0.63,
+  "diameter": 412,
+  "composition": "add",
+  "settings": "settings.json"
+}

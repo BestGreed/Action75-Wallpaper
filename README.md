@@ -4,6 +4,8 @@
 
 **[下载 Windows 版](https://github.com/blackwhite-poi/Action75-Wallpaper/releases/latest)**　·　[首次连接](#首次连接)　·　[常见问题](#常见问题)　·　[制作壁纸](#制作并接入自己的壁纸)
 
+[源码构建与测试](BUILDING.md) · [Apache-2.0](LICENSE) · [第三方与素材许可](LICENSING.md)
+
 ![壁纸库与黑洞的参数面板](docs/images/library.jpg)
 
 ## 首次连接

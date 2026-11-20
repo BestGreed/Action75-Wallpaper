@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "id": "tidemark-bearing",
+  "name": "潮标 · 偏岸",
+  "kind": "effekseer",
+  "effect": "tidemark.efk",
+  "settings": "settings.json",
+  "preview": "cover.png"
+}

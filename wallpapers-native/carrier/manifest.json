@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "carrier",
+  "name": "载波 · Carrier",
+  "description": "暗橄榄色底上的磷光信号束；击键发出左右传播的分段脉冲。",
+  "settings": "settings.json",
+  "kind": "native",
+  "abi": 1,
+  "entry": "wallpaper.dll",
+  "preview": "preview.png"
+}

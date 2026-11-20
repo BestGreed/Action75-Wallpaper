@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "id": "meridian",
+  "name": "日蚀经线 · Meridian",
+  "kind": "proceduralBurst",
+  "description": "连续时间解析轨道弧：平滑生长、沿弧流光和自然淡出。保留原背景及配色。",
+  "background": "background.png",
+  "effect": "burst.png",
+  "columns": 6,
+  "rows": 4,
+  "duration": 0.98,
+  "diameter": 410,
+  "composition": "add",
+  "settings": "settings.json",
+  "proceduralStyle": 1
+}

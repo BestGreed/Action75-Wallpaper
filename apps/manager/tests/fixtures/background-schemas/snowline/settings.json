@@ -1,0 +1,277 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "appearance",
+      "label": "外观",
+      "controls": [
+        {
+          "id": "brightness",
+          "type": "slider",
+          "label": "冰晶浓度",
+          "default": 80,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectBrightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          }
+        },
+        {
+          "id": "size",
+          "type": "slider",
+          "label": "冰晶范围",
+          "default": 1.6,
+          "min": 0.5,
+          "max": 3,
+          "step": 0.05,
+          "binding": {
+            "target": "effectScale"
+          },
+          "unit": "×"
+        }
+      ]
+    },
+    {
+      "id": "motion",
+      "label": "动效",
+      "controls": [
+        {
+          "id": "duration",
+          "type": "slider",
+          "label": "结晶时长",
+          "default": 0.84,
+          "min": 0.2,
+          "max": 2.0,
+          "step": 0.01,
+          "binding": {
+            "target": "sprite.duration"
+          },
+          "unit": "秒"
+        }
+      ]
+    },
+    {
+      "id": "color",
+      "label": "颜色",
+      "controls": [
+        {
+          "id": "palette",
+          "type": "palette",
+          "label": "配色",
+          "default": {
+            "preset": "glacier",
+            "colors": [
+              [
+                32,
+                77,
+                117
+              ],
+              [
+                53,
+                109,
+                134
+              ],
+              [
+                83,
+                102,
+                145
+              ]
+            ]
+          },
+          "maxColors": 9,
+          "binding": {
+            "target": "effectPalette"
+          },
+          "allowSingleHue": true,
+          "palettes": [
+            {
+              "id": "glacier",
+              "name": "冰川靛蓝",
+              "colors": [
+                [
+                  32,
+                  77,
+                  117
+                ],
+                [
+                  53,
+                  109,
+                  134
+                ],
+                [
+                  83,
+                  102,
+                  145
+                ]
+              ]
+            },
+            {
+              "id": "polar-teal",
+              "name": "极地青",
+              "colors": [
+                [
+                  18,
+                  95,
+                  100
+                ],
+                [
+                  40,
+                  109,
+                  130
+                ],
+                [
+                  75,
+                  81,
+                  126
+                ]
+              ]
+            },
+            {
+              "id": "dusk-snow",
+              "name": "暮雪",
+              "colors": [
+                [
+                  53,
+                  78,
+                  100
+                ],
+                [
+                  102,
+                  84,
+                  123
+                ],
+                [
+                  142,
+                  77,
+                  89
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "id": "saturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "effectSaturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "background",
+      "label": "背景",
+      "controls": [
+        {
+          "id": "backgroundBrightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.brightness",
+            "mapping": {
+              "type": "power",
+              "inputMin": 0,
+              "inputMax": 100,
+              "outputMin": 0,
+              "outputMax": 4,
+              "exponent": 2
+            }
+          }
+        },
+        {
+          "id": "backgroundSaturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "binding": {
+            "target": "background.saturation",
+            "mapping": {
+              "type": "piecewise",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  1
+                ],
+                [
+                  100,
+                  2.5
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "backgroundHue",
+          "type": "slider",
+          "label": "色相",
+          "default": 0,
+          "min": 0,
+          "max": 360,
+          "step": 1,
+          "unit": "°",
+          "binding": {
+            "target": "background.hue",
+            "mapping": {
+              "type": "identity"
+            }
+          }
+        },
+        {
+          "id": "backgroundColor",
+          "type": "color",
+          "label": "颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "binding": {
+            "target": "background.color"
+          }
+        }
+      ]
+    }
+  ]
+}

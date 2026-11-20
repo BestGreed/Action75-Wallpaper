@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "folio",
+  "name": "朱砂拓印 · Folio",
+  "description": "有纸纹的暖色留白与赭红浮雕；按键在纸面晕染出矿物颜料。",
+  "settings": "settings.json",
+  "kind": "native",
+  "abi": 1,
+  "entry": "wallpaper.dll",
+  "preview": "preview.png"
+}

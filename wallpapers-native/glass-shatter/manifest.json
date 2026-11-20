@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "glass-shatter",
+  "name": "碎光玻璃",
+  "kind": "native",
+  "description": "按键处绽开玻璃裂纹，折射出飞散的碎片。每次按下的力度在设定范围内随机变化，可切换极夜蓝、琥珀暮光和银雾背景。",
+  "settings": "settings.json",
+  "preview": "preview.png",
+  "entry": "wallpaper.dll",
+  "abi": 1
+}
