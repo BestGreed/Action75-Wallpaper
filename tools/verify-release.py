@@ -115,6 +115,7 @@ def verify_inventory(app):
               for folder in ("assets", "existing-resources", "wallpapers-native", "Licenses")
               for path in (app / folder).rglob("*")
               if path.is_file() and not path.is_relative_to(app / "Licenses/Rust")}
+    actual.update(path for path in expected if len(path.parts) == 1 and (app / path).is_file())
     assert actual == expected, {"missing": sorted(expected - actual), "extra": sorted(actual - expected)}
     assert all(digest(app / relative) == digest(ROOT / relative) for relative in expected)
     return sorted(inventory()["wallpapers"])
