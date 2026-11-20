@@ -74,6 +74,15 @@
 | 特效位置偏离实际键位 | 打开「键位校准」，预览拟合后的键位，确认位置后保存。 |
 | 只有在游戏中看不到按键特效 | 在「设备与输出」尝试开启「管理员游戏兼容」。 |
 
+## 源码导航
+
+| 想了解什么 | 从哪里看 |
+| --- | --- |
+| 壁纸库、设置页、键盘和显示器选择 | [Rust 控制台](apps/manager/) |
+| 按键如何触发画面，画面如何输出到副屏 | [C++ 播放器](native/windows-player/) |
+| 内置壁纸有哪些参数，怎样新增一款壁纸 | [内置壁纸包](wallpapers-native/) · [开发示例](examples/) · [作者指南](skills/action75-wallpaper-author/SKILL.md) |
+| 如何编译、运行测试和制作安装包 | [构建指南](BUILDING.md) · [工具脚本](tools/) |
+
 ## 项目与贡献者
 
 Action75 Wallpaper 由 [blackwhite-poi](https://github.com/blackwhite-poi) 与 [Codex](https://github.com/codex) 协作开发。
