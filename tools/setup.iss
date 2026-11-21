@@ -50,7 +50,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Files]
-Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PayloadDir}\*"; DestDir: "{app}"; Excludes: "\wallpapers-native\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+#include PackEntries
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
@@ -79,17 +80,46 @@ begin
   Result := RegKeyExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{81CCDD80-9A70-4694-94EB-AC6D96651B70}_is1');
 end;
 
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-begin
-  if CurUninstallStep = usUninstall then
-    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'ACTION75');
-end;
 #endif
 
 var
   UpdateParent: Integer;
-  UpdateToken, UpdateDir, UpdateManager: String;
+  UpdateToken, UpdateDir, UpdateManager, PreservedPacks: String;
   ResumePanel, Installed: Boolean;
+
+function CanInstallPack(Id: String): Boolean;
+var
+  PackDir: String;
+begin
+  PackDir := ExpandConstant('{app}\wallpapers-native\') + Id + '\';
+  Result := not (FileExists(PackDir + 'manifest.json') and DirExists(PackDir + '.action75-versions'));
+  if not Result and (Pos('|' + Id + '|', PreservedPacks) = 0) then begin
+    if PreservedPacks = '' then PreservedPacks := '|';
+    PreservedPacks := PreservedPacks + Id + '|';
+    Log('Preserving imported wallpaper instead of installing same-ID bundle: ' + Id);
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Args, Message: String;
+  Code: Integer;
+begin
+  if CurUninstallStep <> usUninstall then exit;
+  Args := '--uninstall-session';
+#ifdef QaId
+  Args := Args + ' {#QaId}';
+#endif
+  if not Exec(ExpandConstant('{app}\dist\Action75Manager\Action75Manager.exe'),
+              Args, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then begin
+    Message := 'ACTION75 could not close its session. Close the controller and player, then retry uninstalling.';
+    if ActiveLanguage = 'chinesesimp' then
+      Message := '无法退出此 ACTION75 会话。请关闭控制台和播放器后重试卸载。';
+    Log(Message);
+    SuppressibleMsgBox(Message, mbError, MB_OK, IDOK);
+    Abort;
+  end;
+end;
 
 function OpenProcess(Access: Cardinal; Inherit: Boolean; Pid: Cardinal): Integer;
   external 'OpenProcess@kernel32.dll stdcall';
@@ -176,8 +206,24 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Packs, Message: String;
 begin
-  if CurStep = ssPostInstall then Installed := True;
+  if CurStep <> ssPostInstall then exit;
+  Installed := True;
+  if PreservedPacks <> '' then begin
+    Packs := Copy(PreservedPacks, 2, Length(PreservedPacks) - 2);
+    StringChangeEx(Packs, '|', ', ', True);
+    ForceDirectories(ExpandConstant('{app}\data'));
+    if not SaveStringToFile(ExpandConstant('{app}\data\preserved-wallpapers.txt'), Packs, False) then
+      Log('Could not save the preserved wallpaper notice.');
+    if not WizardSilent then begin
+      Message := 'Kept your imported wallpapers with these IDs: ' + Packs;
+      if ActiveLanguage = 'chinesesimp' then
+        Message := '已保留同 ID 的导入壁纸：' + Packs;
+      SuppressibleMsgBox(Message, mbInformation, MB_OK, IDOK);
+    end;
+  end;
 end;
 
 procedure DeinitializeSetup;

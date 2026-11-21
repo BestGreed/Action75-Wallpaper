@@ -1,0 +1,3 @@
+LIBRARY wallpaper
+EXPORTS
+    Action75GetWallpaper

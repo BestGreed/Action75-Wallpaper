@@ -45,10 +45,24 @@ pub struct Preferences {
 }
 impl Preferences {
     pub fn load(root: &Path) -> Self {
-        fs::read(root.join("data/app-settings.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+        Self::load_checked(root).unwrap_or_default()
+    }
+    /// Missing preferences are a first run; unreadable or damaged ones are not.
+    pub fn load_checked(root: &Path) -> Result<Self, String> {
+        Ok(Self::read_document(root)?.map(|(preferences, _)| preferences).unwrap_or_default())
+    }
+    fn read_document(root: &Path) -> Result<Option<(Self, serde_json::Value)>, String> {
+        let bytes = match fs::read(root.join("data/app-settings.json")) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("无法读取偏好配置，原文件已保留：{error}")),
+        };
+        let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
+        let document: serde_json::Value = serde_json::from_slice(bytes)
+            .map_err(|error| format!("偏好配置损坏，原文件已保留，请修复后再保存：{error}"))?;
+        let preferences = serde_json::from_value(document.clone())
+            .map_err(|error| format!("偏好配置格式错误，原文件已保留，请修复后再保存：{error}"))?;
+        Ok(Some((preferences, document)))
     }
     pub fn wallpapers(&self, root: &Path) -> PathBuf {
         if self.wallpaper_dir.is_empty() {
@@ -66,11 +80,19 @@ impl Preferences {
     }
     pub fn save(&self, root: &Path) -> Result<(), String> {
         let path = root.join("data/app-settings.json");
+        // A fallback displayed by load() must never silently replace a bad file.
+        // Keep fields written by newer versions or other compatible tools.
+        let mut document = Self::read_document(root)?
+            .map(|(_, document)| document)
+            .unwrap_or_else(|| serde_json::json!({}));
+        let fields = serde_json::to_value(self).map_err(|e| e.to_string())?;
+        document.as_object_mut().ok_or("偏好配置必须是对象")?
+            .extend(fields.as_object().ok_or("无法序列化偏好配置")?.clone());
         fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
         let temp = path.with_extension("tmp");
         fs::write(
             &temp,
-            serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?,
+            serde_json::to_vec_pretty(&document).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
         crate::atomic_replace(&temp, &path)
@@ -95,6 +117,96 @@ fn legacy_preferences_keep_their_paths_and_panel_state_when_the_theme_is_saved()
     assert_eq!(saved["panelWidth"], 316.);
     assert_eq!(saved["theme"], "graphite");
     assert_eq!(saved["gpuPreference"], "discrete");
+}
+
+#[cfg(test)]
+mod preferences_tests {
+    use super::*;
+    use serde_json::json;
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "action75-preferences-{}-{}", std::process::id(),
+                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            ));
+            fs::create_dir(&path).unwrap();
+            fs::create_dir(path.join("data")).unwrap();
+            Self(path)
+        }
+        fn file(&self) -> PathBuf { self.0.join("data/app-settings.json") }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn bom_preferences_keep_paths_setup_and_interface_during_normal_saves() {
+        let fixture = Fixture::new();
+        let original = json!({
+            "wallpaperDir":"C:/custom-packs", "logDir":"D:/custom-logs",
+            "setupComplete":true, "gpuPreference":"integrated", "theme":"graphite",
+            "wallpaperOrder":["b","a"], "panelOpen":false, "panelWidth":319,
+            "futurePreference":{"nested":[1,true,"preserve"]}
+        });
+        let mut bytes = vec![0xef, 0xbb, 0xbf];
+        bytes.extend(serde_json::to_vec(&original).unwrap());
+        fs::write(fixture.file(), bytes).unwrap();
+        let mut preferences = Preferences::load_checked(&fixture.0).unwrap();
+        assert_eq!(preferences.wallpaper_dir, "C:/custom-packs");
+        assert_eq!(preferences.log_dir, "D:/custom-logs");
+        assert!(preferences.setup_complete);
+        assert_eq!(preferences.gpu_preference, GpuPreference::Integrated);
+        assert_eq!(preferences.interface.theme, InterfaceTheme::Graphite);
+        assert!(Preferences::load(&fixture.0).setup_complete);
+        preferences.interface.panel_open = Some(true);
+        preferences.save(&fixture.0).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(fixture.file()).unwrap()).unwrap();
+        for field in ["wallpaperDir", "logDir", "setupComplete", "gpuPreference", "theme", "wallpaperOrder", "futurePreference"] {
+            assert_eq!(saved[field], original[field], "{field}");
+        }
+        assert_eq!(saved["panelWidth"].as_f64(), original["panelWidth"].as_f64());
+        assert_eq!(saved["panelOpen"], true);
+    }
+
+    #[test]
+    fn malformed_preferences_cannot_be_overwritten_by_a_fallback_save() {
+        let fixture = Fixture::new();
+        for bytes in [b"".as_slice(), b"{", b"null", b"[]", br#"{"wallpaperDir":null}"#,
+            br#"{"setupComplete":"yes"}"#, br#"{"panelWidth":"wide"}"#] {
+            fs::write(fixture.file(), bytes).unwrap();
+            assert!(Preferences::load_checked(&fixture.0).is_err());
+            let mut fallback = Preferences::load(&fixture.0);
+            fallback.interface.panel_open = Some(true);
+            assert!(fallback.save(&fixture.0).is_err());
+            assert_eq!(fs::read(fixture.file()).unwrap(), bytes);
+            assert!(!fixture.0.join("data/app-settings.tmp").exists());
+        }
+    }
+
+    #[test]
+    fn unreadable_preferences_path_is_not_replaced() {
+        let fixture = Fixture::new();
+        fs::create_dir(fixture.file()).unwrap();
+        assert!(Preferences::load_checked(&fixture.0).is_err());
+        assert!(Preferences::default().save(&fixture.0).is_err());
+        assert!(fixture.file().is_dir());
+        assert!(!fixture.0.join("data/app-settings.tmp").exists());
+    }
+
+    #[test]
+    fn a_missing_file_can_be_saved_and_reloaded_normally() {
+        let fixture = Fixture::new();
+        let mut preferences = Preferences::load_checked(&fixture.0).unwrap();
+        assert!(!preferences.setup_complete);
+        preferences.setup_complete = true;
+        preferences.wallpaper_dir = "C:/library".into();
+        preferences.save(&fixture.0).unwrap();
+        let restored = Preferences::load_checked(&fixture.0).unwrap();
+        assert!(restored.setup_complete);
+        assert_eq!(restored.wallpaper_dir, "C:/library");
+    }
 }
 
 pub fn bootstrap(root: &Path) -> Result<(), String> {
@@ -228,17 +340,21 @@ fn same_file(a: &Path, b: &Path) -> Result<bool, String> {
 }
 
 pub(crate) fn same_contents(a: &mut impl Read, b: &mut impl Read) -> io::Result<bool> {
-    let mut x = [0u8; 65536];
-    let mut y = [0u8; 65536];
+    use io::BufRead;
+    let mut a = io::BufReader::new(a);
+    let mut b = io::BufReader::new(b);
     loop {
-        let n = a.read(&mut x)?;
-        let m = b.read(&mut y)?;
-        if n != m || x[..n] != y[..m] {
+        let x = a.fill_buf()?;
+        let y = b.fill_buf()?;
+        let count = x.len().min(y.len());
+        if x[..count] != y[..count] {
             return Ok(false);
         }
-        if n == 0 {
-            return Ok(true);
+        if count == 0 {
+            return Ok(x.is_empty() && y.is_empty());
         }
+        a.consume(count);
+        b.consume(count);
     }
 }
 fn files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
@@ -359,11 +475,66 @@ fn volume_space(target: &Path) -> Result<(String, u64), String> {
     Ok((identity, available))
 }
 
+#[cfg(windows)]
+fn migration_file_identity(path: &Path) -> Result<(u64, u64), String> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::{Foundation::HANDLE, Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle}};
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) }
+        .map_err(|error| format!("无法识别迁移文件（{}），{error}", path.display()))?;
+    Ok((u64::from(info.dwVolumeSerialNumber), (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow)))
+}
+
+#[cfg(unix)]
+fn migration_file_identity(path: &Path) -> Result<(u64, u64), String> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+    Ok((metadata.dev(), metadata.ino()))
+}
+
+fn validate_migration_files(plan: &[(PathBuf, PathBuf)], sources: &[PathBuf], targets: &[PathBuf]) -> Result<(), String> {
+    let identities = plan.iter().map(|(source, _)| migration_file_identity(source))
+        .collect::<Result<std::collections::HashSet<_>, _>>()?;
+    for (_, destination) in plan {
+        // The catalog rejects reparse points inside a package. A library-root
+        // mount is resolved before planning, but nested links cannot be copied
+        // into successfully and then leave an undiscoverable wallpaper.
+        let root = targets.iter().find(|target| destination.starts_with(target)).ok_or("目标文件不属于迁移目录")?;
+        let mut path = root.clone();
+        for component in destination.strip_prefix(root).map_err(|error| error.to_string())?.components() {
+            path.push(component);
+            match fs::symlink_metadata(&path) {
+                Ok(metadata) => {
+                    let mut linked = metadata.file_type().is_symlink();
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::fs::MetadataExt;
+                        linked |= metadata.file_attributes() & 0x400 != 0;
+                    }
+                    if linked { return Err(format!("壁纸和日志目录内不能包含联接或重解析点，未移动文件：{}", path.display())); }
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+        let parent = allocation_directory(destination)?;
+        if sources.iter().any(|source| parent.starts_with(source)) {
+            return Err(format!("目标目录联接指回源目录，未移动文件：{}", destination.display()));
+        }
+        if destination.exists() && identities.contains(&migration_file_identity(destination)?) {
+            return Err(format!("源文件和目标文件指向同一实体，未移动文件：{}", destination.display()));
+        }
+    }
+    Ok(())
+}
+
+/// Activation is repeated after a failed ACK to restore the old runtime paths.
 /// Copy and verify before activation; only remove source files after an ACK.
 pub fn migrate(
     root: &Path,
     next: &Preferences,
-    activate: impl FnOnce() -> Result<(), String>,
+    activate: impl FnMut() -> Result<(), String>,
 ) -> Result<(), String> {
     migrate_with_space_check(root, next, activate, |allocations| {
         #[cfg(windows)]
@@ -377,13 +548,16 @@ pub fn migrate(
 fn migrate_with_space_check(
     root: &Path,
     next: &Preferences,
-    activate: impl FnOnce() -> Result<(), String>,
+    mut activate: impl FnMut() -> Result<(), String>,
     check_space: impl FnOnce(&[(PathBuf, u64)]) -> Result<(), String>,
 ) -> Result<(), String> {
-    let old = Preferences::load(root);
+    let old = Preferences::load_checked(root)?;
     let mut plan = Vec::new();
+    let mut sources = Vec::new();
+    let mut targets = Vec::new();
     let mut allocations = std::collections::BTreeMap::<PathBuf, u64>::new();
     let mut created = Vec::new();
+    let mut may_remove_created = true;
     let result = (|| {
         let destinations = [next.wallpapers(root), next.logs(root)];
         for target in &destinations {
@@ -410,6 +584,8 @@ fn migrate_with_space_check(
             if source == target {
                 continue;
             }
+            sources.push(source.clone());
+            targets.push(target.clone());
             if source.starts_with(&target) || target.starts_with(&source) {
                 return Err("新旧目录不能互相包含".into());
             }
@@ -457,6 +633,7 @@ fn migrate_with_space_check(
                 plan.push((file, dest));
             }
         }
+        validate_migration_files(&plan, &sources, &targets)?;
         check_space(&allocations.into_iter().collect::<Vec<_>>())?;
         for (src, dst) in &plan {
             if dst.exists() {
@@ -477,19 +654,34 @@ fn migrate_with_space_check(
                 return Err(format!("校验失败：{}", src.display()));
             }
         }
-        next.save(root)?;
+        // From here, a failed reply can mean the new configuration is already
+        // in use. Keep both copies until the old configuration AND runtime ACK.
+        may_remove_created = false;
+        next.save(root).map_err(|error| format!("切换目录配置失败，已保留新旧文件：{error}"))?;
         if let Err(error) = activate() {
-            old.save(root)?;
-            return Err(error);
+            if let Err(rollback) = old.save(root).and_then(|_| activate()) {
+                return Err(format!("迁移未确认：{error}；恢复旧目录未确认，已保留新旧文件：{rollback}"));
+            }
+            may_remove_created = true;
+            return Err(format!("迁移未完成，已恢复旧目录：{error}"));
         }
         Ok(())
     })();
     if result.is_err() {
-        for p in created {
-            let _ = fs::remove_file(p);
+        if may_remove_created && !created.is_empty() {
+            if let Err(alias) = validate_migration_files(&plan, &sources, &targets) {
+                return Err(format!("{}；未清理副本：{alias}", result.unwrap_err()));
+            }
+            for p in created {
+                let _ = fs::remove_file(p);
+            }
         }
         return result;
     }
+    // Recheck after activation: a directory link may have changed while copying
+    // or loading resources. A target alias must never cause its source deletion.
+    validate_migration_files(&plan, &sources, &targets)
+        .map_err(|error| format!("目录已切换，旧文件未清理：{error}"))?;
     for (src, dst) in plan {
         if same_file(&src, &dst) != Ok(true) {
             log(
@@ -552,6 +744,31 @@ mod tests {
     }
 
     #[test]
+    fn content_comparison_handles_different_short_read_boundaries() {
+        struct ShortReads<'a> {
+            bytes: &'a [u8],
+            limit: usize,
+        }
+        impl Read for ShortReads<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                let size = buffer.len().min(self.limit).min(self.bytes.len());
+                buffer[..size].copy_from_slice(&self.bytes[..size]);
+                self.bytes = &self.bytes[size..];
+                Ok(size)
+            }
+        }
+        let bytes = vec![42; 131_073];
+        let mut short = ShortReads { bytes: &bytes, limit: 7 };
+        assert!(same_contents(&mut short, &mut bytes.as_slice()).unwrap());
+        let mut short = ShortReads { bytes: &bytes[..bytes.len() - 1], limit: 11 };
+        assert!(!same_contents(&mut short, &mut bytes.as_slice()).unwrap());
+        let mut different = bytes.clone();
+        different[65_537] = 41;
+        let mut short = ShortReads { bytes: &different, limit: 13 };
+        assert!(!same_contents(&mut short, &mut bytes.as_slice()).unwrap());
+    }
+
+    #[test]
     fn migration_conflict_and_failed_ack_preserve_sources_and_preferences() {
         let root = std::env::temp_dir().join(format!(
             "action75-migrate-{}",
@@ -583,7 +800,11 @@ mod tests {
             log_dir: root.join("new-logs").display().to_string(),
             ..Default::default()
         };
-        assert!(migrate(&root, &next, || Err("reload failed".into())).is_err());
+        let mut acknowledgements = 0;
+        assert!(migrate(&root, &next, || {
+            acknowledgements += 1;
+            if acknowledgements == 1 { Err("reload failed".into()) } else { Ok(()) }
+        }).is_err());
         assert!(root.join("wallpapers-native/a/file").exists());
         assert!(!root.join("new-packs/a/file").exists());
         assert!(Preferences::load(&root).wallpaper_dir.is_empty());
@@ -879,7 +1100,7 @@ mod tests {
         fs::create_dir(&other).unwrap();
         let root_volume = volume_space(&root).unwrap().0;
         let other_volume = volume_space(&other).unwrap().0;
-        let link = root.join("new-packs").join("a");
+        let link = root.join("new-packs");
         // cmd's mklink is used only for a disposable test fixture. Refuse shell
         // metacharacters rather than interpolating arbitrary checkout paths.
         if root_volume == other_volume
@@ -896,7 +1117,6 @@ mod tests {
             fs::remove_dir_all(root).unwrap();
             return;
         }
-        fs::create_dir_all(root.join("new-packs")).unwrap();
         let made = std::process::Command::new("cmd.exe")
             .args(["/d", "/c", "mklink", "/J"])
             .arg(&link)
@@ -935,7 +1155,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(fs::read(other.join("asset")).unwrap(), b"12345678");
+        assert_eq!(fs::read(other.join("a/asset")).unwrap(), b"12345678");
         assert!(!root.join("wallpapers-native/a/asset").exists());
         println!(
             "PASS: actual cross-volume junction migration charged {other_volume} instead of {root_volume}"
@@ -943,5 +1163,110 @@ mod tests {
         fs::remove_dir(&link).unwrap();
         fs::remove_dir_all(other).unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn transaction_fixture(label: &str) -> (PathBuf, Preferences) {
+        let root = fixture_root(label);
+        fs::create_dir_all(root.join("wallpapers-native/a")).unwrap();
+        fs::write(root.join("wallpapers-native/a/manifest.json"), b"{}").unwrap();
+        fs::write(root.join("wallpapers-native/a/asset"), b"original").unwrap();
+        Preferences::default().save(&root).unwrap();
+        let next = Preferences { wallpaper_dir: root.join("new-packs").display().to_string(), log_dir: root.join("logs").display().to_string(), ..Default::default() };
+        (root, next)
+    }
+
+    #[test]
+    fn migration_rejects_hard_link_aliases_without_deleting_either_path() {
+        let (root, next) = transaction_fixture("hardlink-alias");
+        fs::create_dir_all(root.join("new-packs/a")).unwrap();
+        fs::hard_link(root.join("wallpapers-native/a/asset"), root.join("new-packs/a/asset")).unwrap();
+        let before = fs::read(root.join("data/app-settings.json")).unwrap();
+        assert!(migrate(&root, &next, || panic!("alias must not activate")).is_err());
+        for prefix in ["wallpapers-native", "new-packs"] {
+            assert_eq!(fs::read(root.join(prefix).join("a/asset")).unwrap(), b"original");
+        }
+        assert_eq!(fs::read(root.join("data/app-settings.json")).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn migration_rejects_package_junctions_without_deleting_either_side() {
+        use std::os::windows::process::CommandExt;
+        for alias_source in [true, false] {
+            let (root, next) = transaction_fixture("junction-alias");
+            fs::create_dir(root.join("new-packs")).unwrap();
+            let link = root.join("new-packs").join("a");
+            let source = root.join("wallpapers-native").join("a");
+            let target = if alias_source { source.clone() } else {
+                let target = root.join("independent");
+                fs::create_dir(&target).unwrap();
+                fs::copy(source.join("manifest.json"), target.join("manifest.json")).unwrap();
+                fs::copy(source.join("asset"), target.join("asset")).unwrap();
+                target
+            };
+            assert!(![&link, &target].iter().any(|p| p.to_string_lossy().chars().any(|c| "&|<>^%!\"\r\n".contains(c))));
+            let made = std::process::Command::new("cmd.exe").args(["/d", "/c", "mklink", "/J"])
+                .arg(&link).arg(&target).creation_flags(0x08000000).output().unwrap();
+            assert!(made.status.success(), "junction fixture: {}", String::from_utf8_lossy(&made.stderr));
+            assert!(migrate(&root, &next, || panic!("package junction must not activate")).is_err());
+            for path in [&source, &link] {
+                assert_eq!(fs::read(path.join("manifest.json")).unwrap(), b"{}");
+                assert_eq!(fs::read(path.join("asset")).unwrap(), b"original");
+            }
+            fs::remove_dir(&link).unwrap();
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn migration_rechecks_identity_before_removing_sources() {
+        let (root, next) = transaction_fixture("late-alias");
+        let source = root.join("wallpapers-native/a/asset");
+        let destination = root.join("new-packs/a/asset");
+        let result = migrate(&root, &next, || {
+            fs::remove_file(&destination).unwrap();
+            fs::hard_link(&source, &destination).unwrap();
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read(&source).unwrap(), b"original");
+        assert_eq!(fs::read(&destination).unwrap(), b"original");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn migration_lost_ack_restores_configuration_and_runtime_before_cleaning_copies() {
+        let (root, next) = transaction_fixture("rollback-ack");
+        let mut active_directories = Vec::new();
+        let result = migrate(&root, &next, || {
+            active_directories.push(Preferences::load_checked(&root).unwrap().wallpapers(&root));
+            if active_directories.len() == 1 { Err("ACK lost".into()) } else { Ok(()) }
+        });
+        assert!(result.is_err());
+        assert_eq!(active_directories, vec![root.join("new-packs"), root.join("wallpapers-native")]);
+        assert!(root.join("wallpapers-native/a/asset").exists());
+        assert!(!root.join("new-packs/a/asset").exists());
+        assert!(Preferences::load_checked(&root).unwrap().wallpaper_dir.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn migration_failed_configuration_or_runtime_rollback_preserves_both_copies() {
+        for fail_configuration in [true, false] {
+            let (root, next) = transaction_fixture("rollback-failure");
+            let result = migrate(&root, &next, || {
+                if fail_configuration {
+                    fs::create_dir(root.join("data/app-settings.tmp")).unwrap();
+                }
+                Err("activation could not be confirmed".into())
+            });
+            assert!(result.unwrap_err().contains("已保留新旧文件"));
+            for prefix in ["wallpapers-native", "new-packs"] {
+                assert_eq!(fs::read(root.join(prefix).join("a/asset")).unwrap(), b"original");
+            }
+            assert_eq!(Preferences::load_checked(&root).unwrap().wallpaper_dir.is_empty(), !fail_configuration);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }

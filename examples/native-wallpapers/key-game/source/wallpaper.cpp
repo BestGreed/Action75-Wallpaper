@@ -1,22 +1,21 @@
-#include "Action75Wallpaper.h"
+#include "Action75Wallpaper12.h"
 #include "game.hpp"
 #include "appearance.hpp"
+#include <array>
 #include <cmath>
 #include <cstring>
-#include <d3d11_1.h>
-#include <wrl/client.h>
-#include <new>
-#include <vector>
+#include <memory>
 
 namespace {
 using Pixel = uint32_t;
 struct Scene {
     key_game::Game game;
-    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
-    Microsoft::WRL::ComPtr<ID3D11DeviceContext1> clear_context;
-    ID3D11RenderTargetView *target = nullptr;
-    bool rgba = true;
-    std::vector<Pixel> pixels;
+    ID3D12GraphicsCommandList *commands = nullptr;
+    D3D12_CPU_DESCRIPTOR_HANDLE target{};
+    // The RTX 4060 driver can terminate the worker if a clear has more than 32 rectangles.
+    std::array<D3D12_RECT, 32> rectangles{};
+    UINT pending = 0;
+    Pixel batchColor = 0;
     unsigned w = 0, h = 0;
     bool amber = false, pause_held = false;
     double previous = -1;
@@ -58,25 +57,26 @@ struct Scene {
         for(size_t i=0;i<8;++i)
             objects[i]=adjust(amber && i==Signal ? 0xffffbb59 : objectColors[runnerStyle][i],runnerLook);
     }
+    void flushRectangles() {
+        if (!pending)
+            return;
+        const float channels[] = {
+            float((batchColor >> 16) & 255) / 255, float((batchColor >> 8) & 255) / 255,
+            float(batchColor & 255) / 255, float(batchColor >> 24) / 255
+        };
+        commands->ClearRenderTargetView(target, channels, pending, rectangles.data());
+        pending = 0;
+    }
     void rect(float x, float y, float width, float height, Pixel color) {
         const int x0 = std::clamp(int(x*w/960), 0, int(w));
         const int x1 = std::clamp(int((x+width)*w/960), x0, int(w));
         const int y0 = std::clamp(int(y*h/360), 0, int(h));
         const int y1 = std::clamp(int((y+height)*h/360), y0, int(h));
         if (x0 == x1 || y0 == y1) return;
-        if (clear_context) {
-            const float channels[] = {
-                float((color >> 16) & 255) / 255, float((color >> 8) & 255) / 255,
-                float(color & 255) / 255, float(color >> 24) / 255
-            };
-            const D3D11_RECT area{x0, y0, x1, y1};
-            clear_context->ClearView(target, channels, &area, 1);
-            return;
-        }
-        if (rgba)
-            color = (color & 0xff00ff00u) | ((color & 0xffu) << 16) | ((color >> 16) & 0xffu);
-        for (int iy=y0; iy<y1; ++iy)
-            std::fill(pixels.begin()+size_t(iy)*w+x0, pixels.begin()+size_t(iy)*w+x1, color);
+        if (color != batchColor || pending == rectangles.size())
+            flushRectangles();
+        batchColor = color;
+        rectangles[pending++] = {x0, y0, x1, y1};
     }
     void number(unsigned value, float x, float y) {
         static constexpr unsigned masks[] = {63,6,91,79,102,109,125,7,127,111};
@@ -92,10 +92,18 @@ struct Scene {
     void draw() {
         const Pixel signal = objects[Signal];
         rect(0,0,960,360,station[Sky]);
-        for (int i=0; i<26; ++i) {
-            const int height = 24 + (i*43)%86;
-            rect(i*38,255-height,32,height,station[Building]);
-            for (int j=7;j<height-6;j+=13) rect(i*38+6,255-height+j,5,3,station[Window]);
+        // Buildings are disjoint, so the windows can be painted in one pass
+        // after their facades while preserving their original pixel coverage.
+        static constexpr int buildingCount = 26;
+        const auto heightOf = [](int index) { return 24 + (index * 43) % 86; };
+        for (int i = 0; i < buildingCount; ++i) {
+            const int height = heightOf(i);
+            rect(i * 38, 255 - height, 32, height, station[Building]);
+        }
+        for (int i = 0; i < buildingCount; ++i) {
+            const int height = heightOf(i);
+            for (int j = 7; j < height - 6; j += 13)
+                rect(i * 38 + 6, 255 - height + j, 5, 3, station[Window]);
         }
         rect(0,270,960,7,station[Track]); rect(0,277,960,83,station[Floor]);
         for (int i=0;i<31;++i) rect(i*32,286,14,3,station[Dash]);
@@ -108,26 +116,28 @@ struct Scene {
         rect(24,24,9,9,objects[Coin]); number(game.score,91,20);
         rect(128,24,9,9,objects[Hazard]); number(game.hits,195,20);
         if (game.paused || game.sleeping) { rect(454,137,14,50,signal); rect(486,137,14,50,signal); }
+        flushRectangles();
     }
 };
 
-void * __cdecl create(const A75Create *cfg) {
-    if (!cfg || cfg->size<sizeof(*cfg) || !cfg->device || !cfg->context) return nullptr;
-    auto *scene = new(std::nothrow) Scene;
-    if (!scene) return nullptr;
-    scene->context = cfg->context;
-    D3D11_FEATURE_DATA_D3D11_OPTIONS options{};
-    if (SUCCEEDED(cfg->device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options, sizeof(options))) &&
-        options.ClearView)
-        scene->context.As(&scene->clear_context);
-    scene->settings(cfg->settings_json);
-    return scene;
+void * __cdecl create(const A75Create12 *cfg) {
+    if (!cfg || cfg->size<sizeof(*cfg) || !cfg->device) return nullptr;
+    try {
+        auto scene = std::make_unique<Scene>();
+        scene->settings(cfg->settings_json);
+        return scene.release();
+    } catch (...) {
+        return nullptr;
+    }
 }
 void __cdecl event(void *instance, const A75Event *e) {
     if (!instance || !e || e->size<sizeof(*e)) return;
     Scene &s = *static_cast<Scene*>(instance);
     auto &g = s.game;
-    if (e->type==A75_SETTINGS) { s.settings(e->settings_json); return; }
+    if (e->type==A75_SETTINGS) {
+        try { s.settings(e->settings_json); } catch (...) {}
+        return;
+    }
     if (e->type==A75_PAUSE || e->type==A75_RESUME || e->type==A75_INPUT_RESET) {
         if (e->type==A75_INPUT_RESET) g.clear_input(); else g.sleep(e->type==A75_PAUSE);
         s.pause_held=false; s.previous=-1; return;
@@ -143,28 +153,17 @@ void __cdecl event(void *instance, const A75Event *e) {
     if (!std::strcmp(e->code,"ArrowRight")) g.right=down;
     if (!std::strcmp(e->code,"Space")) g.jump(down);
 }
-int32_t __cdecl render(void *instance, const A75Frame *frame) {
-    if (!instance || !frame || frame->size<sizeof(*frame) || !frame->target || !frame->width || !frame->height) return -2;
+int32_t __cdecl render(void *instance, const A75Frame12 *frame) {
+    if (!instance || !frame || frame->size<sizeof(*frame) || !frame->commands || !frame->rtv.ptr ||
+        !frame->width || !frame->height) return -2;
     auto &s=*static_cast<Scene*>(instance);
     if (frame->width>16384 || frame->height>16384) return -2;
     s.w=frame->width; s.h=frame->height;
-    D3D11_RENDER_TARGET_VIEW_DESC view{};
-    frame->target->GetDesc(&view);
-    s.rgba = view.Format == DXGI_FORMAT_R8G8B8A8_UNORM;
-    if (!s.rgba && view.Format != DXGI_FORMAT_B8G8R8A8_UNORM) return -2;
-    if (!s.clear_context) {
-        try { s.pixels.resize(size_t(s.w)*s.h); } catch (...) { return -2; }
-    }
     s.game.step(s.previous<0 ? 0 : float(frame->seconds-s.previous));
-    s.target = frame->target;
+    s.commands = frame->commands;
+    s.target = frame->rtv;
     s.draw();
-    s.target = nullptr;
-    if (!s.clear_context) {
-        Microsoft::WRL::ComPtr<ID3D11Resource> resource;
-        frame->target->GetResource(&resource);
-        if (!resource) return -2;
-        s.context->UpdateSubresource(resource.Get(), 0, nullptr, s.pixels.data(), s.w*4, 0);
-    }
+    s.commands = nullptr;
     const auto &g=s.game;
     const bool moving=(g.left && !g.right && g.x>g.radius) || (g.right && !g.left && g.x<g.arena_width-g.radius);
     const bool active=!g.paused && !g.sleeping && (moving || g.vy!=0 || g.y<g.floor_y-g.radius || g.immunity>0);
@@ -175,8 +174,9 @@ void __cdecl destroy(void *instance) {
     delete static_cast<Scene*>(instance);
 }
 }
-extern "C" const A75Wallpaper *__cdecl Action75GetWallpaper(uint32_t abi) {
-    static const A75Wallpaper api={sizeof(A75Wallpaper),ACTION75_WALLPAPER_ABI,create,event,render,destroy};
+extern "C" const A75Wallpaper12 *__cdecl Action75GetWallpaper12(uint32_t abi) {
+    static const A75Wallpaper12 api={sizeof(A75Wallpaper12),ACTION75_WALLPAPER_ABI12,
+                                    create,event,render,destroy,nullptr};
     return abi==api.abi ? &api : nullptr;
 }
 

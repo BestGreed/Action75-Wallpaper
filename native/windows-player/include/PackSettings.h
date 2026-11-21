@@ -74,16 +74,31 @@ struct PackSettingsCandidate {
   bool stored=false;
   std::shared_ptr<const VariantPlayback> playback;
   bool authorValues=false;
+  // Set only by an explicit reset that could not load the saved profile.
+  std::filesystem::path recoveryBackup;
 };
 
 // Schemas and profiles are read only at discovery/explicit settings operations.
 // Applying a compiled appearance never reads files or evaluates expressions.
 class PackSettingsStore {
 public:
+  struct SchemaStamp {
+    std::filesystem::path directory, file;
+    std::filesystem::file_time_type modified;
+    std::uintmax_t size;
+    bool authorValues;
+  };
+  using CatalogSchemas = std::unordered_map<std::string, SchemaStamp>;
+
   explicit PackSettingsStore(std::filesystem::path stateDirectory);
   void registerPack(const std::string& id, const std::filesystem::path& directory,
                     const std::filesystem::path& schemaFile, std::string_view kind={});
   void retainPacks(const std::unordered_set<std::string>& ids);
+  CatalogSchemas catalogSchemas() const;
+  static bool unchangedSchema(const SchemaStamp& previous, const std::filesystem::path& directory,
+                              const std::filesystem::path& file, std::string_view kind);
+  void adoptCatalog(PackSettingsStore& prepared, const std::unordered_set<std::string>& unchanged,
+                    const std::string& keepActive, const std::string& rejectedId);
   void refresh(const std::string& id);
   bool hasSchema(const std::string& id) const;
   std::string schemaError(const std::string& id) const;

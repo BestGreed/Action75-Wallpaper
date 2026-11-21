@@ -1,109 +1,105 @@
-#include "Action75Wallpaper.h"
-#include "PackSettings.h"
+#include "Action75Wallpaper12.h"
 #if defined(A75_WATER)
 #include "WaterSurface.h"
-using Scene = action75::WaterSurface;
+using Scene = surface::WaterSurface;
 #elif defined(A75_FIREWORKS)
 #include "FireworksScene.h"
-using Scene = action75::FireworksScene;
-#else
+using Scene = surface::FireworksScene;
+#elif defined(A75_GLASS)
 #include "GlassShatter.h"
-using Scene = action75::GlassShatter;
+using Scene = surface::GlassShatter;
+#else
+#error Select a surface scene
 #endif
+
 #include <filesystem>
-#include <memory>
 
 namespace {
 struct Wallpaper {
+  surface::Settings settings;
   Scene scene;
-  action75::PackSettingsCandidate controls;
-  ID3D11DeviceContext *context;
-  bool paused = false, enabled = true, valid = true;
+  bool paused = false, valid = true;
 
-  explicit Wallpaper(const A75Create &host)
-      : controls(action75::PackSettingsStore::packageControls(
-            std::filesystem::path(host.pack_dir) / L"settings.json")), context(host.context) {}
+  explicit Wallpaper(const A75Create12 &host)
+      : settings(std::filesystem::path(host.pack_dir) / L"settings.json"),
+        scene(host.device, host.width, host.height) {
+    configure(host.settings_json);
+  }
 
   void configure(const char *json) {
-    controls.values = nlohmann::json::parse(json);
-    const auto appearance = action75::PackSettingsStore::evaluate(controls);
-    enabled = appearance.intensity != 0;
-    scene.configure(appearance);
+    settings.update(json);
+    scene.configure(settings);
+    valid = true;
   }
 };
 
-void *__cdecl create(const A75Create *host) noexcept {
+void *__cdecl create(const A75Create12 *host) noexcept {
+  if (!host || host->size < sizeof(A75Create12) || !host->device || !host->pack_dir ||
+      !host->width || !host->height)
+    return nullptr;
   try {
-    auto wallpaper = std::make_unique<Wallpaper>(*host);
-    std::string error;
-#if defined(A75_WATER)
-    if (!wallpaper->scene.load(host->device, host->context, host->width, host->height, error))
-#elif defined(A75_FIREWORKS)
-    if (!wallpaper->scene.load(host->device, host->width, host->height, error))
-#else
-    if (!wallpaper->scene.load(host->device, error))
-#endif
-      return nullptr;
-    wallpaper->configure(host->settings_json);
-    return wallpaper.release();
+    return new Wallpaper(*host);
   } catch (...) {
     return nullptr;
   }
 }
 
-void __cdecl event(void *instance, const A75Event *e) noexcept {
-  auto &w = *static_cast<Wallpaper *>(instance);
-  switch (e->type) {
+void __cdecl onEvent(void *instance, const A75Event *event) noexcept {
+  if (!instance || !event || event->size < sizeof(A75Event))
+    return;
+  auto &wallpaper = *static_cast<Wallpaper *>(instance);
+  switch (event->type) {
   case A75_SETTINGS:
-    try { w.configure(e->settings_json); } catch (...) { w.valid = false; }
+    try {
+      wallpaper.configure(event->settings_json);
+    } catch (...) {
+      wallpaper.valid = false;
+    }
     break;
-  case A75_INPUT_RESET: w.scene.clear(); break;
-  case A75_PAUSE: w.paused = true; break;
-  case A75_RESUME: w.paused = false; break;
+  case A75_INPUT_RESET: wallpaper.scene.clear(); break;
+  case A75_PAUSE: wallpaper.paused = true; break;
+  case A75_RESUME: wallpaper.paused = false; break;
   case A75_KEY_DOWN:
 #if !defined(A75_GLASS)
   case A75_POINTER_DOWN:
 #endif
-    if (w.paused || !w.enabled) break;
-#if defined(A75_WATER)
-    w.scene.push({e->x, e->y});
-#else
+    if (wallpaper.paused || !wallpaper.valid)
+      break;
 #if defined(A75_FIREWORKS)
-    if (e->type == A75_KEY_DOWN && e->code && *e->code && !w.scene.readyForKeyBurst()) break;
+    if (event->type == A75_KEY_DOWN && event->code && *event->code && !wallpaper.scene.readyForKeyBurst())
+      break;
 #endif
-    w.scene.push(e->seconds, e->x, e->y);
-#endif
+    wallpaper.scene.push(event->seconds, event->x, event->y);
     break;
   }
 }
 
-int32_t __cdecl render(void *instance, const A75Frame *frame) noexcept {
-  auto &w = *static_cast<Wallpaper *>(instance);
-  if (!w.valid) return -2;
-  D3D11_VIEWPORT view{0, 0, static_cast<float>(frame->width), static_cast<float>(frame->height), 0, 1};
-  w.context->OMSetRenderTargets(1, &frame->target, nullptr);
-  w.context->RSSetViewports(1, &view);
-  std::string error;
+int32_t __cdecl render(void *instance, const A75Frame12 *frame) noexcept {
+  if (!instance || !frame || frame->size < sizeof(A75Frame12) || !frame->commands ||
+      !frame->width || !frame->height || !frame->target)
+    return -2;
+  auto &wallpaper = *static_cast<Wallpaper *>(instance);
+  if (!wallpaper.valid)
+    return -2;
   try {
-#if defined(A75_WATER)
-    if (!w.scene.draw(w.context, frame->width, frame->height, frame->seconds, w.paused, error)) return -2;
-    return !w.paused && w.scene.hasMotion() ? 0 : -1;
-#else
-    if (!w.scene.draw(w.context, frame->width, frame->height, frame->seconds, error)) return -2;
-    return !w.paused && w.scene.count() ? 0 : -1;
-#endif
-  } catch (...) { return -2; }
+    wallpaper.scene.draw(*frame, wallpaper.paused);
+    return !wallpaper.paused && wallpaper.scene.hasMotion() ? 0 : -1;
+  } catch (...) {
+    return -2;
+  }
 }
 
-void __cdecl destroy(void *instance) { delete static_cast<Wallpaper *>(instance); }
+void __cdecl destroy(void *instance) noexcept { delete static_cast<Wallpaper *>(instance); }
 
 #if defined(A75_GLASS)
-constexpr auto hit = nullptr;
+constexpr auto hitTest = nullptr;
 #else
-int32_t __cdecl hit(void *, float, float, uint32_t, uint32_t) { return 1; }
+int32_t __cdecl hitTest(void *, float, float, uint32_t, uint32_t) noexcept { return 1; }
 #endif
-}
-extern "C" const A75Wallpaper *__cdecl Action75GetWallpaper(uint32_t abi) {
-  static const A75Wallpaper api{sizeof(api), ACTION75_WALLPAPER_ABI, create, event, render, destroy, hit};
-  return abi == ACTION75_WALLPAPER_ABI ? &api : nullptr;
+} // namespace
+
+extern "C" const A75Wallpaper12 *__cdecl Action75GetWallpaper12(uint32_t abi) {
+  static const A75Wallpaper12 api{sizeof(api), ACTION75_WALLPAPER_ABI12, create, onEvent, render,
+                                  destroy, hitTest};
+  return abi == ACTION75_WALLPAPER_ABI12 ? &api : nullptr;
 }

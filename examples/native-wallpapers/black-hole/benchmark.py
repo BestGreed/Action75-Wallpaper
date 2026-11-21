@@ -1,5 +1,6 @@
-"""Matched headless iGPU trials of built-in and DLL Event Horizon (Windows/pywin32/psutil)."""
+"""Matched headless hardware trials of two Event Horizon packages."""
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 from pathlib import Path
@@ -50,10 +51,47 @@ def call(pipe, action, **fields):
     return msg["result"]
 
 
+@contextmanager
+def player_session(executable, root, state, name, *, perf_stats=True):
+    cli = [executable, "--root", root, "--pipe", name]
+    pipe = "\\\\.\\pipe\\" + name
+    args = cli + ["--state-dir", state, "--headless-test", "--headless-hardware"]
+    if perf_stats:
+        args.append("--perf-stats")
+    proc = subprocess.Popen(args,
+                            creationflags=subprocess.CREATE_NO_WINDOW)
+    try:
+        yield proc, pipe
+    finally:
+        if proc.poll() is None:
+            try:
+                stop = dict(action="stop", expectedPlayerPid=proc.pid, expectedRuntimeRoot=str(root))
+                subprocess.run(cli + ["--command", json.dumps(stop)], check=True, timeout=4,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+                proc.wait(timeout=4)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=4)
+
+
 class Counters:
     def __init__(self):
         self.query = pdh.OpenQuery()
-        self.counters = {k:pdh.AddEnglishCounter(self.query,p) for k,p in COUNTERS.items()}
+        try:
+            self.counters = {k:pdh.AddEnglishCounter(self.query,p) for k,p in COUNTERS.items()}
+        except BaseException:
+            pdh.CloseQuery(self.query)
+            raise
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pdh.CloseQuery(self.query)
 
     def read(self, processes, adapter):
         pdh.CollectQueryData(self.query)
@@ -82,10 +120,15 @@ class Counters:
 
 
 def run(args, native, output):
-    pack = HERE/"pack" if native else args.baseline_pack
+    pack = args.candidate_pack if native else args.baseline_pack
     manifest = json.loads((pack/"manifest.json").read_bytes())
-    if manifest["kind"] != ("native" if native else "blackHole"):
+    uses_worker = manifest["kind"] == "native"
+    if not uses_worker and (native or manifest["kind"] != "blackHole"):
         raise ValueError(f"Wrong pack for this group: {pack}")
+    dx12 = manifest.get("abi") == 2
+    # Queries on the host's D3D11 context were useful for the legacy built-in
+    # comparison. Use the same PID counters for both sides of a native-ABI pair.
+    gpu_queries = not dx12 and not uses_worker
     pack_id = manifest["id"]
     with tempfile.TemporaryDirectory(prefix="event-horizon-bench-") as temp:
         root = Path(temp); state = root/"state"; state.mkdir()
@@ -94,37 +137,47 @@ def run(args, native, output):
             dest = root/name; dest.parent.mkdir(parents=True); shutil.copy2(args.host_root/name,dest)
         (root/"data").mkdir()
         shutil.copy2(root/"assets/defaults/fm-calibration.json",root/"data/fm-calibration.json")
-        save(root/"data/app-settings.json",dict(gpuPreference="integrated"))
+        save(root/"data/app-settings.json",dict(gpuPreference=args.gpu))
         save(state/"native-player.json",dict(version=1,fps=60,packId=pack_id))
-        pipe = "EventHorizonBench-"+uuid.uuid4().hex
+        name = "EventHorizonBench-"+uuid.uuid4().hex
         executable = (args.player if native else args.baseline_player) or args.player
-        proc = subprocess.Popen([executable,"--root",root,"--state-dir",state,"--pipe",pipe,
-                                "--headless-test","--headless-hardware","--perf-stats"],creationflags=subprocess.CREATE_NO_WINDOW)
-        pipe = r"\\.\pipe" + "\\" + pipe
-        counters = Counters()
-        try:
+        with player_session(executable, root, state, name, perf_stats=gpu_queries) as (proc, pipe), Counters() as counters:
             status = call(pipe,"status")
             assert status["playerPid"] == proc.pid and status["headless"]
             status = call(pipe,"selectPack",id=pack_id)
-            assert status["packId"] == pack_id and "Intel" in status["gpuAdapter"] and status["error"] is None, status
+            assert status["packId"] == pack_id and status["error"] is None, status
+            assert status["gpuPreference"] == args.gpu and "Basic Render Driver" not in status["gpuAdapter"], status
+            if uses_worker:
+                assert status["renderer"] == ("D3D12/NativePlugin" if dx12 else "D3D11/NativePlugin"), status
             assert (status["outputWidth"],status["outputHeight"]) == (1920,720)
             luid_raw = status["gpuAdapterLuid"]
             if isinstance(luid_raw,str):
                 luid = int(luid_raw.replace(":",""),16)
             else: luid = int(luid_raw)
             parent = psutil.Process(proc.pid)
-            processes = [parent, *parent.children(recursive=True)]
-            if native and len(processes)<2: raise RuntimeError("Missing native rendering worker")
+            processes = [parent]
+            if uses_worker:
+                worker_pid = status.get("nativeWorkerPid")
+                if not worker_pid:
+                    raise RuntimeError("Missing native rendering worker")
+                worker = psutil.Process(worker_pid)
+                if worker.ppid() != proc.pid:
+                    raise RuntimeError("Rendering worker does not belong to the benchmark player")
+                processes.append(worker)
             report = dict(pack=pack_id,adapter=status["gpuAdapter"],adapterLuid=luid_raw,
                           executable=str(executable),sha256=hashlib.sha256(Path(executable).read_bytes()).hexdigest(),
                           packFileSha256={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in pack.iterdir() if f.is_file()},
-                          resolution=[1920,720],processes={p.pid:p.name() for p in processes}, phases={})
-            if native:
+                          resolution=[1920,720],processes={p.pid:p.name() for p in processes},
+                          hostPid=proc.pid,workerPid=processes[-1].pid if uses_worker else None,
+                          renderer=status["renderer"],
+                          gpuEngineScope="Windows GPU Engine counters filtered by PID and adapter LUID",
+                          timestampScope="player D3D11 context" if gpu_queries else None,phases={})
+            if uses_worker:
                 report["workerSha256"] = hashlib.sha256((executable.parent/"Action75WallpaperWorker.exe").read_bytes()).hexdigest()
             counters.read(processes,luid)
             time.sleep(2)
             for label, hz in (("idle",0),("typing",40)):
-                begin = call(pipe,"perfReset")
+                begin = call(pipe,"perfReset")["status"] if gpu_queries else call(pipe,"status")
                 wall = time.perf_counter()
                 prior = counters.read(processes,luid)
                 snapshots = []
@@ -137,11 +190,12 @@ def run(args, native, output):
                         sent += 1
                     time.sleep(max(0,until-time.perf_counter()))
                     snapshots.append(dict(elapsed=time.perf_counter()-wall,processes=counters.read(processes,luid)))
-                end = call(pipe,"perfRead")
+                end = call(pipe,"perfRead") if gpu_queries else {"status": call(pipe,"status")}
                 elapsed = snapshots[-1]["elapsed"]
-                frames = end["status"]["framesRendered"]-begin["status"]["framesRendered"]
+                assert end["status"]["packId"] == pack_id and not end["status"]["error"], end["status"]
+                frames = end["status"]["framesRendered"]-begin["framesRendered"]
                 if frames <= 0: raise RuntimeError("Animation did not advance")
-                if not any(any(p["engines"].values()) for p in snapshots[-1]["processes"].values()):
+                if not any(p["engines"] for sample in snapshots for p in sample["processes"].values()):
                     raise RuntimeError(f"No matched GPU engine data for LUID {luid_raw}")
                 metrics = {}
                 for p in processes:
@@ -157,17 +211,9 @@ def run(args, native, output):
                     peakWorkingSetMiB=max(sum(p["workingSetMiB"] for p in s["processes"].values()) for s in snapshots),
                     peakSharedMiB=max(sum(p["sharedMiB"] for p in s["processes"].values()) for s in snapshots),
                     peakDedicatedMiB=max(sum(p["dedicatedMiB"] for p in s["processes"].values()) for s in snapshots),
-                    hostGpuTimestamps=end["performance"]["gpuMs"],samples=snapshots)
+                    hostGpuTimestamps=end["performance"]["gpuMs"] if gpu_queries else None,samples=snapshots)
                 print(label,round(frames/elapsed,2),flush=True)
             save(output,report)
-        finally:
-            pdh.CloseQuery(counters.query)
-            if proc.poll() is None:
-                try:
-                    call(pipe,"stop",expectedPlayerPid=proc.pid,expectedRuntimeRoot=str(root))
-                    proc.wait(timeout=4)
-                finally:
-                    if proc.poll() is None: proc.kill(); proc.wait()
 
 
 def summarize(folder):
@@ -188,6 +234,8 @@ def summarize(folder):
         result[label] = dict(trials=len(cases),adapter=case["adapter"],luid=case["adapterLuid"],
             playerSha256=case["sha256"],packFiles=case["packFileSha256"],phases=phases)
         if "workerSha256" in case: result[label]["workerSha256"]=case["workerSha256"]
+    if "baseline" in result and "native" in result and result["baseline"]["luid"] != result["native"]["luid"]:
+        raise RuntimeError("The two groups selected different GPU adapters")
     save(folder/"summary.json",result)
 
 
@@ -196,6 +244,8 @@ if __name__=="__main__":
     p.add_argument("--player",type=Path,required=True)
     p.add_argument("--baseline-player",type=Path)
     p.add_argument("--baseline-pack",type=Path,default=ROOT/"wallpapers-native/black-hole")
+    p.add_argument("--candidate-pack",type=Path,default=HERE/"pack")
+    p.add_argument("--gpu",choices=("integrated","discrete"),default="integrated")
     p.add_argument("--host-root",type=Path,default=ROOT)
     p.add_argument("--seconds",type=int,default=6)
     p.add_argument("--trials",type=int,default=3)

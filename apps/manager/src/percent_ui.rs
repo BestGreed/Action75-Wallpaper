@@ -25,6 +25,19 @@ pub fn slider_row(
     })
     .inner
 }
+
+pub fn slider_edited(ui: &egui::Ui, response: &egui::Response) -> bool {
+    response.changed()
+        && response.enabled()
+        && (response.dragged()
+            || response.is_pointer_button_down_on()
+            || response.clicked()
+            || (response.has_focus()
+                && ui.input(|i| {
+                    i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowRight)
+                })))
+}
+
 #[cfg(test)]
 pub fn slider(
     ui: &mut egui::Ui,
@@ -46,7 +59,10 @@ pub fn slider(
     ui.add_space(8.);
     response
 }
-pub fn single_color_hue(ui: &mut egui::Ui, settings: &mut Settings) -> Option<egui::Response> {
+pub fn single_color_hue(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+) -> Option<(egui::Response, bool)> {
     if !single_color_hue_visible(settings) {
         return None;
     }
@@ -60,13 +76,14 @@ pub fn single_color_hue(ui: &mut egui::Ui, settings: &mut Settings) -> Option<eg
                 .step_by(1.),
         )
     });
-    if response.changed() {
+    let edited = slider_edited(ui, &response);
+    if edited {
         hsv.h = (degrees / 360.).rem_euclid(1.);
         let c = Color32::from(hsv).to_array();
         settings.palette_colors[0] = [c[0], c[1], c[2]];
         settings.hue = 0.;
     }
-    Some(response)
+    Some((response, edited))
 }
 
 #[cfg(test)]
@@ -175,7 +192,7 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        rect = single_color_hue(ui, settings).unwrap().rect;
+                        rect = single_color_hue(ui, settings).unwrap().0.rect;
                     });
                 },
             );

@@ -7,10 +7,11 @@ parser=argparse.ArgumentParser()
 parser.add_argument('reader',type=Path)
 parser.add_argument('calibration',type=Path)
 parser.add_argument('work',type=Path)
+parser.add_argument('--pack',type=Path)
 args=parser.parse_args()
 project=Path(__file__).resolve().parent.parent
 args.work.mkdir(parents=True,exist_ok=True)
-pack=project/'Ferrofluid'
+pack=args.pack or project/'Ferrofluid'
 controls={c['id']:c for g in json.loads((pack/'settings.json').read_text(encoding='utf-8-sig'))['groups'] for c in g['controls']}
 def render(values):
     params=args.work/'params.json'
@@ -39,7 +40,7 @@ for key,c in controls.items():
     if role=='color':colors[layer]=candidate
 report=dict(defaultEqualsExplicit=True,settingsEventCases=entries)
 assert len(entries)==10
-(project/'Measurements/appearance.json').write_text(json.dumps(report,indent=2))
+(args.work/'appearance.json').write_text(json.dumps(report,indent=2))
 for k,frame in colors.items():
-    Image.fromarray(frame.astype('uint8')).save(project/'Preview'/('appearance-'+k+'.png'))
+    Image.fromarray(frame.astype('uint8')).save(args.work/('appearance-'+k+'.png'))
 print(json.dumps(report))

@@ -14,6 +14,7 @@ public:
  bool push(double now,float x,float y);
  void clear();
  std::size_t count() const;
+ bool animated() const noexcept { return brightness_>0; }
  bool draw(ID3D11DeviceContext*,unsigned width,unsigned height,double now,bool paused,std::string& error);
 private:
  ProceduralBackground background_;

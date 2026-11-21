@@ -1,16 +1,37 @@
 # 连续场与键帽壁纸
 
-此目录是四个独立 D3D11 壁纸 DLL 的可编辑源码。发行目录位于 wallpapers-native 下，分别是 silk-nebula、gilded-synapse、harmonic-textile 和 keycap-glow。前三款沿用原版场模拟、着色和 HDR 辉光，最后一款按物理键码绘制键帽。三个场主题在各自 DLL 编译时选定，修改花名、文件夹名或清单 ID 后仍可独立导入。
+这里构建四个使用 Action75 公开 ABI2 的 D3D12 壁纸包。三个场主题在各自 DLL 编译时选定，包名和 ID 用于识别和保存设置。
 
-设置由各包 settings.json 声明。场主题保留原版 13 个控件、预设与自定义配色，键帽主题保留 21 个控件。键盘按下事件携带宿主校准后的归一化位置和物理键码。场效果在事件坐标发射，鎏金脉络从包内 84 个键中心选择邻接目标。键帽使用物理键码匹配 layout.json 中的中心和尺寸，再应用作者公开的位置、缩放参数。
+| 作品 | 包 ID | 按键效果 |
+| --- | --- | --- |
+| 潮汐绢墨 | `silk-nebula` | 按当前键位扰动绢墨流场 |
+| 鎏金脉络 | `gilded-synapse` | 在触点与邻近键中心之间产生脉络 |
+| 声纹织物 | `harmonic-textile` | 编织条纹受到按键波场扰动 |
+| 键影 | `keycap-glow` | 用物理键码定位键帽并在轮廓内点亮 |
 
-场背景持续动画，暂停后休眠。键帽在环境流动启用或键光仍在衰减时绘制。关闭流动后，最后一次键光衰减完毕便休眠，下一次输入唤醒绘制。
+原有 `settings.json`、`layout.json` 和封面随包交付。三个场保留质量档位决定的模拟和着色分辨率、32×12 触点分块以及四分之一分辨率的辉光。辉光设为零时回收对应的两张纹理并跳过模糊绘制。键影以 84 个四边形实例绘制，保留原有圆角遮罩、流动设置和单键衰减。
 
-从本目录独立构建：
+## 独立构建和导入
+
+需要 Windows x64、Visual Studio 2022 的 C++ 桌面组件、含 `fxc` 的 Windows SDK，以及 CMake 3.24+。从本目录运行以下命令。
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release --parallel 4
+$work = Join-Path $env:TEMP ('action75-field-' + [guid]::NewGuid().ToString('N'))
+cmake -S . -B "$work/build" -G "Visual Studio 17 2022" -A x64
+cmake --build "$work/build" --config Release --parallel 2
+cmake --install "$work/build" --config Release --prefix "$work/packs"
 ```
 
-四个 DLL 分别出现在 build/native-wallpapers/对应包名/wallpaper.dll。每个 DLL 已静态包含所用的渲染器和着色器，可替换待发布包里的同名文件。此目录的 Wallpaper.cpp 负责输入与作者参数映射。[场渲染器](../../../native/windows-player/src/FieldEffect.cpp)和[键帽渲染器](../../../native/windows-player/src/KeycapEffect.cpp)与传统宿主和像素测试共用。
+在支持 ABI2 的控制台选择「导入壁纸」，选中 `$work/packs` 下含 `manifest.json` 的任意作品目录。每个 DLL 静态包含该作品需要的渲染代码和编译后的 HLSL。
+
+在仓库之外构建时，把本目录复制到独立位置，配置时分别设置 `ACTION75_SDK_INCLUDE`（公开 SDK 的两个头文件）、`ACTION75_SDK_VENDOR`（包含 `nlohmann/json.hpp` 的上级目录）和 `ACTION75_FIELD_PACKS`（含四个作品资源目录的根）。渲染器和 HLSL 均在本目录中。
+
+## 像素对照
+
+配置时加入 `-DACTION75_FIELD_COMPARE=ON`，再构建 `action75_field_compare`。对照程序接受旧包、新包和证据输出目录，默认使用 WARP。传入 `--hardware` 可在当前选到的低功耗适配器上对比 1920×720 与 1600×600。程序给两种 ABI 发出同一组时钟、按键和设置，输出每帧的 RGBA8 差值与成对截图。
+
+```powershell
+& "$work/build/Release/action75_field_compare.exe" $oldPack $newPack "$work/comparison"
+```
+
+`tests/verify_runtime.py` 在临时库运行配套播放器和控制台，在未激活的桌面上调用标准导入流程。它另外核对旧参数读取、短时同负载帧率、播放中缩放和空闲休眠。

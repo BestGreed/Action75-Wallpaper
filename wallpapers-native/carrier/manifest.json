@@ -1,11 +1,12 @@
 {
-  "version": 1,
-  "id": "carrier",
-  "name": "载波 · Carrier",
-  "description": "暗橄榄色底上的磷光信号束；击键发出左右传播的分段脉冲。",
-  "settings": "settings.json",
-  "kind": "native",
-  "abi": 1,
-  "entry": "wallpaper.dll",
-  "preview": "preview.png"
+  "abi" : 2,
+  "description" : "\u6697\u6a44\u6984\u8272\u5e95\u4e0a\u7684\u78f7\u5149\u4fe1\u53f7\u675f\uff1b\u51fb\u952e\u53d1\u51fa\u5de6\u53f3\u4f20\u64ad\u7684\u5206\u6bb5\u8109\u51b2\u3002",
+  "entry" : "wallpaper.dll",
+  "id" : "carrier",
+  "kind" : "native",
+  "name" : "\u8f7d\u6ce2 \u00b7 Carrier",
+  "preview" : "preview.png",
+  "renderer" : "d3d12",
+  "settings" : "settings.json",
+  "version" : 1
 }

@@ -1,22 +1,37 @@
-param([Parameter(Mandatory)][string]$Sdk, [string]$BuildDir = (Join-Path $env:TEMP "Action75-Ferrofluid-build"))
-$ErrorActionPreference='Stop'
-$src=$PSScriptRoot
-$pack=(Resolve-Path "$src/../Ferrofluid").Path
-$Sdk=(Resolve-Path $Sdk).Path
-$fxc=(Get-ChildItem "${env:ProgramFiles(x86)}/Windows Kits/10/bin/*/x64/fxc.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
-foreach($entry in 'floorVS','fluidVS','floorPS','fluidPS'){
-    $profile=($entry.Substring($entry.Length-2).ToLower())+'_5_0'
-    & $fxc /nologo /O3 /T $profile /E $entry /Fo "$pack/$entry.cso" "$src/Bath.hlsl"
-    if($LASTEXITCODE){throw "Shader $entry failed"}
+param(
+    [string]$BuildDir,
+    [string]$Output,
+    [Alias("Sdk")][string]$SdkInclude,
+    [string]$SdkVendor
+)
+$ErrorActionPreference = 'Stop'
+$source = Split-Path $PSScriptRoot -Parent
+if (!$BuildDir) {
+    $BuildDir = Join-Path $env:TEMP "Action75-Ferrofluid-$([guid]::NewGuid())"
 }
-$vs=& "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-$bat=Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
-$build=$BuildDir
-New-Item -Force -Type Directory $build | Out-Null
-Push-Location $build
-try{
-    $line='call "{0}" >nul && cl /nologo /O2 /MT /EHsc /utf-8 /std:c++17 /LD /I"{1}/native/windows-player/include" /I"{1}/vendor-source/windows-native" "{2}/Studio.cpp" /link /OUT:"{3}/wallpaper.dll" /IMPLIB:wallpaper.lib' -f $bat,$Sdk,$src,$pack
-    & cmd /d /c $line
-    if($LASTEXITCODE){throw 'C++ build failed'}
-}finally{Pop-Location}
+if (!$Output) {
+    $Output = Join-Path $BuildDir 'pack'
+}
 
+$configure = @('-S', $source, '-B', $BuildDir, '-G', 'Visual Studio 17 2022', '-A', 'x64')
+if ($SdkInclude) {
+    $publicInCheckout = Join-Path $SdkInclude 'skills/action75-wallpaper-author/sdk'
+    if (Test-Path -LiteralPath (Join-Path $publicInCheckout 'Action75Wallpaper12.h')) {
+        if (!$SdkVendor) {
+            $SdkVendor = Join-Path $SdkInclude 'vendor-source/windows-native'
+        }
+        $SdkInclude = $publicInCheckout
+    }
+    $configure += "-DACTION75_SDK_INCLUDE=$((Resolve-Path -LiteralPath $SdkInclude).Path)"
+}
+if ($SdkVendor) {
+    $configure += "-DACTION75_SDK_VENDOR=$((Resolve-Path -LiteralPath $SdkVendor).Path)"
+}
+cmake @configure
+if ($LASTEXITCODE) { throw 'Ferrofluid configuration failed' }
+cmake --build $BuildDir --config Release --parallel
+if ($LASTEXITCODE) { throw 'Ferrofluid build failed' }
+ctest --test-dir $BuildDir -C Release --output-on-failure
+if ($LASTEXITCODE) { throw 'Ferrofluid tests failed' }
+cmake --install $BuildDir --config Release --prefix $Output
+if ($LASTEXITCODE) { throw 'Ferrofluid staging failed' }

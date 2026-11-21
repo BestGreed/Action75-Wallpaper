@@ -1,18 +1,37 @@
 """Collect notices from the locked Windows dependency graph used by the manager."""
+import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 
+from release_build import cargo_executable
+
+
+def upstream_notices(output, package, supplements):
+    entry = supplements.get(package)
+    if not entry or not entry["notices"]:
+        raise ValueError(f"No license text found for {package}; review its locked upstream release")
+    declarations = []
+    for notice in entry["notices"]:
+        relative = Path(notice["file"])
+        source = Path(__file__).with_name("rust-licenses") / relative
+        content = source.read_bytes().replace(b"\r\n", b"\n")
+        if not content.strip() or hashlib.sha256(content).hexdigest() != notice["sha256"]:
+            raise ValueError(f"Invalid upstream license text for {package}: {source}")
+        target = Path("Shared") / relative
+        (output / target).parent.mkdir(parents=True, exist_ok=True)
+        (output / target).write_bytes(content)
+        declarations.append({"path": target.as_posix(), "source": notice["source"],
+                             "sha256": notice["sha256"]})
+    return declarations
+
 
 def collect(output):
     manifest = Path(__file__).resolve().parents[1] / "apps/manager/Cargo.toml"
-    cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
-    cargo = shutil.which("cargo") or cargo_home / "bin/cargo.exe"
     graph = subprocess.check_output([
-        cargo, "metadata", "--locked", "--offline", "--format-version", "1",
+        cargo_executable(), "metadata", "--locked", "--offline", "--format-version", "1",
         "--filter-platform", "x86_64-pc-windows-msvc", "--manifest-path", manifest,
     ])
     packages = [p for p in json.loads(graph)["packages"]
@@ -20,8 +39,10 @@ def collect(output):
                 or Path(p["manifest_path"]).is_relative_to(manifest.parent / "vendor")]
     if not packages:
         raise ValueError("No locked Windows registry dependencies were found")
+    supplements = json.loads(
+        (Path(__file__).with_name("rust-licenses") / "upstream.json").read_text(encoding="utf-8"))
     declarations = []
-    count = 0
+    collected = set()
     for package in packages:
         name = f"{package['name']}-{package['version']}"
         package_manifest = Path(package["manifest_path"])
@@ -32,20 +53,28 @@ def collect(output):
             ("LICENSE", "LICENCE", "COPYING", "NOTICE", "OFL", "UNLICENSE"))}
         if package["license_file"]:
             notices.add(source / package["license_file"])
-        if not package["license"] and not notices:
-            raise ValueError(f"No license declaration or notice found for {name}")
-        declarations.append({"package": name, "license": package["license"],
-                             "authors": package["authors"], "repository": package["repository"]})
-        for notice in notices:
-            target = output / name / notice.relative_to(source)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(notice, target)
-            count += 1
-    if not count:
-        raise ValueError("No Rust dependency notice files were collected")
+        entry = {"package": name, "license": package["license"],
+                 "authors": package["authors"], "repository": package["repository"]}
+        if notices:
+            entry["notices"] = []
+            for notice in sorted(notices):
+                if not notice.read_bytes().strip():
+                    raise ValueError(f"Empty license file for {name}: {notice}")
+                target = Path(name) / notice.relative_to(source)
+                (output / target).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(notice, output / target)
+                entry["notices"].append({"path": target.as_posix()})
+        else:
+            entry["notices"] = upstream_notices(output, name, supplements)
+            if selection := supplements[name].get("selectedLicense"):
+                if selection not in package["license"].split(" OR "):
+                    raise ValueError(f"License selection does not match {name}")
+                entry["selectedLicense"] = selection
+        collected.update(notice["path"] for notice in entry["notices"])
+        declarations.append(entry)
     (output / "packages.json").write_text(
         json.dumps(declarations, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Rust license notices: {count} files, {len(packages)} package declarations")
+    print(f"Rust license notices: {len(collected)} files, {len(packages)} package declarations")
 
 
 if __name__ == "__main__":

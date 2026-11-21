@@ -85,7 +85,30 @@ int wmain(int argc, wchar_t **argv) {
   if (session.render(out.Get(), 3, delay, error) || session.active() ||
       error.find("exited (83)") == std::string::npos)
     return fail(14);
+
+  namespace fs = std::filesystem;
+  const auto root = fs::temp_directory_path() /
+                    (L"Action75WorkerNestedTest-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+                     std::to_wstring(GetTickCount64()));
+  if (!fs::create_directory(root))
+    return fail(16);
+  struct TestDirectory {
+    fs::path path;
+    ~TestDirectory() {
+      std::error_code ignored;
+      fs::remove_all(path, ignored);
+    }
+  } fixture{fs::path(LR"(\\?\)" + root.native())};
+  const auto nested = fs::path(std::wstring(91, L'a')) / std::wstring(91, L'b') /
+                      std::wstring(60, L'c') / L"wallpaper.dll";
+  const auto module = fixture.path / nested;
+  fs::create_directories(module.parent_path());
+  fs::copy_file(dll, module);
+  if (!session.start(device.Get(), root, nested, 32, 16, "{}", error) ||
+      !session.render(out.Get(), 4, delay, error) || delay != 70)
+    return fail(17);
+  session.stop();
   std::cout
-      << "isolated render, events, write denial, hit test, patch, timeout and early exit passed\n";
+      << "isolated render, events, write denial, hit test, patch, timeout, early exit and long entry passed\n";
   return 0;
 }

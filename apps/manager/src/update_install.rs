@@ -1,4 +1,7 @@
 //! Coordinate an update with the registered, per-user Inno installation.
+mod restore;
+mod uninstall;
+
 use crate::{command, game_compat::win, player, storage};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -38,6 +41,10 @@ fn registered(root: &Path) -> Result<PathBuf, String> {
     };
     #[cfg(not(feature = "update-qa"))]
     let id = "{81CCDD80-9A70-4694-94EB-AC6D96651B70}";
+    registered_id(root, &id)
+}
+
+fn registered_id(root: &Path, id: &str) -> Result<PathBuf, String> {
     let key = HSTRING::from(format!(
         r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{id}_is1"
     ));
@@ -69,6 +76,13 @@ fn registered(root: &Path) -> Result<PathBuf, String> {
 
 pub fn installed(root: &Path) -> bool {
     registered(root).is_ok()
+}
+
+pub fn check_download_permission() -> Result<(), String> {
+    if win::is_elevated()? {
+        return Err("管理员模式下无法更新。请以普通权限重新打开控制台。".into());
+    }
+    Ok(())
 }
 
 struct Event(HANDLE);
@@ -157,22 +171,25 @@ impl Resume {
             cmd.arg("--headless-hardware");
         }
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-        let until = Instant::now() + Duration::from_secs(12);
-        loop {
-            if let Some(s) = status(root)? {
-                if s["playerPid"].as_u64() == Some(child.id().into()) {
-                    return Ok(());
-                }
-                return Err("恢复期间播放器实例已发生变化".into());
-            }
-            if let Some(result) = child.try_wait().map_err(|e| e.to_string())? {
-                return Err(format!("恢复播放器失败（{result}）"));
-            }
-            if Instant::now() >= until {
-                return Err("恢复播放器超时".into());
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
+        restore::confirm(&mut child, Duration::from_secs(12), |remaining| {
+            let status = match crate::player_control::command_timeout(
+                root,
+                json!({"action":"status"}),
+                remaining,
+            ) {
+                Ok(status) => Some(status),
+                Err(error) if error == "播放器未启动" => None,
+                Err(error) => return Err(error),
+            };
+            status
+                .map(|s| {
+                    s["playerPid"]
+                        .as_u64()
+                        .and_then(|pid| u32::try_from(pid).ok())
+                        .ok_or_else(|| "播放器进程身份无效".into())
+                })
+                .transpose()
+        })
     }
 }
 
@@ -203,9 +220,7 @@ pub fn start(root: &Path, installer: &Path) -> Result<(), String> {
 fn start_once(root: &Path, installer: &Path) -> Result<(), String> {
     let root = registered(root)?;
     win::validate_process(std::process::id(), &manager(&root))?;
-    if win::is_elevated()? {
-        return Err("请从普通权限的控制台启动此用户更新".into());
-    }
+    check_download_permission()?;
     let resume = status(&root)?
         .map(|s| Resume::capture(&root, &s))
         .transpose()?;
@@ -268,13 +283,27 @@ fn start_once(root: &Path, installer: &Path) -> Result<(), String> {
 /// The installer invokes the installed manager before overwriting files and after
 /// commit or rollback. No normal GUI/bootstrap side effects run in either helper.
 pub fn helper_mode() -> Option<i32> {
-    let mut args = std::env::args().skip(1);
-    let mode = args.next()?;
+    let mut args = std::env::args_os().skip(1);
+    let mode = args.next()?.into_string().ok()?;
+    if mode == "--uninstall-session" {
+        let root = crate::default_root();
+        let qa_id = args.next();
+        return Some(match uninstall::run(&root, qa_id.as_deref()) {
+            Ok(()) => 0,
+            Err(error) => {
+                storage::log(&root, "ERROR", &format!("无法准备卸载，{error}"));
+                1
+            }
+        });
+    }
     if mode != "--update-stop" && mode != "--update-restore" {
         return None;
     }
-    let token = args.next().unwrap_or_default();
-    let failed = args.next().as_deref() == Some("--update-failed");
+    let token = args
+        .next()
+        .and_then(|arg| arg.into_string().ok())
+        .unwrap_or_default();
+    let failed = args.next().is_some_and(|arg| arg == "--update-failed");
     let root = crate::default_root();
     let result = (|| {
         let root = registered(&root)?;

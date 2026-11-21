@@ -145,7 +145,10 @@ bool FieldEffect::loadWordmark(const std::filesystem::path& file,std::string& er
  D3D11_SUBRESOURCE_DATA data{};data.pSysMem=pixels.data();data.SysMemPitch=width*4;ComPtr<ID3D11Texture2D> texture;
  return good(device_->CreateTexture2D(&td,&data,&texture),"Create snow wordmark texture",error)&&good(device_->CreateShaderResourceView(texture.Get(),nullptr,&wordmark_),"Upload snow wordmark",error);
 }
-void FieldEffect::configure(const PackAppearance& a){background_.configure(a.field);auto get=[&](const char* k,float fallback){return a.field.value(k,fallback);};wordmarkEnabled_=get("wordmarkEnabled",1.f);wordmarkBrightness_=get("wordmarkBrightness",.65f);wordmarkFlow_=get("wordmarkFlow",.6f);wordmarkScale_=get("wordmarkScale",.95f);wordmarkOffsetY_=get("wordmarkOffsetY",0.f);diversity_=get("diversity",1.f);density_=get("density",.45f);opacityVariation_=get("opacityVariation",.85f);thickness_=get("thickness",.8f);refraction_=get("refraction",.7f);variation_=get("variation",.8f);melt_=get("melt",.7f);lifetime_=get("persistence",3);turbulence_=get("turbulence",.9f);propagation_=get("propagation",1);ambient_=get("ambient",.35f);detail_=get("detail",.8f);bloomAmount_=get("bloom",.6f);sparks_=get("sparks",.5f);quality_=get("quality",1);brightness_=a.brightness;intensity_=a.intensity;scale_=a.scale;speed_=a.speed;
+void FieldEffect::configure(const PackAppearance& a){
+ const bool wasAnimated=animated();
+ background_.configure(a.field);auto get=[&](const char* k,float fallback){return a.field.value(k,fallback);};wordmarkEnabled_=get("wordmarkEnabled",1.f);wordmarkBrightness_=get("wordmarkBrightness",.65f);wordmarkFlow_=get("wordmarkFlow",.6f);wordmarkScale_=get("wordmarkScale",.95f);wordmarkOffsetY_=get("wordmarkOffsetY",0.f);diversity_=get("diversity",1.f);density_=get("density",.45f);opacityVariation_=get("opacityVariation",.85f);thickness_=get("thickness",.8f);refraction_=get("refraction",.7f);variation_=get("variation",.8f);melt_=get("melt",.7f);lifetime_=get("persistence",3);turbulence_=get("turbulence",.9f);propagation_=get("propagation",1);ambient_=get("ambient",.35f);detail_=get("detail",.8f);bloomAmount_=get("bloom",.6f);sparks_=get("sparks",.5f);quality_=get("quality",1);brightness_=a.brightness;intensity_=a.intensity;scale_=a.scale;speed_=a.speed;
+ if(wasAnimated && !animated())clear();
  auto colors=a.resolvedPaletteColors;if(colors.empty())colors={{20,24,56},{64,53,128},{34,145,140},{184,222,195}};if(colors!=paletteColors_){paletteColors_=std::move(colors);paletteDirty_=true;}
 }
 bool FieldEffect::uploadPalette(std::string& error){std::array<std::array<float,4>,256> pixels{};for(unsigned i=0;i<256;++i){float p=i/255.f*(paletteColors_.size()-1);unsigned first=std::min(static_cast<unsigned>(p),static_cast<unsigned>(paletteColors_.size()-1)),last=std::min(first+1,static_cast<unsigned>(paletteColors_.size()-1));auto a=lab(paletteColors_[first]),b=lab(paletteColors_[last]);float f=p-first;auto c=mapped({a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f});pixels[i]={c[0],c[1],c[2],1};}
@@ -176,7 +179,7 @@ bool FieldEffect::resize(unsigned width,unsigned height,std::string& error){
  blurWidth_=bw;blurHeight_=bh;
  return true;
 }
-bool FieldEffect::push(double now,float x,float y){if(!std::isfinite(now)||!std::isfinite(x)||!std::isfinite(y)||x<0||x>1||y<0||y>1)return false;Hit hit{x,y,now};
+bool FieldEffect::push(double now,float x,float y){if(!animated()||!std::isfinite(now)||!std::isfinite(x)||!std::isfinite(y)||x<0||x>1||y<0||y>1)return false;Hit hit{x,y,now};
  if(theme_==2){snowRandom_^=snowRandom_<<13;snowRandom_^=snowRandom_>>17;snowRandom_^=snowRandom_<<5;hit.seed=float(snowRandom_&0xffffff)/16777216.f;}
  if(theme_!=1){
   hits_[nextHit_++%24]=hit;
@@ -191,6 +194,13 @@ bool FieldEffect::push(double now,float x,float y){if(!std::isfinite(now)||!std:
 void FieldEffect::clear(){for(auto& h:hits_)h.time=-1;for(auto& a:arcs_)a.time=-1;reset_=true;previous_=-1;pausedAge_=0;}
 std::size_t FieldEffect::count()const{return std::count_if(hits_.begin(),hits_.end(),[](const Hit& h){return h.time>=0;});}
 bool FieldEffect::draw(ID3D11DeviceContext* c,unsigned width,unsigned height,double now,bool paused,std::string& error){
+ if(!animated()){
+  // With zero foreground brightness the compositor outputs only this fill.
+  ComPtr<ID3D11RenderTargetView> output;
+  c->OMGetRenderTargets(1,&output,nullptr);
+  if(output)c->ClearRenderTargetView(output.Get(),background_.gpu.solid.data());
+  return good(device_->GetDeviceRemovedReason(),"Field background render",error);
+ }
  if(background_.edited && !gradedShade_){
   const auto& code=FieldShaders[theme_];
   ComPtr<ID3D11PixelShader> shade,composite;

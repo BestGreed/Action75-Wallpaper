@@ -1,42 +1,117 @@
-#include "Action75Wallpaper.h"
+#include "Action75Wallpaper12.h"
 #include <cstdio>
 #include <cstring>
+#include <dxgi1_4.h>
+#include <utility>
 #include <wrl/client.h>
 using Microsoft::WRL::ComPtr;
 
 #define CHECK(expr) do { if (!(expr)) { std::fprintf(stderr,"Failed at line %d: %s\n",__LINE__,#expr); return 1; } } while(false)
-int check_format(const char *path, DXGI_FORMAT format) {
-    HMODULE module=LoadLibraryA(path); CHECK(module);
-    auto get=reinterpret_cast<A75GetWallpaper>(GetProcAddress(module,"Action75GetWallpaper"));
+int wmain(int argc,wchar_t **argv) {
+    CHECK(argc==2);
+    HMODULE module=LoadLibraryW(argv[1]); CHECK(module);
+    auto get=reinterpret_cast<A75GetWallpaper12>(GetProcAddress(module,"Action75GetWallpaper12"));
     CHECK(get && !get(0));
-    auto api=get(ACTION75_WALLPAPER_ABI);
-    CHECK(api && api->size>=sizeof(A75Wallpaper));
-    ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> ctx;
-    CHECK(SUCCEEDED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&device,nullptr,&ctx)));
+    auto api=get(ACTION75_WALLPAPER_ABI12);
+    CHECK(api && api->abi==ACTION75_WALLPAPER_ABI12 && api->size>=sizeof(A75Wallpaper12));
+    ComPtr<IDXGIFactory4> factory;
+    ComPtr<IDXGIAdapter> adapter;
+    ComPtr<ID3D12Device> device;
+    CHECK(SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))));
+    CHECK(SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter))));
+    CHECK(SUCCEEDED(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device))));
     constexpr unsigned width=960,height=360;
-    D3D11_TEXTURE2D_DESC desc{};
-    desc.Width=width; desc.Height=height; desc.MipLevels=desc.ArraySize=desc.SampleDesc.Count=1;
-    desc.Format=format; desc.BindFlags=D3D11_BIND_RENDER_TARGET;
-    ComPtr<ID3D11Texture2D> target,readback;
-    CHECK(SUCCEEDED(device->CreateTexture2D(&desc,nullptr,&target)));
-    ComPtr<ID3D11RenderTargetView> view;
-    CHECK(SUCCEEDED(device->CreateRenderTargetView(target.Get(),nullptr,&view)));
-    desc.BindFlags=0; desc.Usage=D3D11_USAGE_STAGING; desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
-    CHECK(SUCCEEDED(device->CreateTexture2D(&desc,nullptr,&readback)));
-    auto pixel=[&](int x,int y){
-        ctx->CopyResource(readback.Get(),target.Get());
-        D3D11_MAPPED_SUBRESOURCE map{};
-        if (FAILED(ctx->Map(readback.Get(),0,D3D11_MAP_READ,0,&map))) return 0u;
-        const auto *bytes=static_cast<const unsigned char*>(map.pData)+y*map.RowPitch+x*4;
-        const unsigned red=bytes[format==DXGI_FORMAT_R8G8B8A8_UNORM ? 0 : 2];
-        const unsigned blue=bytes[format==DXGI_FORMAT_R8G8B8A8_UNORM ? 2 : 0];
-        const unsigned result=(unsigned(bytes[3])<<24) | (red<<16) | (unsigned(bytes[1])<<8) | blue;
-        ctx->Unmap(readback.Get(),0); return result;
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type=D3D12_HEAP_TYPE_DEFAULT;
+    heap.CreationNodeMask=heap.VisibleNodeMask=1;
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width=width; desc.Height=height; desc.MipLevels=desc.DepthOrArraySize=desc.SampleDesc.Count=1;
+    desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    ComPtr<ID3D12Resource> target,readback;
+    CHECK(SUCCEEDED(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&desc,
+          D3D12_RESOURCE_STATE_RENDER_TARGET,nullptr,IID_PPV_ARGS(&target))));
+    const D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{D3D12_DESCRIPTOR_HEAP_TYPE_RTV,1};
+    ComPtr<ID3D12DescriptorHeap> rtv;
+    CHECK(SUCCEEDED(device->CreateDescriptorHeap(&rtvDesc,IID_PPV_ARGS(&rtv))));
+    const auto handle=rtv->GetCPUDescriptorHandleForHeapStart();
+    device->CreateRenderTargetView(target.Get(),nullptr,handle);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    UINT64 bytes=0;
+    device->GetCopyableFootprints(&desc,0,1,0,&footprint,nullptr,nullptr,&bytes);
+    heap.Type=D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC output{};
+    output.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;
+    output.Width=bytes; output.Height=output.MipLevels=output.DepthOrArraySize=output.SampleDesc.Count=1;
+    output.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    CHECK(SUCCEEDED(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&output,
+          D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&readback))));
+    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12GraphicsCommandList> commands;
+    ComPtr<ID3D12CommandQueue> queue;
+    ComPtr<ID3D12Fence> fence;
+    const D3D12_COMMAND_QUEUE_DESC q{};
+    CHECK(SUCCEEDED(device->CreateCommandQueue(&q,IID_PPV_ARGS(&queue))));
+    CHECK(SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator))));
+    CHECK(SUCCEEDED(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator.Get(),nullptr,
+          IID_PPV_ARGS(&commands))) && SUCCEEDED(commands->Close()));
+    CHECK(SUCCEEDED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence))));
+    struct WaitEvent {
+        HANDLE value=CreateEventW(nullptr,FALSE,FALSE,nullptr);
+        ~WaitEvent() { if (value) CloseHandle(value); }
+    } done;
+    CHECK(done.value);
+    UINT64 submitted=0;
+    const auto begin=[&](){
+        return SUCCEEDED(allocator->Reset()) && SUCCEEDED(commands->Reset(allocator.Get(),nullptr));
     };
-    A75Create cfg={sizeof(cfg),width,height,device.Get(),ctx.Get(),L".","{}"};
+    const auto submit=[&](){
+        if (FAILED(commands->Close())) return false;
+        ID3D12CommandList *lists[]{commands.Get()};
+        queue->ExecuteCommandLists(1,lists);
+        ++submitted;
+        return SUCCEEDED(queue->Signal(fence.Get(),submitted)) &&
+               SUCCEEDED(fence->SetEventOnCompletion(submitted,done.value)) &&
+               WaitForSingleObject(done.value,5000)==WAIT_OBJECT_0 &&
+               fence->GetCompletedValue()==submitted;
+    };
+    bool copied=false;
+    auto pixel=[&](int x,int y){
+        if (!copied) {
+            if (!begin()) return 0u;
+            D3D12_RESOURCE_BARRIER b{};
+            b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition={target.Get(),0,D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_COPY_SOURCE};
+            commands->ResourceBarrier(1,&b);
+            const D3D12_TEXTURE_COPY_LOCATION dst{readback.Get(),D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,footprint};
+            D3D12_TEXTURE_COPY_LOCATION src{target.Get(),D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+            commands->CopyTextureRegion(&dst,0,0,0,&src,nullptr);
+            std::swap(b.Transition.StateBefore,b.Transition.StateAfter);
+            commands->ResourceBarrier(1,&b);
+            if (!submit()) return 0u;
+            copied=true;
+        }
+        void *mapped=nullptr;
+        const auto offset=size_t(y)*footprint.Footprint.RowPitch+size_t(x)*4;
+        const D3D12_RANGE range{offset,offset+4};
+        if (FAILED(readback->Map(0,&range,&mapped))) return 0u;
+        const auto *p=static_cast<const unsigned char*>(mapped)+offset;
+        const unsigned result=(unsigned(p[3])<<24)|(unsigned(p[0])<<16)|(unsigned(p[1])<<8)|p[2];
+        const D3D12_RANGE none{};
+        readback->Unmap(0,&none);
+        return result;
+    };
+    A75Create12 cfg={sizeof(cfg),width,height,device.Get(),L".","{}"};
     void *game=api->create(&cfg); CHECK(game);
-    A75Frame frame={sizeof(frame),width,height,0,view.Get()};
-    auto render=[&](){ frame.seconds+=1./60; return api->render(game,&frame); };
+    A75Frame12 frame={sizeof(frame),width,height,0,commands.Get(),target.Get(),handle};
+    auto render=[&](){
+        copied=false;
+        if (!begin()) return -2;
+        frame.seconds+=1./60;
+        const auto delay=api->render(game,&frame);
+        return submit() ? delay : -2;
+    };
     auto emit=[&](unsigned type,const char *code=nullptr,const char *json=nullptr){
         A75Event e={sizeof(e),type,width,height,frame.seconds,0,0,code,json};
         api->on_event(game,&e);
@@ -79,12 +154,6 @@ int check_format(const char *path, DXGI_FORMAT format) {
     for (int i=0;i<155;++i) render();
     CHECK(render()==-1 && pixel(93,246)==0xffffbb59 && pixel(196,26)!=0xffdcefeb);
     api->destroy(game); FreeLibrary(module);
+    std::puts("ABI 2 RGBA8 WARP game readback passed, including amber RGB(255,187,89)");
     return 0;
-}
-
-int main(int argc,char **argv) {
-    CHECK(argc==2);
-    CHECK(check_format(argv[1], DXGI_FORMAT_R8G8B8A8_UNORM)==0);
-    CHECK(check_format(argv[1], DXGI_FORMAT_B8G8R8A8_UNORM)==0);
-    std::puts("RGBA8 and BGRA8 WARP game readback passed, including amber RGB(255,187,89)");
 }

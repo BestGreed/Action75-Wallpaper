@@ -1,5 +1,6 @@
 #include "PackSettings.h"
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <fstream>
@@ -26,17 +27,20 @@ namespace {
 using json=nlohmann::json;
 using fs=std::filesystem::path;
 constexpr std::size_t MaxSettingsBytes=32*1024;
+constexpr std::size_t MaxProfileBytes=64*1024;
 bool identifier(const std::string& value,std::size_t maximum=64) {
   return !value.empty() && value.size()<=maximum && std::all_of(value.begin(),value.end(),[](unsigned char c){
     return std::isalnum(c) && c<128 || c=='_' || c=='-';
   });
 }
-std::string readText(const fs& file) {
+std::string readText(const fs& file,std::size_t maximum=MaxSettingsBytes) {
   std::ifstream input(file,std::ios::binary);
   if(!input) throw std::runtime_error("Cannot read wallpaper settings file");
   input.seekg(0,std::ios::end);
   const auto bytes=input.tellg();
-  if(bytes<0 || bytes>static_cast<std::streamoff>(MaxSettingsBytes)) throw std::runtime_error("Wallpaper settings file exceeds 32 KiB");
+  if(bytes<0 || bytes>static_cast<std::streamoff>(maximum))
+    throw std::runtime_error(maximum==MaxSettingsBytes ? "Wallpaper settings file exceeds 32 KiB" :
+                                                       "Wallpaper settings profile exceeds 64 KiB");
   input.seekg(0);
   std::string text(static_cast<std::size_t>(bytes), '\0');
   if(!input.read(text.data(),static_cast<std::streamsize>(bytes)) || input.peek()!=std::char_traits<char>::eof())
@@ -49,13 +53,14 @@ json parseSettings(const std::string& text) {
     return true;
   });
 }
-json readFile(const fs& file) { return parseSettings(readText(file)); }
+json readFile(const fs& file,std::size_t maximum=MaxSettingsBytes) { return parseSettings(readText(file,maximum)); }
 void atomicWrite(const fs& file,const json& value) {
+  const auto text=value.dump();
+  if(text.size()>MaxProfileBytes) throw std::runtime_error("Wallpaper settings profile exceeds 64 KiB");
   std::filesystem::create_directories(file.parent_path());
   auto temporary=file; temporary+=L".tmp";
   {
     std::ofstream output(temporary,std::ios::binary|std::ios::trunc);
-    const auto text=value.dump(2);
     output.write(text.data(),static_cast<std::streamsize>(text.size()));
     output.flush();
     if(!output) throw std::runtime_error("Cannot write wallpaper settings");
@@ -66,6 +71,26 @@ void atomicWrite(const fs& file,const json& value) {
 #else
   std::filesystem::rename(temporary,file);
 #endif
+}
+bool sameProfileContents(const fs& first,const fs& second) {
+  if(std::filesystem::file_size(first)!=std::filesystem::file_size(second)) return false;
+  std::ifstream a(first,std::ios::binary),b(second,std::ios::binary);
+  if(!a || !b) throw std::runtime_error("Cannot verify wallpaper settings recovery backup");
+  std::array<char,65536> x{},y{};
+  do {
+    a.read(x.data(),static_cast<std::streamsize>(x.size()));
+    b.read(y.data(),static_cast<std::streamsize>(y.size()));
+    if(a.bad() || b.bad()) throw std::runtime_error("Cannot verify wallpaper settings recovery backup");
+    if(a.gcount()!=b.gcount() || !std::equal(x.begin(),x.begin()+a.gcount(),y.begin())) return false;
+  } while(!a.eof() && !b.eof());
+  return a.eof() && b.eof();
+}
+fs backupDamagedProfile(const fs& file) {
+  const auto stamp=std::chrono::steady_clock::now().time_since_epoch().count();
+  auto backup=file;backup+=L".before-recovery-"+std::to_wstring(stamp)+L".json";
+  std::filesystem::copy_file(file,backup);
+  if(!sameProfileContents(file,backup)) throw std::runtime_error("Wallpaper settings changed during recovery; refresh before restoring defaults");
+  return backup;
 }
 double number(const json& value) {
   if(!value.is_number()) throw std::runtime_error("A wallpaper setting requires a number");
@@ -624,6 +649,62 @@ void PackSettingsStore::retainPacks(const std::unordered_set<std::string>& ids) 
     else it=entries_.erase(it);
   }
 }
+PackSettingsStore::CatalogSchemas PackSettingsStore::catalogSchemas() const {
+  CatalogSchemas result;
+  result.reserve(entries_.size());
+  for(const auto& [id,entry]:entries_)
+    result.emplace(id,SchemaStamp{entry.directory,entry.schemaFile,entry.schemaTime,
+                                 entry.schemaBytes,entry.authorValues});
+  return result;
+}
+bool PackSettingsStore::unchangedSchema(const SchemaStamp& previous,
+                                       const std::filesystem::path& directory,
+                                       const std::filesystem::path& file,std::string_view kind) {
+  if(previous.directory!=directory || previous.file!=file || previous.authorValues!=(kind=="native"))
+    return false;
+  if(file.empty()) return true;
+  std::error_code error;
+  const auto modified=std::filesystem::last_write_time(file,error);
+  if(error || modified!=previous.modified) return false;
+  const auto size=std::filesystem::file_size(file,error);
+  return !error && size==previous.size;
+}
+void PackSettingsStore::adoptCatalog(PackSettingsStore& prepared,
+                                     const std::unordered_set<std::string>& unchanged,
+                                     const std::string& keepActive,const std::string& rejectedId) {
+  if(!rejectedId.empty()) prepared.entries_.erase(rejectedId);
+  prepared.entries_.reserve(prepared.entries_.size()+unchanged.size());
+  for(const auto& id:unchanged) if(id!=rejectedId) {
+    auto retained=entries_.extract(id);
+    if(!retained.empty()) prepared.entries_.insert(std::move(retained));
+  }
+  if(!keepActive.empty()) {
+    auto active=entries_.extract(keepActive);
+    if(!active.empty()) {
+      prepared.entries_.erase(keepActive);
+      prepared.entries_.insert(std::move(active));
+    }
+  }
+  // The scan only reads schemas. Profiles saved or previewed while it ran
+  // belong to the live store and keep their revision and loaded values.
+  for(auto& [id,next]:prepared.entries_) {
+    const auto it=entries_.find(id);
+    if(it==entries_.end()) continue;
+    auto& previous=it->second;
+    if(next.directory==previous.directory && next.schemaFile==previous.schemaFile &&
+       next.authorValues==previous.authorValues && next.schemaTime==previous.schemaTime &&
+       next.schemaBytes==previous.schemaBytes && next.error==previous.error) {
+      next.profile=std::move(previous.profile);
+      next.loaded=previous.loaded;
+      next.backupBeforeWrite=previous.backupBeforeWrite;
+      next.persistedRevision=previous.persistedRevision;
+      next.revisionFloor=previous.revisionFloor;
+    } else {
+      next.revisionFloor=previous.loaded ? nextRevision(previous.profile.revision) : previous.revisionFloor;
+    }
+  }
+  entries_.swap(prepared.entries_);
+}
 void PackSettingsStore::refresh(const std::string& id) {
   const auto& registered=entry(id);
   const auto directory=registered.directory,file=registered.schemaFile;
@@ -652,9 +733,12 @@ PackSettingsCandidate PackSettingsStore::current(const std::string& id) {
     PackSettingsCandidate candidate{id,schema,item.defaults,item.revisionFloor,false,item.playback,item.authorValues};
     const auto file=profileFile(id);
     if(std::filesystem::exists(file)) {
-      const auto stored=readFile(file);
+      const auto stored=readFile(file,MaxProfileBytes);
       if(!stored.is_object() || stored.value("version",0)!=1 || !stored.contains("values") || !stored["values"].is_object())
         throw std::runtime_error("Invalid wallpaper settings profile");
+      if(stored.contains("revision") && (!stored["revision"].is_number_integer() ||
+         (!stored["revision"].is_number_unsigned() && stored["revision"].get<std::int64_t>()<=0)))
+        throw std::runtime_error("Invalid wallpaper profile revision");
       const auto revision=stored.value("revision",std::uint64_t{1});
       if(!revision) throw std::runtime_error("Invalid wallpaper profile revision");
       bool evolved=stored["values"].size()!=item.defaults.size();
@@ -673,6 +757,8 @@ PackSettingsCandidate PackSettingsStore::current(const std::string& id) {
       candidate.stored=true;
       item.backupBeforeWrite=evolved;
       item.persistedRevision=revision;
+    } else {
+      normalizeImpactRange(candidate,json::object());
     }
     item.profile=std::move(candidate);item.loaded=true;
   }
@@ -680,7 +766,17 @@ PackSettingsCandidate PackSettingsStore::current(const std::string& id) {
 }
 PackSettingsCandidate PackSettingsStore::prepare(const std::string& id,const json& patch,
                                                  std::optional<std::uint64_t> expected,bool reset) {
-  auto candidate=current(id);
+  PackSettingsCandidate candidate;
+  try {candidate=current(id);}
+  catch(const std::exception&) {
+    if(!reset) throw;
+    refresh(id);
+    auto& item=entry(id);
+    if(!item.error.empty()) throw std::runtime_error("Wallpaper settings: "+item.error);
+    if(expected) throw std::runtime_error("Saved wallpaper settings cannot be verified; refresh before restoring defaults");
+    candidate={id,materializeSchema(id,item),item.defaults,item.revisionFloor,false,item.playback,item.authorValues};
+    candidate.recoveryBackup=backupDamagedProfile(profileFile(id));
+  }
   if(expected && *expected!=candidate.revision) throw std::runtime_error("Wallpaper settings changed; refresh before applying");
   if(!patch.is_object()) throw std::runtime_error("Wallpaper settings patch must be an object");
   const auto old=candidate.values;
@@ -707,6 +803,8 @@ void PackSettingsStore::commit(const PackSettingsCandidate& candidate,bool persi
   (void)bundle(candidate);
   if(persist) {
     const auto file=profileFile(candidate.id);
+    if(!candidate.recoveryBackup.empty() && !sameProfileContents(file,candidate.recoveryBackup))
+      throw std::runtime_error("Wallpaper settings changed after recovery was requested; refresh before restoring defaults");
     if(item.backupBeforeWrite && std::filesystem::exists(file)) {
       auto backup=file;backup+=L".before-schema-"+std::to_wstring(candidate.revision)+L".json";
       std::filesystem::copy_file(file,backup,std::filesystem::copy_options::skip_existing);

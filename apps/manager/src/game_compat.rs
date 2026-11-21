@@ -11,6 +11,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+const HANDOFF_TIMEOUT: Duration = Duration::from_secs(45);
+const HANDOFF_POLL: Duration = Duration::from_millis(100);
+const HANDOFF_CANCELLED: &str = "管理员模式交接已取消";
+
 #[derive(Clone)]
 pub struct Handoff {
     pub directory: PathBuf,
@@ -22,7 +26,61 @@ impl Handoff {
         let directory =
             std::env::temp_dir().join(format!("action75-admin-{}-{token}", std::process::id()));
         fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        if let Err(error) = fs::write(directory.join("pending"), token.as_bytes()) {
+            let _ = fs::remove_dir(&directory);
+            return Err(error.to_string());
+        }
         Ok(Self { directory, token })
+    }
+    fn has_marker(&self, name: &str) -> bool {
+        fs::read_to_string(self.directory.join(name)).is_ok_and(|token| token == self.token)
+    }
+    fn ensure_pending(&self) -> Result<(), String> {
+        if self.has_marker("pending") {
+            Ok(())
+        } else {
+            Err(HANDOFF_CANCELLED.into())
+        }
+    }
+    fn accept(&self) -> Result<(), String> {
+        self.ensure_pending()?;
+        fs::rename(
+            self.directory.join("pending"),
+            self.directory.join("accepted"),
+        )
+        .map_err(|e| e.to_string())
+    }
+    fn cancel(&self) -> Result<(), String> {
+        match fs::remove_file(self.directory.join("pending")) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+    fn await_acceptance(&self, timeout: Duration) -> Result<(), String> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            // The broker atomically renames the tracked marker. Read the destination
+            // after checking the source so acceptance cannot look like cancellation.
+            if !self.has_marker("pending") {
+                return if self.has_marker("accepted") {
+                    Ok(())
+                } else {
+                    Err(HANDOFF_CANCELLED.into())
+                };
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("未收到原控制台的交接确认".into());
+            }
+            thread::sleep(remaining.min(HANDOFF_POLL));
+        }
+    }
+    fn clear(&self) {
+        for name in ["outcome.json", "outcome.tmp", "pending", "accepted"] {
+            let _ = fs::remove_file(self.directory.join(name));
+        }
+        let _ = fs::remove_dir(&self.directory);
     }
     pub fn from_args(
         directory: Option<PathBuf>,
@@ -100,6 +158,7 @@ fn take_over<O: Operations>(root: &Path, ops: &mut O, restart: &mut bool) -> Res
 struct NativeOps {
     root: PathBuf,
     started: Option<Child>,
+    handoff: Option<Handoff>,
 }
 impl Operations for NativeOps {
     fn status(&mut self) -> Result<Option<Value>, String> {
@@ -119,14 +178,17 @@ impl Operations for NativeOps {
         if identity(&self.root, &current)? != pid {
             return Err("播放器已切换，请重试".into());
         }
-        core::command(
+        self.ensure_handoff_pending()?;
+        let stop = core::command(
             &self.root,
             json!({"action":"stop","expectedPlayerPid":pid,"expectedRuntimeRoot":current["runtimeRoot"]}),
-        )?;
+        );
         if process.wait(Duration::from_secs(7))? {
             Ok(())
         } else {
-            Err("原播放器尚未退出，未启动重复进程".into())
+            Err(stop
+                .err()
+                .unwrap_or_else(|| "原播放器尚未退出，未启动重复进程".into()))
         }
     }
     fn start_and_confirm(&mut self) -> Result<u32, String> {
@@ -138,6 +200,7 @@ impl Operations for NativeOps {
             }
             return Err("播放器已由其他会话重新启动，请重试".into());
         }
+        self.ensure_handoff_pending()?;
         let child = Command::new(core::player(&self.root))
             .arg("--root")
             .arg(&self.root)
@@ -152,6 +215,7 @@ impl Operations for NativeOps {
         self.started = Some(child);
         let deadline = Instant::now() + Duration::from_secs(12);
         loop {
+            self.ensure_handoff_pending()?;
             if let Ok(status) = core::command(&self.root, json!({"action":"status"})) {
                 if identity(&self.root, &status)? == pid && status["inputElevated"] == true {
                     win::validate_process(pid, &core::player(&self.root))?;
@@ -176,6 +240,11 @@ impl Operations for NativeOps {
     }
 }
 impl NativeOps {
+    fn ensure_handoff_pending(&self) -> Result<(), String> {
+        self.handoff
+            .as_ref()
+            .map_or(Ok(()), Handoff::ensure_pending)
+    }
     fn cleanup(&mut self) {
         if let Some(mut child) = self.started.take() {
             if child.try_wait().ok().flatten().is_none() {
@@ -205,6 +274,7 @@ pub(crate) fn stop_player(root: &Path) -> Result<(), String> {
     let mut ops = NativeOps {
         root: root.to_owned(),
         started: None,
+        handoff: None,
     };
     if let Some(status) = ops.status()? {
         ops.stop_and_wait(identity(root, &status)?)?;
@@ -216,13 +286,15 @@ pub struct Prepared {
     ops: NativeOps,
     pub pid: u32,
     restart: bool,
-    handoff: Option<Handoff>,
     committed: bool,
 }
 impl Prepared {
     pub fn ready(mut self) -> Result<(), String> {
-        if let Some(h) = &self.handoff {
+        if let Some(h) = &self.ops.handoff {
+            h.ensure_pending()?;
             h.report(&self.ops.root, true, false, "", self.pid)?;
+            h.await_acceptance(HANDOFF_TIMEOUT + Duration::from_secs(10))?;
+            h.clear();
         }
         self.committed = true;
         self.ops.started.take();
@@ -233,7 +305,7 @@ impl Drop for Prepared {
     fn drop(&mut self) {
         if !self.committed {
             self.ops.cleanup();
-            if let Some(h) = &self.handoff {
+            if let Some(h) = &self.ops.handoff {
                 let _ = h.report(&self.ops.root, false, self.restart, "管理员界面未能启动", 0);
             }
         }
@@ -246,19 +318,22 @@ pub fn prepare(root: &Path, handoff: Option<Handoff>) -> Result<Prepared, String
     let mut ops = NativeOps {
         root: root.to_owned(),
         started: None,
+        handoff,
     };
     let mut restart = false;
-    match take_over(root, &mut ops, &mut restart) {
+    let result = ops
+        .ensure_handoff_pending()
+        .and_then(|()| take_over(root, &mut ops, &mut restart));
+    match result {
         Ok(pid) => Ok(Prepared {
             ops,
             pid,
             restart,
-            handoff,
             committed: false,
         }),
         Err(error) => {
             ops.cleanup();
-            if let Some(h) = handoff {
+            if let Some(h) = &ops.handoff {
                 let _ = h.report(root, false, restart, &error, 0);
             }
             Err(error)
@@ -302,6 +377,21 @@ fn restore_medium(root: &Path) -> Result<(), String> {
         Err(error) => Err(format!("无法确认播放器状态，未启动重复进程：{error}")),
     }
 }
+fn cancel_handoff(
+    root: &Path,
+    h: &Handoff,
+    process: &win::Process,
+    reason: &str,
+) -> Result<(), String> {
+    h.cancel()
+        .map_err(|e| format!("{reason}，撤销交接失败：{e}"))?;
+    if process.wait(Duration::from_secs(8))? {
+        restore_medium(root).map_err(|e| format!("{reason}，恢复原播放器失败：{e}"))?;
+        Err(reason.into())
+    } else {
+        Err(format!("{reason}，请在管理员进程退出后重新连接播放器"))
+    }
+}
 pub fn elevate_and_wait(root: &Path) -> Result<(), String> {
     let h = Handoff::create()?;
     let result = (|| {
@@ -317,35 +407,48 @@ pub fn elevate_and_wait(root: &Path) -> Result<(), String> {
         ];
         let process = win::run_as(&exe, &args)?;
         let pid = process.pid()?;
+        let deadline = Instant::now() + HANDOFF_TIMEOUT;
         loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return cancel_handoff(root, &h, &process, "管理员切换超时，已取消交接");
+            }
             if let Ok(bytes) = fs::read(h.directory.join("outcome.json")) {
                 if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
                     if let Ok((ready, restart, message)) = outcome(root, &h, pid, &value) {
-                        if ready {
-                            return Ok(());
+                        if ready && Instant::now() < deadline && !process.wait(Duration::ZERO)? {
+                            return match h.accept() {
+                                Ok(()) => Ok(()),
+                                Err(error) => cancel_handoff(
+                                    root,
+                                    &h,
+                                    &process,
+                                    &format!("无法确认管理员交接，{error}"),
+                                ),
+                            };
                         }
-                        if restart {
-                            restore_medium(root)
-                                .map_err(|e| format!("{message}；恢复原播放器失败：{e}"))?;
+                        if !ready {
+                            if restart {
+                                restore_medium(root)
+                                    .map_err(|e| format!("{message}；恢复原播放器失败：{e}"))?;
+                            }
+                            return Err(message);
                         }
-                        return Err(message);
                     }
                 }
                 // Never trust or abandon a malformed/mismatched ACK while its
                 // child is still alive. Exit below restores only a verified role.
             }
-            if process.wait(Duration::from_millis(100))? {
+            if process.wait(remaining.min(HANDOFF_POLL))? {
                 restore_medium(root).map_err(|e| format!("管理员界面提前退出；{e}"))?;
                 return Err("管理员界面在交接前退出，原窗口和播放器已保留".into());
             }
-            // Keep the broker and handoff alive while the accepted child is alive.
-            // A late READY must never create a second independent GUI.
         }
     })();
-    // Files belong to this request; never enumerate or remove other directories.
-    let _ = fs::remove_file(h.directory.join("outcome.json"));
-    let _ = fs::remove_file(h.directory.join("outcome.tmp"));
-    let _ = fs::remove_dir(&h.directory);
+    // The accepted child consumes the marker itself before showing its window.
+    if result.is_err() {
+        h.clear();
+    }
     result
 }
 pub fn begin(root: PathBuf, ctx: egui::Context) -> mpsc::Receiver<Result<(), String>> {
@@ -558,6 +661,76 @@ pub(crate) mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "child-process fixture; started only by stop acknowledgement tests"]
+    fn stop_ack_child_fixture() {
+        let marker = PathBuf::from(std::env::var_os("ACTION75_STOP_TEST_RELEASE").unwrap());
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !marker.is_file() {
+            assert!(
+                Instant::now() < deadline,
+                "parent did not release test child"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn delivered_stop_can_be_confirmed_after_the_pipe_reply_is_lost() {
+        struct TestChild(Child);
+        impl Drop for TestChild {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let scratch = tempfile::tempdir().unwrap();
+        let root = scratch.path();
+        let executable = core::player(root);
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        let marker = root.join("release-child");
+        let mut child = TestChild(
+            Command::new(&executable)
+                .args(["--ignored", "--nocapture", "stop_ack_child_fixture"])
+                .env("ACTION75_STOP_TEST_RELEASE", &marker)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags(0x08000000)
+                .spawn()
+                .unwrap(),
+        );
+        let pid = child.0.id();
+        let status = json!({"runtimeRoot":root,"playerPid":pid});
+        let endpoint = core::runtime_identity::installation_endpoint(root).unwrap();
+        let server = core::pipe_client::test_server::spawn_script(
+            endpoint,
+            vec![Some(json!({"ok":true,"result":status})), None],
+            move |request| {
+                if request["action"] == "stop" {
+                    assert_eq!(request["expectedPlayerPid"], pid);
+                    fs::write(&marker, b"stop delivered").unwrap();
+                }
+            },
+        );
+        let mut ops = NativeOps {
+            root: root.to_owned(),
+            started: None,
+            handoff: None,
+        };
+        let result = ops.stop_and_wait(pid);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(child.0.wait().unwrap().success());
+        assert!(
+            result.is_ok(),
+            "the original process exited after stop delivery: {result:?}"
+        );
+    }
+
     struct Fake {
         root: PathBuf,
         status: Option<Value>,
@@ -655,6 +828,25 @@ mod tests {
         value["managerPid"] = json!(123);
         value["token"] = json!("bad");
         assert!(outcome(&root, &h, 123, &value).is_err());
+    }
+
+    #[test]
+    fn prepared_child_cannot_commit_an_unacknowledged_or_cancelled_handoff() {
+        let h = Handoff::create().unwrap();
+        assert!(h.await_acceptance(Duration::ZERO).is_err());
+        h.cancel().unwrap();
+        assert!(h.accept().is_err());
+        assert!(h.ensure_pending().is_err());
+        assert_eq!(
+            h.await_acceptance(Duration::ZERO),
+            Err(HANDOFF_CANCELLED.into())
+        );
+        h.clear();
+
+        let accepted = Handoff::create().unwrap();
+        accepted.accept().unwrap();
+        assert!(accepted.await_acceptance(Duration::ZERO).is_ok());
+        accepted.clear();
     }
     #[test]
     fn windows_arguments_preserve_spaces_quotes_and_trailing_slashes() {

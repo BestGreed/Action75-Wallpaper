@@ -1,0 +1,121 @@
+name: Windows checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Restore wallpaper assets
+        run: python tools/restore-wallpaper-assets.py
+      - name: Build and test controller, player and worker
+        run: python -B tools/release_build.py --test --output-dir "$env:RUNNER_TEMP/action75-build"
+        shell: pwsh
+      - name: Author settings and recipes
+        run: |
+          $env:ACTION75_SCHEMA_CHECKER = "$env:RUNNER_TEMP/action75-build/native/build/Release/action75_pack_settings_tests.exe"
+          python -B docs/wallpaper-authoring/templates/test_expand.py
+        shell: pwsh
+      - name: Release inventory and source archive
+        run: |
+          python -B tools/test-release-packaging.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B tools/package-source.py --output-dir "$env:RUNNER_TEMP/action75-source"
+        shell: pwsh
+      - name: Author SDK from source archive
+        run: |
+          $archives = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/action75-source" -Filter 'ACTION75-source-*.zip' -File)
+          if ($archives.Count -ne 1) { throw 'Expected one source archive to verify.' }
+          ./examples/native-wallpapers/verify-sdk.ps1 -Archive $archives[0].FullName -OutputDirectory "$env:RUNNER_TEMP/action75-sdk" -WallpaperAssets "$pwd/wallpapers-native" -EffekseerArchive "$pwd/vendor-source/windows-native/EffekseerForCpp1.80.8.zip"
+        shell: pwsh
+      - name: Stage independently built native wallpapers
+        run: |
+          python -B tools/stage-native-wallpapers.py --sdk-output "$env:RUNNER_TEMP/action75-sdk" --output "$env:RUNNER_TEMP/action75-native-library"
+        shell: pwsh
+      - name: Native release pack ABI, exports and imports
+        run: |
+          python -B tools/verify-native-wallpapers.py --builtins --library-dir "$env:RUNNER_TEMP/action75-native-library" --legacy-fixture tools/fixtures/key-game-abi1/pack --report "$env:RUNNER_TEMP/action75-native-packs.json"
+        shell: pwsh
+      - name: Author build and pack evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: action75-native-pack-verification
+          path: |
+            ${{ runner.temp }}/action75-sdk/*-pe.json
+            ${{ runner.temp }}/action75-sdk/sdk-builds.json
+            ${{ runner.temp }}/action75-native-packs.json
+          if-no-files-found: ignore
+      - name: Install verifier dependencies
+        run: python -m pip install psutil pywin32 pillow
+      - name: Preserve native wallpaper input behavior
+        run: |
+          python -B tools/verify-wallpaper-behavior.py --player "$env:RUNNER_TEMP/action75-build/native/dist/Action75Native/Action75Native.exe" --wallpapers "$env:RUNNER_TEMP/action75-native-library" --ferrofluid-pack "$env:RUNNER_TEMP/action75-sdk/ferrofluid-pack" --output "$env:RUNNER_TEMP/action75-native-behavior"
+        shell: pwsh
+      - name: Install the pinned Inno Setup compiler
+        shell: pwsh
+        run: |
+          $innoSetup = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.1-x64.exe'
+          $innoDir = Join-Path $env:RUNNER_TEMP 'action75-inno'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe' -OutFile $innoSetup
+          if ((Get-FileHash -LiteralPath $innoSetup -Algorithm SHA256).Hash -ne '8A5A6711C3766A6E5FB74F280BA0E3551E719CE94538D901FDBD1F8F9920B3F0') {
+            throw 'Inno Setup checksum mismatch'
+          }
+          $setupArgs = @('/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS', ('/DIR="{0}"' -f $innoDir))
+          $setupProcess = Start-Process -FilePath $innoSetup -ArgumentList $setupArgs -WindowStyle Hidden -Wait -PassThru
+          $compiler = Join-Path $innoDir 'ISCC.exe'
+          if ($setupProcess.ExitCode -ne 0 -or !(Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            throw 'Could not install Inno Setup 7.1.1'
+          }
+          "ACTION75_ISCC=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Isolated installer lifecycle
+        run: |
+          python -B tools/verify-release.py --compiler "$env:ACTION75_ISCC" --receipt "$env:RUNNER_TEMP/action75-build/build.json" --wallpapers "$env:RUNNER_TEMP/action75-native-library" --install-only --exercise-blocked-uninstall --output-dir "$env:RUNNER_TEMP/action75-install"
+        shell: pwsh
+      - name: Installer test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: action75-install-verification
+          path: |
+            ${{ runner.temp }}/action75-build/build.json
+            ${{ runner.temp }}/action75-native-behavior/result.json
+            ${{ runner.temp }}/action75-install/**/verification.json
+            ${{ runner.temp }}/action75-install/**/*.log
+          if-no-files-found: ignore
+      - name: Build distribution installer
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          ./tools/package.ps1 -Compiler "$env:ACTION75_ISCC" -BuildReceipt "$env:RUNNER_TEMP/action75-build/build.json" -Wallpapers "$env:RUNNER_TEMP/action75-native-library" -OutputDirectory "$env:RUNNER_TEMP/action75-distribution"
+      - name: Upgrade and roll back from the published installer
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $candidate = Get-ChildItem "$env:RUNNER_TEMP/action75-distribution/Action75-Wallpaper-Setup-*-x64.exe" -File
+          if (@($candidate).Count -ne 1) { throw 'Expected one candidate installer' }
+          python -B tools/verify-installed-update.py published --candidate $candidate.FullName --receipt "$env:RUNNER_TEMP/action75-build/build.json" --work "$env:RUNNER_TEMP/action75-published-upgrade"
+      - name: Published upgrade evidence
+        if: always() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: action75-published-upgrade-evidence
+          path: |
+            ${{ runner.temp }}/action75-published-upgrade/baseline.json
+            ${{ runner.temp }}/action75-published-upgrade/**/result.json
+            ${{ runner.temp }}/action75-published-upgrade/**/*.log
+          if-no-files-found: ignore
+      - name: Distribution installer
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: action75-wallpaper-installer
+          path: ${{ runner.temp }}/action75-distribution/Action75-Wallpaper-Setup-*-x64.exe
+          if-no-files-found: error

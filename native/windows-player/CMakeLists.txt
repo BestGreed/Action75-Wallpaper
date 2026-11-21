@@ -74,35 +74,62 @@ target_link_libraries(action75_fireworks PUBLIC action75_json)
 include(cmake/AtlasPacks.cmake)
 include(cmake/SurfacePacks.cmake)
 include(cmake/FieldPacks.cmake)
-# Rebuild the thirteen migrated packages explicitly. Runtime builds use the shipped DLLs.
-add_custom_target(action75_migrated_packs DEPENDS action75_atlas_packs)
-foreach(id IN ITEMS stillwater glass-shatter night-fireworks silk-nebula gilded-synapse harmonic-textile keycap-glow)
-    add_custom_command(TARGET action75_migrated_packs POST_BUILD
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:wallpaper_${id}>"
-                "${ACTION75_ROOT}/wallpapers-native/${id}/wallpaper.dll" VERBATIM)
-    add_dependencies(action75_migrated_packs wallpaper_${id})
-endforeach()
 configure_file(cmake/app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
 add_executable(action75_paintball_controls_tests tests/paintball_controls_tests.cpp)
 target_link_libraries(action75_paintball_controls_tests PRIVATE action75_settings action75_effekseer_backend d3d11 d3dcompiler dxgi ole32)
-add_test(NAME native_paintball_controls COMMAND action75_paintball_controls_tests "${ACTION75_ROOT}/wallpapers-native/paintball-native")
+add_executable(action75_prepare_legacy_paintball EXCLUDE_FROM_ALL tests/PrepareLegacyPaintball.cpp)
+target_include_directories(action75_prepare_legacy_paintball PRIVATE
+    "${ACTION75_EFFEKSEER_ROOT}/src/EffekseerMaterialCompiler")
+target_link_libraries(action75_prepare_legacy_paintball PRIVATE EffekseerRendererDX11)
+set(paintball_artwork "${ACTION75_ROOT}/wallpapers-native/paintball-native")
+set(paintball_abi1_fixture "${CMAKE_CURRENT_BINARY_DIR}/test-data/paintball-abi1")
+file(GLOB paintball_test_effects CONFIGURE_DEPENDS "${paintball_artwork}/*.efk")
+file(GLOB paintball_test_materials CONFIGURE_DEPENDS "${paintball_artwork}/materials/*.efkmat")
+file(GLOB_RECURSE paintball_test_resources CONFIGURE_DEPENDS
+    "${paintball_artwork}/textures/*")
+set(paintball_ready "${paintball_abi1_fixture}/ready")
+# Compile legacy caches in the test tree and leave the ABI2 release cache intact.
+add_custom_command(OUTPUT "${paintball_ready}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${paintball_abi1_fixture}/materials"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${paintball_artwork}/settings.json" ${paintball_test_effects} "${paintball_abi1_fixture}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${paintball_artwork}/textures" "${paintball_abi1_fixture}/textures"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        ${paintball_test_materials} "${paintball_abi1_fixture}/materials"
+    COMMAND action75_prepare_legacy_paintball "${paintball_artwork}" "${paintball_abi1_fixture}"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${paintball_ready}"
+    DEPENDS action75_prepare_legacy_paintball "${paintball_artwork}/settings.json"
+            ${paintball_test_effects} ${paintball_test_materials} ${paintball_test_resources}
+    VERBATIM)
+add_custom_target(action75_legacy_paintball_fixture DEPENDS "${paintball_ready}")
+add_dependencies(action75_paintball_controls_tests action75_legacy_paintball_fixture)
+add_test(NAME native_paintball_controls COMMAND action75_paintball_controls_tests "${paintball_abi1_fixture}")
 add_library(action75_native_plugin STATIC src/NativePluginSession.cpp)
 target_include_directories(action75_native_plugin PUBLIC include)
 target_link_libraries(action75_native_plugin PUBLIC d3d11 dxgi advapi32 userenv user32 ole32)
-add_executable(Action75WallpaperWorker WIN32 src/NativePluginWorker.cpp cmake/ProcessHeap.manifest)
+add_executable(Action75WallpaperWorker WIN32 src/NativePluginWorker.cpp src/NativePluginWorker12.cpp cmake/ProcessHeap.manifest)
 target_include_directories(Action75WallpaperWorker PRIVATE include)
-target_link_libraries(Action75WallpaperWorker PRIVATE action75_json d3d11 dxgi advapi32 shell32 ole32)
+target_link_libraries(Action75WallpaperWorker PRIVATE action75_json d3d11 d3d12 dxgi advapi32 shell32 ole32)
+if(MSVC)
+    target_link_libraries(Action75WallpaperWorker PRIVATE delayimp)
+    target_link_options(Action75WallpaperWorker PRIVATE /DELAYLOAD:d3d12.dll /DELAYLOAD:d3d11.dll)
+endif()
 set_target_properties(Action75WallpaperWorker PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<1:${ACTION75_DIST_DIR}/Action75Native>")
 foreach(host Action75Native Action75Perf)
     add_executable(${host} WIN32 cmake/ProcessHeap.manifest
-        src/main.cpp src/IpcServer.cpp
+        src/main.cpp src/IpcServer.cpp src/Dx12Output.cpp
         src/SpriteBurst.cpp src/KeycapEffect.cpp src/FieldEffect.cpp src/ProceduralBurst.cpp src/PixelFluid.cpp)
     target_include_directories(${host} PRIVATE include)
     target_link_libraries(${host} PRIVATE action75_pack_backdrop
         action75_input action75_settings action75_wallpaper_catalog action75_display_guard
         action75_effekseer_backend action75_water_surface action75_fireworks action75_glass_shatter
-        action75_native_plugin d3d11 dxgi d3dcompiler windowscodecs ole32 shell32 psapi advapi32
+        action75_native_plugin d3d11 d3d12 dcomp dxgi d3dcompiler windowscodecs ole32 shell32 psapi advapi32
         mfplat mfuuid mf oleaut32 shlwapi)
+    if(MSVC)
+        target_link_libraries(${host} PRIVATE delayimp)
+        target_link_options(${host} PRIVATE /DELAYLOAD:d3d11.dll /DELAYLOAD:d3d12.dll /DELAYLOAD:dcomp.dll)
+    endif()
     set_target_properties(${host} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<1:${ACTION75_DIST_DIR}/${host}>")
     add_dependencies(${host} Action75WallpaperWorker)
 endforeach()
@@ -233,7 +260,7 @@ target_link_libraries(action75_diagnostics_tests PRIVATE action75_json)
 add_test(NAME native_diagnostics_retention COMMAND action75_diagnostics_tests)
 add_executable(action75_surface_pack_parity tests/SurfacePackParity.cpp)
 target_link_libraries(action75_surface_pack_parity PRIVATE action75_settings action75_water_surface action75_fireworks d3d11)
-add_test(NAME native_surface_pack_parity COMMAND action75_surface_pack_parity "${ACTION75_ROOT}/wallpapers-native")
+add_test(NAME native_surface_pack_parity COMMAND action75_surface_pack_parity "${ACTION75_ROOT}/tools/fixtures/builtins-abi1")
 
 foreach(target Action75Native Action75Perf action75_snow_probe action75_field_probe action75_keycap_probe)
     action75_use_field_shaders(${target})
@@ -242,3 +269,11 @@ endforeach()
 add_test(NAME native_monitor_reconnect COMMAND python
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/monitor_reconnect.py" "$<TARGET_FILE:Action75Native>" "${ACTION75_ROOT}")
 set_tests_properties(native_monitor_reconnect PROPERTIES TIMEOUT 45)
+
+add_executable(action75_dx12_window_tests tests/Dx12WindowTest.cpp src/Dx12Output.cpp)
+target_link_libraries(action75_dx12_window_tests PRIVATE action75_pack_backdrop d3d12 dcomp)
+add_test(NAME native_dx12_window COMMAND action75_dx12_window_tests)
+set_tests_properties(native_dx12_window PROPERTIES TIMEOUT 20)
+add_test(NAME native_dx12_reconnect COMMAND python
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/monitor_reconnect.py" "$<TARGET_FILE:Action75Native>" "${ACTION75_ROOT}" --dx12)
+set_tests_properties(native_dx12_reconnect PROPERTIES TIMEOUT 45)

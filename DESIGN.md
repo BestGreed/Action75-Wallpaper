@@ -1,6 +1,6 @@
 ---
 name: ACTION75
-description: Action75 Windows 控制台的配色、字体与界面层级。
+description: A native Windows wallpaper library shaped by the ACTION75 case.
 colors:
   paper-highlight: "#f5f5f5"
   paper-ground: "#e6e6e6"

@@ -97,7 +97,7 @@ Action75 Wallpaper 由 [blackwhite-poi](https://github.com/blackwhite-poi) 与 [
 | --- | --- |
 | 按键时播放一段手绘动画 | 一张透明 PNG 图集、一张背景图，以及格数、时长等[图集参数](skills/action75-wallpaper-author/references/pack.md)。 |
 | 让粒子散开、下落或拖出尾迹 | 用 Effekseer 制作兼容的 CPU 粒子，随包放入效果文件和素材。多个变体可配置[播放顺序和触发间隔](skills/action75-wallpaper-author/references/playback.md)。 |
-| 制作磁流体、角色互动或小游戏 | 用 C++ 和 D3D11 实现自己的状态、输入与绘制，编译为 Windows x64 DLL。[原生接口与生命周期](skills/action75-wallpaper-author/references/native.md) |
+| 制作磁流体、角色互动或小游戏 | 用 C++ 和 D3D11 或 D3D12 实现自己的状态、输入与绘制，编译为 Windows x64 DLL。[原生接口与生命周期](skills/action75-wallpaper-author/references/native.md) |
 
 ### 跟做一款「薄荷光环」
 

@@ -234,6 +234,91 @@ static int runPackSettingsTests() {
       require(restored.values==changed.values && restored.revision==changed.revision && restored.stored,
         "Profile did not survive restart");
     });
+    test("large native palettes survive compact saves and legacy formatted profiles",[] {
+      Temporary t;const auto state=t.root/"state";
+      json items=json::array(),patch=json::object();
+      for(unsigned i=0;i<64;++i) {
+        const auto id="palette"+std::to_string(i);
+        items.push_back({{"id",id},{"type","palette"},{"label","Palette"},{"maxColors",9},
+          {"presets",json::array({"custom"})},
+          {"default",{{"preset","custom"},{"colors",json::array({json::array({255,128,64})})}}}});
+        auto& value=patch[id];value={{"preset","custom"},{"colors",json::array()}};
+        for(unsigned c=0;c<9;++c) value["colors"].push_back(json::array({255,128,64}));
+      }
+      const auto definition=schema(items);
+      require(definition.dump().size()<32*1024,"Large-palette fixture exceeded the schema limit");
+      const auto directory=install(t,"large-palettes",definition);
+      PackSettingsStore store(state);store.registerPack("large-palettes",directory,directory/"settings.json","native");
+      const auto updated=store.prepare("large-palettes",patch);
+      store.commit(updated);
+      const auto file=state/"wallpaper-settings/large-palettes.json";
+      require(fs::file_size(file)<32*1024,"New profile did not use compact serialization");
+      PackSettingsStore reopened(state);reopened.registerPack("large-palettes",directory,directory/"settings.json","native");
+      require(reopened.current("large-palettes").values==updated.values,"Large saved palette values did not survive cold reload");
+      const auto persisted=read(file);write(file,persisted);
+      require(fs::file_size(file)>32*1024 && fs::file_size(file)<=64*1024,"Legacy formatting fixture did not exercise the expanded profile budget");
+      std::cout<<"INFO legacy formatted profile bytes="<<fs::file_size(file)<<'\n';
+      PackSettingsStore legacy(state);legacy.registerPack("large-palettes",directory,directory/"settings.json","native");
+      require(legacy.current("large-palettes").values==updated.values,"Previously written formatted profile could not be recovered without resetting");
+    });
+    test("damaged profiles require explicit reset and retain an exact recovery backup",[] {
+      Temporary t;const auto state=t.root/"state";
+      const std::vector<std::string> damaged={"{",R"({"version":999,"revision":1,"values":{}})",
+        R"({"version":1,"revision":0,"values":{}})",R"({"version":1,"revision":-1,"values":{}})",
+        R"({"version":1,"revision":1.5,"values":{}})",std::string(64*1024+1,'x')};
+      const auto bytes=[](const fs::path& file) {
+        std::ifstream input(file,std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>());
+      };
+      for(std::size_t i=0;i<damaged.size();++i) {
+        const auto id="damaged-"+std::to_string(i);
+        const auto directory=install(t,id,schema(json::array({brightnessControl()})));
+        PackSettingsStore store(state);registerAt(store,id,directory);
+        const auto file=state/"wallpaper-settings"/(id+".json");
+        fs::create_directories(file.parent_path());
+        {std::ofstream output(file,std::ios::binary);output<<damaged[i];}
+        rejects([&]{store.current(id);},"Damaged profile became a normal editable profile");
+        rejects([&]{store.prepare(id,{{"brightness",75}});},"A normal patch overwrote a damaged profile");
+        rejects([&]{store.prepare(id,json::object(),7,true);},"A stale explicit revision bypassed recovery validation");
+        require(bytes(file)==damaged[i],"Inspecting or rejecting a bad profile changed the original");
+        const auto recovery=store.prepare(id,json::object(),{},true);
+        require(!recovery.recoveryBackup.empty() && bytes(recovery.recoveryBackup)==damaged[i],"Recovery did not preserve the exact damaged bytes");
+        require(bytes(file)==damaged[i],"Preparing recovery replaced the profile before commit");
+        store.commit(recovery);
+        require(store.current(id).values["brightness"]==50,"Explicit recovery did not restore declared defaults");
+        PackSettingsStore reopened(state);registerAt(reopened,id,directory);
+        require(reopened.current(id).values["brightness"]==50,"Recovered profile failed cold reload");
+        require(bytes(recovery.recoveryBackup)==damaged[i],"Recovery backup changed after the commit");
+      }
+    });
+    test("recovery commit preserves a profile repaired after reset was requested",[] {
+      Temporary t;const auto state=t.root/"state";
+      const auto directory=install(t,"repair-race",schema(json::array({brightnessControl()})));
+      PackSettingsStore store(state);registerAt(store,"repair-race",directory);
+      const auto file=state/"wallpaper-settings/repair-race.json";
+      fs::create_directories(file.parent_path());
+      {std::ofstream output(file);output<<"{";}
+      const auto recovery=store.prepare("repair-race",json::object(),{},true);
+      write(file,{{"version",1},{"revision",17},{"values",{{"brightness",82}}}});
+      const auto repaired=read(file);
+      rejects([&]{store.commit(recovery);},"Recovery overwrote a newer repaired profile");
+      require(read(file)==repaired,"Failed recovery changed the repaired file");
+      PackSettingsStore reopened(state);registerAt(reopened,"repair-race",directory);
+      require(reopened.current("repair-race").values["brightness"]==82,"Repaired profile was not usable");
+    });
+    test("unreadable profiles and invalid schemas cannot bypass reset protection",[] {
+      Temporary t;const auto state=t.root/"state";
+      const auto directory=install(t,"not-a-file",schema(json::array({brightnessControl()})));
+      PackSettingsStore store(state);registerAt(store,"not-a-file",directory);
+      const auto file=state/"wallpaper-settings/not-a-file.json";
+      fs::create_directories(file);write(file/"keep.json",{{"preserved",true}});
+      rejects([&]{store.prepare("not-a-file",json::object(),{},true);},"An unreadable profile bypassed recovery backup");
+      require(read(file/"keep.json")["preserved"]==true,"An unreadable profile path was changed");
+      auto invalid=schema(json::array({brightnessControl()}));
+      invalid["groups"][0]["controls"][0]["binding"]["target"]="missing.renderer.target";
+      const auto bad=install(t,"bad-schema-reset",invalid);store.registerPack("bad-schema-reset",bad,bad/"settings.json");
+      rejects([&]{store.prepare("bad-schema-reset",json::object(),{},true);},"Reset bypassed schema validation");
+    });
     test("legacy mapping migrates only targeted wallpaper",[] {
       Temporary t;PackSettingsStore store(t.root/"state");
       registerAt(store,"old",install(t,"old",allControls()));
@@ -334,6 +419,26 @@ static int runPackSettingsTests() {
       rejects([&]{store.current("removed");},"Removed schema still present");
       registerAt(store,"removed",dir);
       require(store.current("removed").values.at("brightness")==90,"Reinstall lost saved values");
+    });
+    test("publishing a catalog preserves a live change and an older active import schema",[] {
+      Temporary t;
+      PackSettingsStore live(t.root/"state"), scanned(t.root/"state");
+      const auto stable=install(t,"stable",allControls());
+      const auto active=install(t,"old-revision",allControls());
+      const auto updated=install(t,"published-revision",schema(json::array({brightnessControl()})));
+      registerAt(live,"stable",stable);
+      registerAt(live,"active",active);registerAt(scanned,"active",updated);
+      const auto patched=live.prepare("stable",{{"brightness",87}});
+      live.commit(patched,false);
+      const auto prior=live.current("active");
+      require(PackSettingsStore::unchangedSchema(live.catalogSchemas().at("stable"),
+                stable,stable/"settings.json",""),"Unchanged settings certificate missed");
+      live.adoptCatalog(scanned,{"stable"},"active","");
+      const auto current=live.current("stable");
+      require(current.values==patched.values && current.revision==patched.revision && !current.stored,
+              "Publishing scan lost newer in-memory settings");
+      require(live.current("active").schema==prior.schema,
+              "Publishing a pending update replaced the active imported schema");
     });
     test("file bounds malformed profiles and no-schema fallback",[] {
       Temporary t;PackSettingsStore store(t.root/"state");
@@ -494,6 +599,24 @@ static int runPackSettingsTests() {
       require(restored.prepare(id,json::object(),updated.revision,true).values==defaults.values,
               "Native reset did not restore author defaults");
     });
+    test("ordered range defaults agree on first load and reset",[] {
+      Temporary t;PackSettingsStore store(t.root/"state");
+      auto definition=schema(json::array({
+        slider("lower","effectScale",0,2,1.8),
+        slider("upper","effectBrightness",0,2,.2)}));
+      definition["orderedRange"]=json::array({"lower","upper"});
+      const auto directory=install(t,"ordered",definition);
+      store.registerPack("ordered",directory,directory/"settings.json","native");
+      const auto initial=store.current("ordered");
+      require(initial.values==json{{"lower",.2},{"upper",1.8}},
+              "An ordered range must be normalized before the first render");
+      const auto changed=store.prepare("ordered",{{"lower",1.9}});
+      require(changed.values==json{{"lower",1.9},{"upper",1.9}},
+              "Moving a range endpoint should move its peer when it crosses it");
+      store.commit(changed);
+      require(store.prepare("ordered",json::object(),{},true).values==initial.values,
+              "Reset did not restore the first-load range");
+    });
     test("case-insensitive Windows profile names cannot collide",[] {
       Temporary t;PackSettingsStore store(t.root/"state");
       const auto a=install(t,"A",allControls());registerAt(store,"A",a);
@@ -633,17 +756,21 @@ int wmain(int argc,wchar_t** argv) {
 int main(int argc,char** argv) {
 #endif
   if(argc==1) return runPackSettingsTests();
-  if(argc<3 || fs::path(argv[1])!="--check-settings") {
-    std::cerr<<"Usage: action75_pack_settings_tests --check-settings <settings.json>...\n";
+  const bool hasKind=argc>2 && fs::path(argv[2])=="--kind";
+  const int firstFile=hasKind ? 4 : 2;
+  if(argc<=firstFile || fs::path(argv[1])!="--check-settings") {
+    std::cerr<<"Usage: action75_pack_settings_tests --check-settings [--kind <manifest-kind>] <settings.json>...\n";
     return 2;
   }
   try {
+    const std::string kind=hasKind ? fs::path(argv[3]).u8string() : std::string{};
+    if(hasKind && kind.empty()) throw std::runtime_error("Specify the wallpaper manifest kind.");
     Temporary temporary;
     PackSettingsStore store(temporary.root/"state");
-    for(int i=2;i<argc;++i) {
+    for(int i=firstFile;i<argc;++i) {
       const auto file=fs::canonical(fs::path(argv[i]));
       const std::string id="schema-check";
-      store.registerPack(id,file.parent_path(),file);
+      store.registerPack(id,file.parent_path(),file,kind);
       if(!store.hasSchema(id))
         throw std::runtime_error(file.u8string()+": "+store.schemaError(id));
       store.evaluate(store.current(id));

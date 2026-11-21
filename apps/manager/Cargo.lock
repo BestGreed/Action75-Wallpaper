@@ -20,11 +20,12 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "action75-manager"
-version = "0.3.10"
+version = "0.4.0"
 dependencies = [
  "eframe",
  "image",
  "memmap2",
+ "png",
  "raw-window-handle",
  "reqwest",
  "semver",

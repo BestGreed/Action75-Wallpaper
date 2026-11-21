@@ -106,7 +106,13 @@ impl SelectionFrame {
                 )
             });
             if !Arc::ptr_eq(previous, &mask) {
-                texture.set_partial([0, 0], mask.clone(), egui::TextureOptions::LINEAR);
+                if previous.size == mask.size {
+                    texture.set_partial([0, 0], mask.clone(), egui::TextureOptions::LINEAR);
+                } else {
+                    // Preview aspect ratios differ. A partial update cannot resize
+                    // the existing texture or discard pixels outside the new mask.
+                    texture.set(mask.clone(), egui::TextureOptions::LINEAR);
+                }
                 *previous = mask;
             }
             shapes.push(Shape::from(
@@ -170,6 +176,49 @@ mod tests {
                 .any(|(other, delta)| { *other == id && delta.pos == Some([0, 0]) })
         );
         assert!(render(None).textures_delta.free.contains(&id));
+    }
+
+    #[test]
+    fn selecting_different_preview_aspect_ratios_replaces_the_whole_mask() {
+        let ctx = egui::Context::default();
+        let mut selection = SelectionFrame::default();
+        let mut texture_id = None;
+        for size in [[24, 9], [9, 9], [24, 9]] {
+            let mask = Arc::new(egui::ColorImage::filled(size, Color32::WHITE));
+            let output = ctx.run(RawInput::default(), |ctx| {
+                let painter = ctx.debug_painter();
+                let slot = painter.add(Shape::Noop);
+                selection.paint(
+                    &painter,
+                    slot,
+                    Some(Tile {
+                        rect: Rect::from_min_size(Pos2::ZERO, vec2(100., 50.)),
+                        cell: Vec2::ZERO,
+                        frost: Some(mask.clone()),
+                    }),
+                    1,
+                    vec2(100., 50.),
+                );
+            });
+            let id = selection.frost.as_ref().unwrap().1.id();
+            if let Some(previous) = texture_id {
+                assert_eq!(id, previous);
+            }
+            texture_id = Some(id);
+            let delta = &output
+                .textures_delta
+                .set
+                .iter()
+                .find(|(key, _)| *key == id)
+                .unwrap()
+                .1;
+            assert_eq!(
+                delta.pos, None,
+                "different dimensions require a full upload"
+            );
+            assert_eq!(delta.image.size(), size);
+            assert_eq!(ctx.tex_manager().read().meta(id).unwrap().size, size);
+        }
     }
 
     #[test]

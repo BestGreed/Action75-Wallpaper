@@ -1,11 +1,12 @@
 {
-  "version": 1,
-  "id": "tidal-glass",
-  "name": "潮汐玻璃 · Tidal Glass",
-  "description": "冷青色切面的深海玻璃；按键泛起折射边缘与一圈短促波纹。",
-  "settings": "settings.json",
-  "kind": "native",
-  "abi": 1,
-  "entry": "wallpaper.dll",
-  "preview": "preview.png"
+  "abi" : 2,
+  "description" : "\u51b7\u9752\u8272\u5207\u9762\u7684\u6df1\u6d77\u73bb\u7483\uff1b\u6309\u952e\u6cdb\u8d77\u6298\u5c04\u8fb9\u7f18\u4e0e\u4e00\u5708\u77ed\u4fc3\u6ce2\u7eb9\u3002",
+  "entry" : "wallpaper.dll",
+  "id" : "tidal-glass",
+  "kind" : "native",
+  "name" : "\u6f6e\u6c50\u73bb\u7483 \u00b7 Tidal Glass",
+  "preview" : "preview.png",
+  "renderer" : "d3d12",
+  "settings" : "settings.json",
+  "version" : 1
 }

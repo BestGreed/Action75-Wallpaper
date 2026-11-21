@@ -30,18 +30,18 @@ pub struct PerformancePage {
     processors: u32,
     adapters: Vec<AdapterModel>,
     scope: Scope,
-    player_pid: u32,
+    processes: PlayerProcesses,
     failed: bool,
 }
 
 impl PerformancePage {
     pub fn update(&mut self, ctx: &egui::Context, visible: bool, processes: PlayerProcesses) {
+        self.processes = processes;
         if !visible {
             self.session = None;
             self.failed = false;
             return;
         }
-        self.player_pid = processes.player_pid();
         if self.session.is_none() && !self.failed {
             match Session::start(ctx, processes) {
                 Ok(worker) => self.session = Some(worker),
@@ -88,12 +88,21 @@ impl PerformancePage {
         });
         ui.add_space(4.);
         let player = self.scope == Scope::Player;
-        let offline = player && self.player_pid == 0;
+        let offline = player && self.processes.player_pid() == 0;
+        let now = Instant::now();
+        let latest = self
+            .samples
+            .back()
+            .filter(|sample| now.duration_since(sample.at) < SAMPLE_INTERVAL * 3);
+        let current =
+            latest.filter(|sample| !offline && (!player || sample.processes == self.processes));
         ui.label(
             RichText::new(if self.failed {
                 "无法启动性能采样"
             } else if offline {
                 "壁纸播放器未连接"
+            } else if player && current.and_then(|sample| sample.player).is_none() {
+                "壁纸播放器尚无可读数据"
             } else {
                 "最近 60 秒  ·  每秒采样"
             })
@@ -101,12 +110,6 @@ impl PerformancePage {
         );
         ui.add_space(18.);
 
-        let now = Instant::now();
-        let latest = self
-            .samples
-            .back()
-            .filter(|sample| now.duration_since(sample.at) < SAMPLE_INTERVAL * 3);
-        let current = latest.filter(|_| !offline);
         let timeline = Timeline {
             samples: &self.samples,
             end: latest.map_or(now, |sample| sample.at),
@@ -130,7 +133,8 @@ impl PerformancePage {
                 Some(sample.memory?.used as f32 / GIB)
             }
         };
-        let adapter_name = adapter_name.filter(|name| self.player_pid != 0 && !name.is_empty());
+        let adapter_name =
+            adapter_name.filter(|name| self.processes.player_pid() != 0 && !name.is_empty());
         let luid = adapter_name.and_then(|name| {
             adapter_luid.or_else(|| {
                 // Older players only report the model name. A unique match is safe.
@@ -194,12 +198,12 @@ impl PerformancePage {
             },
             memory,
             |ui| {
-                let detail = if player {
-                    "进程工作集"
+                if player {
+                    ui.label(RichText::new("总工作集").size(13.).weak())
+                        .on_hover_text("统计播放器及已配置的壁纸 Worker 的工作集，不含控制台。工作集包含共享内存页，多进程相加可能重复计算共享页。");
                 } else {
-                    &system_memory
-                };
-                ui.label(RichText::new(detail).size(13.).weak());
+                    ui.label(RichText::new(&system_memory).size(13.).weak());
+                }
             },
         );
         timeline.separator(ui);
@@ -226,19 +230,194 @@ impl PerformancePage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::performance::{GpuReadings, PhysicalMemory};
+    use crate::performance::{GpuReadings, PhysicalMemory, PlayerLoad};
+
+    fn draw(
+        ctx: &egui::Context,
+        page: &mut PerformancePage,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1080., 680.))),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::TopBottomPanel::top("chrome")
+                    .exact_height(50.)
+                    .show(ctx, |_| {});
+                egui::SidePanel::left("rail")
+                    .exact_width(122.)
+                    .show(ctx, |_| {});
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().inner_margin(26))
+                    .show(ctx, |ui| {
+                        egui::ScrollArea::vertical().show(ui, |ui| page.show(ui, None, None));
+                    });
+            },
+        )
+    }
+
+    fn visible_text(frame: &egui::FullOutput, label: &str) -> Option<Rect> {
+        frame.shapes.iter().find_map(|shape| {
+            let Shape::Text(text) = &shape.shape else {
+                return None;
+            };
+            let bounds = text.galley.rect.translate(text.pos.to_vec2());
+            (text.galley.job.text == label && shape.clip_rect.contains_rect(bounds))
+                .then_some(bounds)
+        })
+    }
+
+    fn processes(player_pid: u32, worker_pid: u32) -> PlayerProcesses {
+        PlayerProcesses::from_status(&serde_json::json!({
+            "running": player_pid != 0,
+            "playerPid": player_pid,
+            "nativeWorkerPid": worker_pid,
+        }))
+    }
+
+    fn sample(processes: PlayerProcesses, player: Option<PlayerLoad>) -> Sample {
+        Sample {
+            at: Instant::now(),
+            processes,
+            cpu: Some(18.2),
+            memory: Some(PhysicalMemory {
+                used: 12 << 30,
+                total: 32 << 30,
+            }),
+            player,
+            gpu: GpuReadings::default(),
+        }
+    }
+
+    #[test]
+    fn total_working_set_and_scope_explanation_fit_the_minimum_window() {
+        let ctx = egui::Context::default();
+        ui_style::install_fonts(&ctx);
+        ctx.style_mut(|style| style.interaction.tooltip_delay = 0.);
+        let processes = processes(11, 22);
+        let mut page = PerformancePage {
+            processes,
+            samples: VecDeque::from([sample(
+                processes,
+                Some(PlayerLoad {
+                    cpu: Some(1.5),
+                    // The sampler supplies the sum of a 40 MiB player and 72 MiB worker.
+                    working_set: Some((40 + 72) << 20),
+                }),
+            )]),
+            ..Default::default()
+        };
+        let frame = draw(&ctx, &mut page, vec![]);
+        for label in ["内存", "112", "MiB", "总工作集", "现在"] {
+            assert!(
+                visible_text(&frame, label).is_some(),
+                "{label} must be visible"
+            );
+        }
+        let position = visible_text(&frame, "总工作集").unwrap().center();
+        draw(&ctx, &mut page, vec![egui::Event::PointerMoved(position)]);
+        let hovered = draw(&ctx, &mut page, vec![]);
+        let explanation = "统计播放器及已配置的壁纸 Worker 的工作集，不含控制台。工作集包含共享内存页，多进程相加可能重复计算共享页。";
+        assert!(hovered.shapes.iter().any(|shape| matches!(&shape.shape,
+            Shape::Text(text) if text.galley.text() == explanation)));
+    }
+
+    #[test]
+    fn missing_player_reading_is_unavailable_instead_of_zero() {
+        let ctx = egui::Context::default();
+        ui_style::install_fonts(&ctx);
+        let processes = processes(11, 22);
+        let mut page = PerformancePage {
+            processes,
+            samples: VecDeque::from([sample(processes, None)]),
+            ..Default::default()
+        };
+        let frame = draw(&ctx, &mut page, vec![]);
+        assert!(visible_text(&frame, "壁纸播放器尚无可读数据").is_some());
+        let missing = frame
+            .shapes
+            .iter()
+            .filter(|shape| matches!(&shape.shape, Shape::Text(text) if text.galley.text() == "—"))
+            .count();
+        assert_eq!(missing, 3, "CPU, memory, and GPU must all be unavailable");
+        assert!(visible_text(&frame, "MiB").is_none());
+    }
+
+    #[test]
+    fn changed_host_or_worker_never_reuses_the_previous_current_reading() {
+        let ctx = egui::Context::default();
+        ui_style::install_fonts(&ctx);
+        let original = processes(11, 22);
+        for current in [
+            processes(33, 22),
+            processes(11, 44),
+            processes(11, 0),
+            processes(0, 0),
+        ] {
+            let mut page = PerformancePage {
+                processes: original,
+                samples: VecDeque::from([sample(
+                    original,
+                    Some(PlayerLoad {
+                        cpu: Some(1.5),
+                        working_set: Some(112 << 20),
+                    }),
+                )]),
+                ..Default::default()
+            };
+            page.update(&ctx, false, current); // Update identity without starting an OS sampler.
+            let frame = draw(&ctx, &mut page, vec![]);
+            assert!(visible_text(&frame, "112").is_none());
+            assert!(visible_text(&frame, "MiB").is_none());
+            let missing = frame
+                .shapes
+                .iter()
+                .filter(
+                    |shape| matches!(&shape.shape, Shape::Text(text) if text.galley.text() == "—"),
+                )
+                .count();
+            assert_eq!(
+                missing, 3,
+                "old CPU, memory and GPU values must not be current"
+            );
+            assert_eq!(
+                page.samples.len(),
+                1,
+                "real historical readings are retained"
+            );
+            let subtitle = if current.player_pid() == 0 {
+                "壁纸播放器未连接"
+            } else {
+                "壁纸播放器尚无可读数据"
+            };
+            assert!(visible_text(&frame, subtitle).is_some());
+            if current.player_pid() != 0 {
+                page.samples.push_back(sample(
+                    current,
+                    Some(PlayerLoad {
+                        cpu: Some(2.5),
+                        working_set: Some(95 << 20),
+                    }),
+                ));
+                assert!(visible_text(&draw(&ctx, &mut page, vec![]), "95").is_some());
+            }
+        }
+    }
 
     #[test]
     fn player_is_default_and_system_can_be_selected_in_the_minimum_window() {
         let ctx = egui::Context::default();
         ui_style::install_fonts(&ctx);
-        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1080., 680.));
         let now = Instant::now();
         let mut page = PerformancePage {
             samples: (0..3)
                 .rev()
                 .map(|second| Sample {
                     at: now - Duration::from_secs(second),
+                    processes: PlayerProcesses::default(),
                     cpu: Some(18.2),
                     memory: Some(PhysicalMemory {
                         used: 12 << 30,
@@ -250,39 +429,7 @@ mod tests {
                 .collect(),
             ..Default::default()
         };
-        let draw = |page: &mut PerformancePage, events| {
-            ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen),
-                    events,
-                    ..Default::default()
-                },
-                |ctx| {
-                    egui::TopBottomPanel::top("chrome")
-                        .exact_height(50.)
-                        .show(ctx, |_| {});
-                    egui::SidePanel::left("rail")
-                        .exact_width(122.)
-                        .show(ctx, |_| {});
-                    egui::CentralPanel::default()
-                        .frame(egui::Frame::new().inner_margin(26))
-                        .show(ctx, |ui| {
-                            egui::ScrollArea::vertical().show(ui, |ui| page.show(ui, None, None));
-                        });
-                },
-            )
-        };
-        let visible_text = |frame: &egui::FullOutput, label: &str| {
-            frame.shapes.iter().find_map(|shape| {
-                let Shape::Text(text) = &shape.shape else {
-                    return None;
-                };
-                let bounds = text.galley.rect.translate(text.pos.to_vec2());
-                (text.galley.job.text == label && shape.clip_rect.contains_rect(bounds))
-                    .then_some(bounds)
-            })
-        };
-        let frame = draw(&mut page, vec![]);
+        let frame = draw(&ctx, &mut page, vec![]);
         assert!(page.scope == Scope::Player);
         for label in [
             "整机",
@@ -300,9 +447,10 @@ mod tests {
         }
 
         let pos = visible_text(&frame, "整机").unwrap().center();
-        draw(&mut page, vec![egui::Event::PointerMoved(pos)]);
+        draw(&ctx, &mut page, vec![egui::Event::PointerMoved(pos)]);
         for pressed in [true, false] {
             draw(
+                &ctx,
                 &mut page,
                 vec![egui::Event::PointerButton {
                     pos,
@@ -313,7 +461,7 @@ mod tests {
             );
         }
         assert!(page.scope == Scope::System);
-        assert!(visible_text(&draw(&mut page, vec![]), "32.0 GiB").is_some());
+        assert!(visible_text(&draw(&ctx, &mut page, vec![]), "32.0 GiB").is_some());
     }
 }
 

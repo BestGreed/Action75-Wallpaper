@@ -3,15 +3,22 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     fs,
+    io::Seek,
     path::{Path, PathBuf},
     sync::{Arc, mpsc},
     thread,
     time::SystemTime,
 };
 
+mod png_thumbnail;
+
 // Visible cards are always retained, even when they exceed this scroll-back budget.
 const CACHE_LIMIT: usize = 6;
 const DECODE_BATCH: usize = 6;
+const PREVIEW_WIDTH: u32 = 480;
+const PREVIEW_HEIGHT: u32 = 180;
+const MAX_DECODE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_IMAGE_SIDE: u32 = 8192;
 
 pub struct Preview {
     pub image: egui::TextureHandle,
@@ -244,22 +251,8 @@ fn decode(request: &Request) -> Decoded {
     if stamp.is_some() && stamp == request.stamp {
         return Decoded::Unchanged;
     }
-    let Ok(mut reader) = image::ImageReader::open(&file).and_then(|r| r.with_guessed_format())
-    else {
+    let Some(rgba) = load_preview(&file) else {
         return Decoded::Missing;
-    };
-    let mut limits = image::Limits::default();
-    limits.max_alloc = Some(64 * 1024 * 1024);
-    limits.max_image_width = Some(8192);
-    limits.max_image_height = Some(8192);
-    reader.limits(limits);
-    let Ok(image) = reader.decode() else {
-        return Decoded::Missing;
-    };
-    let rgba = if image.width() == 480 && image.height() == 180 {
-        image.into_rgba8()
-    } else {
-        image.thumbnail(480, 180).into_rgba8()
     };
     let small = image::imageops::thumbnail(&rgba, 24, 9);
     let mut frost = image::imageops::blur(&image::imageops::grayscale(&small), 1.25);
@@ -276,6 +269,34 @@ fn decode(request: &Request) -> Decoded {
             .collect(),
     );
     Decoded::Image { stamp, rgba, frost }
+}
+
+fn load_preview(file: &Path) -> Option<image::RgbaImage> {
+    let mut reader = image::ImageReader::open(file)
+        .ok()?
+        .with_guessed_format()
+        .ok()?;
+    if reader.format() == Some(image::ImageFormat::Png) {
+        let mut input = reader.into_inner();
+        if let Some(cover) = png_thumbnail::load(&mut input).ok()? {
+            return Some(cover);
+        }
+        input.rewind().ok()?;
+        reader = image::ImageReader::with_format(input, image::ImageFormat::Png);
+    }
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_DECODE_BYTES as u64);
+    limits.max_image_width = Some(MAX_IMAGE_SIDE);
+    limits.max_image_height = Some(MAX_IMAGE_SIDE);
+    reader.limits(limits);
+    let image = reader.decode().ok()?;
+    Some(
+        if image.width() == PREVIEW_WIDTH && image.height() == PREVIEW_HEIGHT {
+            image.into_rgba8()
+        } else {
+            image.thumbnail(PREVIEW_WIDTH, PREVIEW_HEIGHT).into_rgba8()
+        },
+    )
 }
 
 #[cfg(test)]

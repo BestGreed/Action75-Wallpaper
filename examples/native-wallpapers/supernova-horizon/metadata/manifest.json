@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "supernova-horizon",
+  "name": "奇点余烬",
+  "kind": "native",
+  "abi": 2,
+  "renderer": "d3d12",
+  "entry": "supernova-horizon.dll",
+  "settings": "settings.json",
+  "preview": "cover.jpg"
+}

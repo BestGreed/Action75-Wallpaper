@@ -107,7 +107,7 @@ fn plain_directory(path: &Path) -> Result<PathBuf, String> {
 
 fn deletion_target(root: &Path, id: &str, path: &Path) -> Result<(), String> {
     let target = plain_directory(path)?;
-    let configured = crate::storage::Preferences::load(root).wallpapers(root);
+    let configured = crate::storage::Preferences::load_checked(root)?.wallpapers(root);
     let in_library = crate::wallpaper_library::sources(root, configured)
         .into_iter()
         .any(|(dir, bundled)| {
@@ -354,6 +354,15 @@ fn relative_resource(asset: &str, key: &str, extensions: &[&str]) -> Result<Path
     Ok(path.to_owned())
 }
 
+fn supported_native_backend(manifest: &Value) -> bool {
+    match (manifest["abi"].as_u64(), manifest.get("renderer")) {
+        (Some(1), None) => true,
+        (Some(1), Some(renderer)) => renderer == "d3d11",
+        (Some(2), Some(renderer)) => renderer == "d3d12",
+        _ => false,
+    }
+}
+
 fn validate_manifest(manifest: &Value, package: &Path) -> Result<(), String> {
     if manifest["version"] != 1 {
         return Err("目前支持 version 为 1 的 Action75 壁纸清单".into());
@@ -379,7 +388,7 @@ fn validate_manifest(manifest: &Value, package: &Path) -> Result<(), String> {
             "runtimeControls" => {
                 matches!(kind, "spriteBurst" | "effekseer") && manifest[key] == false
             }
-            "abi" | "entry" => kind == "native",
+            "abi" | "entry" | "renderer" => kind == "native",
             _ => false,
         };
         if !allowed {
@@ -428,8 +437,8 @@ fn validate_manifest(manifest: &Value, package: &Path) -> Result<(), String> {
             }
         }
     } else if kind == "native" {
-        if manifest["abi"].as_u64() != Some(1) {
-            return Err("原生壁纸需要 ABI 1".into());
+        if !supported_native_backend(manifest) {
+            return Err("原生壁纸需要 ABI 1（D3D11）或 ABI 2（renderer 为 d3d12）".into());
         }
         let entry = native_asset_path(manifest, "entry", &["dll"])?;
         if !package.join(&entry).is_file() {
@@ -484,7 +493,7 @@ fn native_asset_path(manifest: &Value, key: &str, formats: &[&str]) -> Result<Pa
 }
 
 pub(crate) fn native_catalog_available(directory: &Path, manifest: &Value) -> bool {
-    if manifest["version"] != 1 || manifest["abi"].as_u64() != Some(1) {
+    if manifest["version"] != 1 || !supported_native_backend(manifest) {
         return false;
     }
     let Ok(base) = plain_directory(directory) else {
@@ -528,7 +537,7 @@ fn allowed_package_file(path: &Path, native_entry: Option<&Path>) -> bool {
                     .components()
                     .map(|part| part.as_os_str().to_ascii_lowercase()))
         }),
-        "cso" | "dxbc" | "dds" => native_entry.is_some(),
+        "cso" | "dxbc" | "dxil" | "dds" => native_entry.is_some(),
         "efk" | "efkmat" => true,
         "efkmatd" => native_entry.is_some(),
         "efkefc" | "efkmodel" | "efkcurve" | "wav" => native_entry.is_none(),
@@ -741,7 +750,7 @@ fn find_installed(root: &Path, library: &Path, id: &str) -> Result<Option<Instal
 }
 
 fn library_at(root: &Path) -> Result<PathBuf, String> {
-    let path = crate::storage::Preferences::load(root).wallpapers(root);
+    let path = crate::storage::Preferences::load_checked(root)?.wallpapers(root);
     fs::create_dir_all(&path).map_err(|e| path_error("无法访问壁纸库", &path, e))?;
     fs::canonicalize(&path).map_err(|e| path_error("无法访问壁纸库", &path, e))
 }
@@ -885,6 +894,9 @@ impl PreparedImport {
             &stage.directory,
             &stage.revision,
             native,
+            self.manifest["renderer"] == "d3d12"
+                && crate::storage::Preferences::load(&self.root).gpu_preference
+                    == crate::storage::GpuPreference::Integrated,
         )?;
         let report_path = stage.directory.join("trial-result.json");
         let result = read_small(&stage.directory, &report_path)
@@ -1110,6 +1122,42 @@ mod wallpaper_library_regression {
     }
 
     #[test]
+    fn damaged_preferences_cannot_redirect_import_or_deletion_to_the_default_library() {
+        let fixture = Fixture::new();
+        let source = fixture.root.join("author");
+        author(&source, "preferences-check", "Preferences check");
+        fs::create_dir(fixture.root.join("data")).unwrap();
+        let settings = fixture.root.join("data/app-settings.json");
+        fs::write(&settings, b"{").unwrap();
+
+        let result = prepare_with_trial(&fixture.root, &source, |_| Ok(()));
+        assert!(result.is_err(), "a damaged library configuration must block import");
+        assert!(!fixture.root.join("wallpapers-native").exists());
+        assert_eq!(fs::read(&settings).unwrap(), b"{");
+
+        let installed = fixture.root.join("wallpapers-native/preferences-check");
+        author(&installed, "preferences-check", "Preferences check");
+        assert!(deletion_target(&fixture.root, "preferences-check", &installed).is_err());
+        assert!(installed.join("manifest.json").is_file());
+    }
+
+    #[test]
+    fn publication_rechecks_damaged_preferences_and_cleans_the_staged_package() {
+        let fixture = Fixture::new();
+        let source = fixture.root.join("author");
+        author(&source, "preferences-check", "Preferences check");
+        let pending = ready(prepare_with_trial(&fixture.root, &source, |_| Ok(())).unwrap());
+        let stage = pending.stage.directory.clone();
+        fs::create_dir(fixture.root.join("data")).unwrap();
+        fs::write(fixture.root.join("data/app-settings.json"), b"{").unwrap();
+
+        assert!(pending.publish().is_err());
+        assert!(!fixture.root.join("wallpapers-native/preferences-check").exists());
+        assert!(!stage.exists());
+        assert_eq!(fs::read(fixture.root.join("data/app-settings.json")).unwrap(), b"{");
+    }
+
+    #[test]
     #[ignore = "exercises Windows Recycle Bin on a disposable installed wallpaper"]
     fn delete_recycles_only_the_installed_folder() {
         let fixture = Fixture::new();
@@ -1270,7 +1318,7 @@ mod wallpaper_library_regression {
         fs::write(author.join(material), b"compiled material").unwrap();
         fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../examples/native-wallpapers/key-game/pack/wallpaper.dll"),
+                .join("../../tools/fixtures/key-game-abi1/pack/wallpaper.dll"),
             author.join(NATIVE_ENTRY),
         )
         .unwrap();
@@ -1402,6 +1450,31 @@ mod wallpaper_library_regression {
     }
 
     #[test]
+    fn dx12_manifest_survives_import_and_catalogue_scan() {
+        let fixture = Fixture::new();
+        let source = fixture.root.join("author");
+        let runtime = fixture.root.join("runtime");
+        let mut manifest = native_author(&source);
+        manifest["abi"] = json!(2);
+        manifest["renderer"] = json!("d3d12");
+        write_json(&source.join("manifest.json"), &manifest).unwrap();
+        fs::write(source.join("lighting.dxil"), b"test shader asset").unwrap();
+        ready(prepare_with_trial(&runtime, &source, |_| Ok(())).unwrap())
+            .publish()
+            .unwrap();
+        let installed = runtime.join("wallpapers-native/native-author");
+        let stored: Value =
+            serde_json::from_slice(&fs::read(installed.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(stored["renderer"], "d3d12");
+        assert!(native_catalog_available(&installed, &stored));
+        manifest["abi"] = json!(1);
+        assert!(validate_manifest(&manifest, &source).is_err());
+        manifest["abi"] = json!(2);
+        manifest["renderer"] = json!("d3d11");
+        assert!(validate_manifest(&manifest, &source).is_err());
+    }
+
+    #[test]
     fn native_import_rejects_wrong_abi_paths_and_unapproved_code_before_trial() {
         let fixture = Fixture::new();
         let source = fixture.root.join("author");
@@ -1489,7 +1562,7 @@ mod wallpaper_library_regression {
 
     fn fireworks_author(directory: &Path) -> (Value, Value) {
         let mut manifest = parse_manifest(include_bytes!(
-            "../../../wallpapers-native/night-fireworks/manifest.json"
+            "../../../tools/fixtures/builtins-abi1/night-fireworks/manifest.json"
         ))
         .unwrap();
         manifest["kind"] = json!("fireworks");
@@ -1500,7 +1573,7 @@ mod wallpaper_library_regression {
         manifest["settings"] = json!("variants/settings.json");
         manifest["preview"] = json!("art/cover.png");
         let mut settings: Value = serde_json::from_slice(include_bytes!(
-            "../../../wallpapers-native/night-fireworks/settings.json"
+            "../../../tools/fixtures/builtins-abi1/night-fireworks/settings.json"
         ))
         .unwrap();
         *fireworks_selection_default(&mut settings) = json!(8);
@@ -1510,7 +1583,7 @@ mod wallpaper_library_regression {
         write_json(&directory.join("variants/settings.json"), &settings).unwrap();
         fs::write(
             directory.join("art/cover.png"),
-            include_bytes!("../../../wallpapers-native/night-fireworks/preview.png"),
+            include_bytes!("../../../tools/fixtures/builtins-abi1/night-fireworks/preview.png"),
         )
         .unwrap();
         (manifest, settings)

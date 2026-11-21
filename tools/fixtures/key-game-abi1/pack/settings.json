@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "runnerLook",
+      "label": "游戏物件",
+      "controls": [
+        {
+          "id": "runnerStyle",
+          "label": "配色风格",
+          "type": "select",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "经典"
+            },
+            {
+              "value": 1,
+              "label": "霓虹"
+            },
+            {
+              "value": 2,
+              "label": "暖金"
+            }
+          ],
+          "surface": "foreground",
+          "appearance": "style"
+        },
+        {
+          "id": "runnerBrightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 1,
+          "surface": "foreground",
+          "appearance": "brightness",
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "runnerHue",
+          "type": "slider",
+          "label": "色相",
+          "default": 0,
+          "surface": "foreground",
+          "appearance": "hue",
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "runnerSaturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 1,
+          "surface": "foreground",
+          "appearance": "saturation",
+          "min": 0,
+          "max": 3,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "runnerColor",
+          "type": "color",
+          "label": "颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "surface": "foreground",
+          "appearance": "color"
+        },
+        {
+          "id": "amber_lights",
+          "label": "琥珀色灯光",
+          "type": "toggle",
+          "default": false,
+          "surface": "foreground",
+          "advanced": true
+        }
+      ],
+      "entity": "游戏物件"
+    },
+    {
+      "id": "stationLook",
+      "label": "站台背景",
+      "controls": [
+        {
+          "id": "stationStyle",
+          "label": "配色风格",
+          "type": "select",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "夜站"
+            },
+            {
+              "value": 1,
+              "label": "薄暮"
+            },
+            {
+              "value": 2,
+              "label": "雾蓝"
+            }
+          ],
+          "surface": "background",
+          "appearance": "style"
+        },
+        {
+          "id": "stationBrightness",
+          "type": "slider",
+          "label": "亮度",
+          "default": 1,
+          "surface": "background",
+          "appearance": "brightness",
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "stationHue",
+          "type": "slider",
+          "label": "色相",
+          "default": 0,
+          "surface": "background",
+          "appearance": "hue",
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "stationSaturation",
+          "type": "slider",
+          "label": "饱和度",
+          "default": 1,
+          "surface": "background",
+          "appearance": "saturation",
+          "min": 0,
+          "max": 3,
+          "step": 0.05,
+          "unit": "×"
+        },
+        {
+          "id": "stationColor",
+          "type": "color",
+          "label": "颜色",
+          "default": [
+            255,
+            255,
+            255
+          ],
+          "surface": "background",
+          "appearance": "color"
+        }
+      ],
+      "entity": "车站"
+    }
+  ]
+}

@@ -336,6 +336,7 @@ struct Manager {
     packs: Vec<Value>,
     visible_packs: Vec<usize>,
     catalog_loading: bool,
+    catalog_changed_while_loading: bool,
     catalog_error: Option<String>,
     connection_error: String,
     monitors: Vec<Value>,
@@ -345,6 +346,9 @@ struct Manager {
     selection_frame: gallery_selection::SelectionFrame,
     queued_wallpaper: Option<String>,
     profile: core::pack_model::Draft,
+    profile_save_error: Option<String>,
+    profile_recovery: Option<String>,
+    profile_recovery_pending: bool,
     exclusive: exclusive_ui::State,
     calibration: calibration_ui::Controller,
     closing: bool,
@@ -596,6 +600,7 @@ impl Manager {
             packs: vec![],
             visible_packs: Vec::new(),
             catalog_loading: true,
+            catalog_changed_while_loading: false,
             catalog_error: None,
             connection_error: String::new(),
             monitors: vec![],
@@ -605,6 +610,9 @@ impl Manager {
             selection_frame: gallery_selection::SelectionFrame::default(),
             queued_wallpaper: None,
             profile: core::pack_model::Draft::default(),
+            profile_save_error: None,
+            profile_recovery: None,
+            profile_recovery_pending: false,
             exclusive: exclusive_ui::State::default(),
             calibration,
             closing: false,
@@ -634,56 +642,89 @@ impl Manager {
     fn sync(&mut self, v: Value) {
         if v["running"] == true {
             let recovered = !self.connection_error.is_empty();
+            let same_player = self.status["playerPid"].as_u64().is_some()
+                && self.status["playerPid"] == v["playerPid"];
             let output_changed = self.status.get("monitorDevice").is_some()
                 && v.get("monitorDevice").is_some()
                 && (v["monitorDevice"] != self.status["monitorDevice"]
                     || v["monitorConnected"] != self.status["monitorConnected"]);
-            self.connection_error.clear();
-            if (recovered || output_changed) && !self.catalog_loading {
-                self.catalog_loading = true;
-                let _ = self.tx.send(Job::Full);
+            if (recovered
+                && (!same_player || self.catalog_error.is_some() || self.packs.is_empty()))
+                || (self.status["playerPid"].as_u64().is_some() && !same_player)
+            {
+                self.request_catalog(false);
+            } else if (recovered
+                || output_changed
+                || v["deviceGroup"] != self.status["deviceGroup"])
+                && !self.catalog_loading
+            {
+                self.request_devices(Job::ReadDevices);
             }
+        }
+        self.apply_status(v);
+    }
+    fn apply_status(&mut self, v: Value) {
+        if v["running"] == true {
+            self.connection_error.clear();
         }
         self.exclusive.observe(&v);
         let current = v["packId"].as_str().unwrap_or("").to_owned();
-        let profile_changed = self.pending.is_none()
-            && !self.preview_in_flight
-            && !self.profile.writing()
-            && self.profile.bundle.as_ref().is_some_and(|bundle| {
+        let needs_load = if current == self.profile.selected {
+            self.profile.bundle.as_ref().is_some_and(|bundle| {
                 v["packSettingsRevision"]
                     .as_u64()
                     .zip(bundle.revision.as_u64())
                     .is_some_and(|(live, loaded)| live > loaded)
-            });
+            })
+        } else {
+            !self.profile.dirty()
+        };
         self.status = v;
         self.polling = false;
         self.last_poll = Instant::now();
-        if self.status["running"] == true
-            && !self.selecting
-            && !current.is_empty()
-            && (current != self.profile.selected || profile_changed)
-        {
+        if needs_load && !current.is_empty() && self.can_reload_profile() {
             self.open_profile(current, false);
+        }
+    }
+    fn can_reload_profile(&self) -> bool {
+        self.status["running"] == true
+            && !self.selecting
+            && !self.profile.writing()
+            && !self.preview_in_flight
+            && (self.pending.is_none() || self.profile_save_error.is_some())
+    }
+    fn request_catalog(&mut self, library_changed: bool) {
+        if self.catalog_loading {
+            self.catalog_changed_while_loading |= library_changed;
+        } else {
+            self.catalog_loading = self.tx.send(Job::Full).is_ok();
+        }
+    }
+    fn request_devices(&mut self, job: Job) {
+        if !self.refreshing_devices {
+            self.refreshing_devices = self.tx.send(job).is_ok();
+            if !self.refreshing_devices {
+                self.error = "控制线程已退出".into();
+            }
+        }
+    }
+    fn request_player_start(&mut self) {
+        if !self.catalog_loading {
+            self.catalog_loading = self.tx.send(Job::Start).is_ok();
         }
     }
     fn open_profile(&mut self, id: String, activate: bool) {
         if activate && (self.calibration.has_session() || self.compat.is_some()) {
             return;
         }
-        if self.profile.bundle.is_some() && !self.profile.final_patch().is_empty() {
-            let _ = self.tx.send(Job::WritePack {
-                id: self.profile.selected.clone(),
-                selection: self.profile.selection,
-                edit: self.profile.edit,
-                values: self.profile.final_patch(),
-                revision: None,
-            });
-        }
         let selection = self.profile.select(id.clone());
         self.pending = None;
         self.preview_in_flight = false;
         self.selecting = true;
-        self.error.clear();
+        if activate {
+            self.profile_recovery = None;
+            self.error.clear();
+        }
         let _ = self.tx.send(if activate {
             Job::SelectPack { id, selection }
         } else {
@@ -743,10 +784,6 @@ impl Manager {
                     devices,
                     palettes,
                 } => {
-                    if self.migrating {
-                        self.error.clear();
-                    }
-                    self.migrating = false;
                     let completed =
                         core::storage::Preferences::load(&self.root).setup_complete || cfg!(test);
                     if !self.setup_complete && completed {
@@ -776,12 +813,15 @@ impl Manager {
                     self.monitors = monitors;
                     self.devices = devices;
                     self.palettes = palettes;
-                    self.sync(status);
-                    if self.status["running"] == true
-                        && !self.selecting
+                    self.apply_status(status);
+                    if self.can_reload_profile()
                         && !self.profile.selected.is_empty()
+                        && self.status["packId"] == self.profile.selected
                     {
                         self.open_profile(self.profile.selected.clone(), false);
+                    }
+                    if std::mem::take(&mut self.catalog_changed_while_loading) {
+                        self.request_catalog(false);
                     }
                 }
                 Event::PackSelected {
@@ -792,6 +832,7 @@ impl Manager {
                 } => {
                     if self.profile.load(&id, selection, bundle) {
                         self.selecting = false;
+                        self.profile_save_error = None;
                         self.error.clear();
                         if let Some(pack) = self.packs.iter_mut().find(|pack| pack["id"] == id)
                             && pack["importUpdatePending"] == true
@@ -806,9 +847,38 @@ impl Manager {
                     selection,
                     bundle,
                 } => {
-                    if self.profile.load(&id, selection, bundle) {
+                    if self.profile.reload(&id, selection, bundle) {
                         self.selecting = false;
-                        self.error.clear();
+                        if self.profile_recovery.as_deref() == Some(&id)
+                            && !self.profile_recovery_pending
+                        {
+                            self.profile_recovery = None;
+                        }
+                        if !self.profile.dirty() {
+                            self.profile_save_error = None;
+                        }
+                    }
+                }
+                Event::PackRecovered { id, result } => {
+                    self.profile_recovery_pending = false;
+                    match result {
+                        Ok((bundle, recovered)) => {
+                            if self.profile.selected == id
+                                && !self.profile.dirty()
+                                && !self.profile.writing()
+                            {
+                                self.profile.load(&id, self.profile.selection, bundle);
+                            }
+                            self.profile_recovery = None;
+                            self.error.clear();
+                            self.message = if recovered {
+                                "已备份损坏的参数并恢复默认设置"
+                            } else {
+                                "已重新读取壁纸参数"
+                            }
+                            .into();
+                        }
+                        Err(error) => self.error = format!("无法恢复壁纸参数，{error}"),
                     }
                 }
                 Event::PackSaved {
@@ -818,7 +888,7 @@ impl Manager {
                     bundle,
                 } => {
                     if self.profile.ack(&id, selection, edit, bundle) {
-                        self.error.clear();
+                        self.profile_save_error = None;
                     }
                 }
                 Event::PackFailed {
@@ -830,29 +900,34 @@ impl Manager {
                     if id == self.profile.selected && selection == self.profile.selection {
                         if let Some(edit) = edit {
                             if self.profile.fail(&id, selection, edit) {
-                                self.error = error;
+                                self.profile_write_failed(error);
+                                if self.profile.dirty() && self.status["running"] == true {
+                                    self.open_profile(id, false);
+                                }
                             }
                         } else {
                             self.selecting = false;
+                            if core::damaged_profile_error(&error) {
+                                self.profile_recovery = Some(id.clone());
+                            }
                             self.error = error;
                             if let Some(active) = self.status["packId"].as_str().map(str::to_owned)
                             {
-                                if active != self.profile.selected {
-                                    let error = self.error.clone();
+                                if active != self.profile.selected && !self.profile.dirty() {
                                     self.open_profile(active, false);
-                                    self.error = error;
                                 }
                             }
                         }
                     }
                 }
-                Event::Error(error) => {
-                    self.catalog_loading = false;
-                    self.error = error;
-                    self.migrating = false;
+                Event::Error(error) | Event::RequestFailed(error) => self.error = error,
+                Event::SetupFinished(result) => {
                     self.selecting = false;
-                    self.polling = false;
-                    self.last_poll = Instant::now();
+                    self.error = result.err().unwrap_or_default();
+                }
+                Event::MigrationFinished(result) => {
+                    self.migrating = false;
+                    self.error = result.err().unwrap_or_default();
                 }
                 Event::PackDeleted { id, result } => {
                     self.deleting = false;
@@ -868,7 +943,7 @@ impl Manager {
                         }
                         Err(error) => self.error = error,
                     }
-                    let _ = self.tx.send(Job::Full);
+                    self.request_catalog(true);
                 }
                 Event::Saved(message) => self.message = message,
                 Event::InterfaceSaveFailed(error) => self.error = error,
@@ -924,7 +999,7 @@ impl Manager {
         let Some(time) = self.pending else {
             return;
         };
-        if self.selecting || self.profile.writing() {
+        if self.selecting || self.profile.writing() || self.profile_save_error.is_some() {
             return;
         }
         if time.elapsed() < Duration::from_millis(180) {
@@ -947,12 +1022,25 @@ impl Manager {
             self.preview_pack(values);
             return;
         }
+        self.write_profile_patch(values);
+    }
+    fn profile_write_failed(&mut self, error: String) {
+        self.pending = None;
+        self.queued_wallpaper = None;
+        if self.profile.dirty() {
+            self.profile_save_error = Some(error);
+        } else {
+            self.error = error;
+        }
+    }
+    fn write_profile_patch(&mut self, values: Map<String, Value>) {
+        self.pending = None;
         let revision = self
             .profile
             .bundle
             .as_ref()
             .map(|bundle| bundle.revision.clone());
-        let edit = self.profile.begin_write(values.keys().cloned().collect());
+        let edit = self.profile.begin_write();
         if self
             .tx
             .send(Job::WritePack {
@@ -966,7 +1054,7 @@ impl Manager {
         {
             self.profile
                 .fail(&self.profile.selected.clone(), self.profile.selection, edit);
-            self.error = "控制线程已退出".into();
+            self.profile_write_failed("控制线程已退出".into());
         }
     }
     fn reset_profile(&mut self) {
@@ -977,21 +1065,53 @@ impl Manager {
         self.profile.values = core::pack_model::defaults(&bundle.schema);
         self.pending = None;
         self.profile.changed([]);
-        let edit = self
-            .profile
-            .begin_write(self.profile.values.keys().cloned().collect());
-        let _ = self.tx.send(Job::ResetPack {
-            id: self.profile.selected.clone(),
-            selection: self.profile.selection,
-            edit,
-            revision,
-        });
+        let edit = self.profile.begin_write();
+        if self
+            .tx
+            .send(Job::ResetPack {
+                id: self.profile.selected.clone(),
+                selection: self.profile.selection,
+                edit,
+                revision,
+            })
+            .is_err()
+        {
+            self.profile
+                .fail(&self.profile.selected.clone(), self.profile.selection, edit);
+            self.profile_write_failed("控制线程已退出".into());
+        }
+    }
+    fn profile_recovery_button(&mut self, ui: &mut egui::Ui) -> Option<egui::Response> {
+        let id = self.profile_recovery.as_ref()?;
+        let name = self
+            .packs
+            .iter()
+            .find(|pack| pack["id"] == *id)
+            .and_then(|pack| pack["name"].as_str())
+            .unwrap_or(id);
+        let label = if self.profile_recovery_pending {
+            "正在恢复壁纸参数…".to_owned()
+        } else {
+            format!("备份并恢复「{name}」的默认参数")
+        };
+        let enabled = self.status["running"] == true
+            && !self.selecting
+            && !self.profile.writing()
+            && !self.wallpaper_selection_blocked()
+            && !self.restart_pending;
+        let response = ui.add_enabled(enabled, egui::Button::new(label));
+        if response.clicked() {
+            self.profile_recovery_pending = self.tx.send(Job::RecoverPack(id.clone())).is_ok();
+            if !self.profile_recovery_pending {
+                self.error = "控制线程已退出".into();
+            }
+        }
+        Some(response)
     }
     fn queue_finish(&self) -> mpsc::Receiver<Result<(), String>> {
         let (done, receiver) = mpsc::channel();
         let _ = self.tx.send(Job::FlushAndQuit {
-            id: self.profile.selected.clone(),
-            values: self.profile.final_patch(),
+            write: self.profile.finish(self.profile_save_error.is_none()),
             done,
         });
         receiver
@@ -1107,7 +1227,7 @@ impl Manager {
                         if ui_chrome::icon_button(ui, Icon::Refresh, "刷新设备与壁纸", 19.)
                             .clicked()
                         {
-                            let _ = self.tx.send(Job::Full);
+                            self.request_catalog(false);
                         }
                     });
                 });
@@ -1220,9 +1340,13 @@ impl Manager {
 
     fn inspector_body(&mut self, ui: &mut egui::Ui, body: egui::Rect) {
         let ctx = ui.ctx().clone();
-        let id = self.status["packId"]
-            .as_str()
-            .unwrap_or(&self.profile.selected);
+        let id = if self.profile.bundle.is_some() {
+            &self.profile.selected
+        } else {
+            self.status["packId"]
+                .as_str()
+                .unwrap_or(&self.profile.selected)
+        };
         let changed = self.shown_pack != id;
         if changed {
             id.clone_into(&mut self.shown_pack);
@@ -1280,7 +1404,7 @@ impl Manager {
                     self.send(json!({"action": if paused { "resume" } else { "pause" }}));
                 }
             } else if ui.button("启动壁纸").clicked() {
-                let _ = self.tx.send(Job::Start);
+                self.request_player_start();
             }
         });
         let height = (footer.top() - ui.cursor().top() - 12.).max(60.);
@@ -1362,35 +1486,62 @@ impl Manager {
         }
         let pack = self.packs.remove(from);
         self.packs.insert(insert, pack);
-        self.preferences.interface.wallpaper_order = self
-            .packs
-            .iter()
-            .filter_map(|p| p["id"].as_str().map(str::to_owned))
-            .collect();
+        let mut reordered = self.packs.iter().filter_map(|p| p["id"].as_str());
+        let present: std::collections::HashSet<_> = reordered.clone().collect();
+        let order = &mut self.preferences.interface.wallpaper_order;
+        // Replace the slots occupied by available wallpapers and keep absent IDs in place.
+        order.retain_mut(|id| {
+            if !present.contains(id.as_str()) {
+                return true;
+            }
+            let Some(next) = reordered.next() else {
+                return false;
+            };
+            next.clone_into(id);
+            true
+        });
+        order.extend(reordered.map(str::to_owned));
         self.filter_wallpapers();
         self.remember_interface();
     }
 
     fn wallpaper_selection_blocked(&self) -> bool {
-        self.deleting || self.migrating || self.calibration.has_session() || self.compat.is_some()
+        self.deleting
+            || self.migrating
+            || self.calibration.has_session()
+            || self.compat.is_some()
+            || self.profile_recovery_pending
     }
 
     fn dispatch_wallpaper_selection(&mut self) {
-        if self.queued_wallpaper.is_none() {
+        let Some(id) = self.queued_wallpaper.as_ref() else {
+            return;
+        };
+        if self.status["running"] != true
+            || self.wallpaper_selection_blocked()
+            || self.profile_save_error.is_some()
+        {
+            self.queued_wallpaper = None;
             return;
         }
-        if self.status["running"] != true || self.wallpaper_selection_blocked() {
-            self.queued_wallpaper = None;
-        } else if !self.selecting
-            && let Some(id) = self.queued_wallpaper.take()
-            && (self.status["packId"] != id
-                || self
-                    .packs
-                    .iter()
-                    .any(|pack| pack["id"] == id && pack["importUpdatePending"] == true))
-        {
-            self.open_profile(id, true);
+        if self.selecting || self.profile.writing() {
+            return;
         }
+        if self.status["packId"] == *id
+            && !self
+                .packs
+                .iter()
+                .any(|pack| pack["id"] == *id && pack["importUpdatePending"] == true)
+        {
+            self.queued_wallpaper = None;
+            return;
+        }
+        if self.profile.dirty() {
+            self.write_profile_patch(self.profile.patch());
+            return;
+        }
+        let id = self.queued_wallpaper.take().unwrap();
+        self.open_profile(id, true);
     }
 
     fn gallery(&mut self, ui: &mut egui::Ui) {
@@ -1892,7 +2043,7 @@ impl Manager {
             && self.exclusive.pending.is_none()
             && self.pending.is_none()
             && !self.profile.writing()
-            && self.profile.final_patch().is_empty()
+            && !self.profile.dirty()
             && self.folder_request.is_none()
     }
     fn diagnostics_setting(&mut self, ui: &mut egui::Ui) {
@@ -2080,6 +2231,7 @@ impl Manager {
                     ui.weak("重启软件生效");
                     let can_restart = !self.gpu_save_pending
                         && !self.selecting
+                        && self.profile_save_error.is_none()
                         && self.queued_wallpaper.is_none()
                         && self.compat.is_none();
                     if ui
@@ -2101,11 +2253,11 @@ impl Manager {
     }
 
     fn request_restart(&mut self) {
+        if self.profile_save_error.is_some() {
+            return;
+        }
         self.error.clear();
-        match self.tx.send(Job::PrepareRestart {
-            id: self.profile.selected.clone(),
-            values: self.profile.final_patch(),
-        }) {
+        match self.tx.send(Job::PrepareRestart(self.profile.finish(true))) {
             Ok(()) => {
                 self.pending = None;
                 self.restart_pending = true;
@@ -2264,10 +2416,7 @@ impl Manager {
             .clicked()
         {
             self.error.clear();
-            self.refreshing_devices = self.tx.send(Job::RefreshDevices).is_ok();
-            if !self.refreshing_devices {
-                self.error = "设备服务未连接".into();
-            }
+            self.request_devices(Job::RefreshDevices);
         }
     }
 
@@ -2288,7 +2437,7 @@ impl Manager {
                 return;
             };
             self.send(request);
-            let _ = self.tx.send(Job::Full);
+            self.request_devices(Job::ReadDevices);
         } else {
             self.setup_monitor = Some(monitor);
         }
@@ -2445,7 +2594,7 @@ impl Manager {
                 ui.colored_label(ui.visuals().error_fg_color, &self.error);
             }
             if self.status["running"] != true && ui.button("重新连接").clicked() {
-                let _ = self.tx.send(Job::Start);
+                self.request_player_start();
             }
         });
     }
@@ -2455,14 +2604,41 @@ impl Manager {
         self.calibration.show_page(ui, &self.status, &self.monitors);
     }
     fn can_game_compat(&self) -> bool {
-        !self.calibration.has_session()
-            && self.compat.is_none()
+        !self.wallpaper_selection_blocked()
+            && !self.wallpaper_import.busy()
+            && !self.restart_pending
+            && !self.gpu_save_pending
+            && !self.startup_pending
+            && self.folder_request.is_none()
             && self.exclusive.pending.is_none()
             && !self.selecting
+            && self.queued_wallpaper.is_none()
             && self.pending.is_none()
             && !self.profile.writing()
-            && self.profile.final_patch().is_empty()
+            && !self.profile.dirty()
             && self.status["inputElevated"] != true
+    }
+    fn poll_game_compat(&mut self, ctx: &egui::Context) {
+        if self.compat_replaced {
+            return;
+        }
+        let result = match self.compat.as_ref().map(|rx| rx.try_recv()) {
+            Some(Ok(result)) => result,
+            Some(Err(mpsc::TryRecvError::Disconnected)) => {
+                Err("管理员模式交接已中断，请重试".into())
+            }
+            _ => return,
+        };
+        match result {
+            Ok(()) => {
+                self.compat_replaced = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Err(error) => {
+                self.compat = None;
+                self.error = error;
+            }
+        }
     }
     fn protect_game_compat_close(&self, ctx: &egui::Context) {
         if self.compat.is_some()
@@ -2555,7 +2731,7 @@ impl Manager {
                         self.send(
                             json!({"action":"setSettings","settings":{"deviceGroup":d["id"]}}),
                         );
-                        let _ = self.tx.send(Job::Full);
+                        self.request_devices(Job::ReadDevices);
                     }
                 }
             });
@@ -2568,6 +2744,12 @@ impl Manager {
     }
 }
 impl eframe::App for Manager {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+        // Covers are at most 480×180. Use a narrower atlas for the same rasterized glyphs.
+        let limit = 2048;
+        input.max_texture_side = Some(input.max_texture_side.unwrap_or(limit).min(limit));
+    }
+
     fn clear_color(&self, _: &egui::Visuals) -> [f32; 4] {
         self.shell.clear_color(self.preferences.interface.theme)
     }
@@ -2599,7 +2781,7 @@ impl eframe::App for Manager {
             self.tab = 0;
             self.search.clear();
             self.filter_wallpapers();
-            self.catalog_loading = self.tx.send(Job::Full).is_ok();
+            self.request_catalog(true);
         }
         if !self.restart_pending {
             self.dispatch_wallpaper_selection();
@@ -2608,20 +2790,7 @@ impl eframe::App for Manager {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.error = "请等待目录迁移完成".into();
         }
-        if !self.compat_replaced {
-            if let Some(result) = self.compat.as_ref().and_then(|rx| rx.try_recv().ok()) {
-                match result {
-                    Ok(()) => {
-                        self.compat_replaced = true;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    Err(error) => {
-                        self.compat = None;
-                        self.error = error;
-                    }
-                }
-            }
-        }
+        self.poll_game_compat(ctx);
         self.protect_game_compat_close(ctx);
         self.calibration.poll(ctx);
         if self.calibration.take_close_cancelled() {
@@ -2712,7 +2881,11 @@ impl eframe::App for Manager {
                 ui.horizontal(|ui| self.updates.row(ui, ready));
             });
         }
-        if !self.error.is_empty() || !self.connection_error.is_empty() {
+        if !self.error.is_empty()
+            || !self.connection_error.is_empty()
+            || self.profile_save_error.is_some()
+            || self.profile_recovery.is_some()
+        {
             egui::TopBottomPanel::bottom("error")
                 .frame(
                     egui::Frame::new()
@@ -2725,7 +2898,44 @@ impl eframe::App for Manager {
                     } else {
                         &self.error
                     };
-                    ui.colored_label(ui.visuals().error_fg_color, error);
+                    if !error.is_empty() {
+                        ui.colored_label(ui.visuals().error_fg_color, error);
+                    }
+                    if let Some(error) = &self.profile_save_error {
+                        ui.colored_label(
+                            ui.visuals().error_fg_color,
+                            format!("壁纸参数未保存，{error}"),
+                        );
+                        let enabled = !self.selecting
+                            && !self.profile.writing()
+                            && !self.restart_pending
+                            && !self.wallpaper_selection_blocked();
+                        ui.horizontal_wrapped(|ui| {
+                            if ui
+                                .add_enabled(
+                                    enabled
+                                        && self.status["running"] == true
+                                        && self.profile.dirty(),
+                                    egui::Button::new("重试保存"),
+                                )
+                                .clicked()
+                            {
+                                self.write_profile_patch(self.profile.patch());
+                            }
+                            if ui
+                                .add_enabled(enabled, egui::Button::new("放弃未保存的修改"))
+                                .clicked()
+                            {
+                                self.profile_save_error = None;
+                                self.profile.discard();
+                                self.pending = None;
+                                if self.status["running"] == true {
+                                    self.open_profile(self.profile.selected.clone(), false);
+                                }
+                            }
+                        });
+                    }
+                    let _ = self.profile_recovery_button(ui);
                     if self.connection_error.contains("（5）")
                         && ui
                             .add_enabled(
@@ -3006,6 +3216,195 @@ mod manager_tests {
         m.events(&ctx);
         assert!(jobs.try_recv().is_err());
     }
+
+    #[test]
+    fn an_older_catalog_reply_does_not_complete_a_queued_directory_migration() {
+        let (mut m, events, jobs) = fixture();
+        m.migrating = true;
+        m.catalog_loading = true;
+        m.error = "preserved migration diagnostic".into();
+        events
+            .send(Event::Full {
+                connection_error: None,
+                catalog_error: None,
+                status: json!({"running":true}),
+                packs: vec![],
+                monitors: vec![],
+                devices: vec![],
+                palettes: vec![],
+            })
+            .unwrap();
+        m.events(&egui::Context::default());
+        assert!(
+            m.migrating,
+            "a catalog result cannot acknowledge a migration"
+        );
+        assert_eq!(m.error, "preserved migration diagnostic");
+        assert!(
+            !m.catalog_loading,
+            "the catalog result still completes its own read"
+        );
+        assert!(jobs.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_failed_unrelated_request_does_not_unlock_queued_operations() {
+        let (mut m, events, jobs) = fixture();
+        m.selecting = true;
+        m.catalog_loading = true;
+        m.migrating = true;
+        m.polling = true;
+        events
+            .send(Event::RequestFailed("older request failed".into()))
+            .unwrap();
+        m.events(&egui::Context::default());
+        assert!(
+            m.selecting,
+            "an older ordinary request is not a selection reply"
+        );
+        assert!(
+            m.catalog_loading,
+            "an older ordinary request is not a catalog reply"
+        );
+        assert!(
+            m.migrating,
+            "an older ordinary request is not a migration reply"
+        );
+        assert!(m.polling, "an older ordinary request is not a status reply");
+        assert_eq!(m.error, "older request failed");
+        assert!(jobs.try_recv().is_err());
+        events.send(Event::Error("untyped error".into())).unwrap();
+        m.events(&egui::Context::default());
+        assert!(m.selecting && m.catalog_loading && m.migrating && m.polling);
+        assert_eq!(m.error, "untyped error");
+        assert!(jobs.try_recv().is_err());
+    }
+
+    #[test]
+    fn setup_completion_only_unlocks_setup_and_catalog_preserves_its_result() {
+        for error in [None, Some("setup failed")] {
+            let (mut m, events, jobs) = fixture();
+            m.selecting = true;
+            m.catalog_loading = true;
+            m.migrating = true;
+            m.polling = true;
+            m.error = "previous diagnostic".into();
+            events
+                .send(Event::SetupFinished(
+                    error.map_or(Ok(()), |error| Err(error.into())),
+                ))
+                .unwrap();
+            let ctx = egui::Context::default();
+            m.events(&ctx);
+            assert!(!m.selecting);
+            assert!(
+                m.catalog_loading && m.migrating && m.polling,
+                "setup completion must not unlock catalog, migration or status work"
+            );
+            assert_eq!(m.error, error.unwrap_or_default());
+            events
+                .send(Event::Full {
+                    connection_error: None,
+                    catalog_error: None,
+                    status: json!({"running":true}),
+                    packs: vec![],
+                    monitors: vec![],
+                    devices: vec![],
+                    palettes: vec![],
+                })
+                .unwrap();
+            m.events(&ctx);
+            assert!(
+                m.migrating,
+                "the following catalog still cannot complete migration"
+            );
+            assert_eq!(m.error, error.unwrap_or_default());
+            assert!(jobs.try_recv().is_err());
+        }
+    }
+
+    #[test]
+    fn migration_completion_only_unlocks_migration_and_catalog_preserves_its_result() {
+        for error in [None, Some("migration failed")] {
+            let (mut m, events, jobs) = fixture();
+            m.selecting = true;
+            m.catalog_loading = true;
+            m.migrating = true;
+            m.polling = true;
+            m.error = "previous diagnostic".into();
+            events
+                .send(Event::MigrationFinished(
+                    error.map_or(Ok(()), |error| Err(error.into())),
+                ))
+                .unwrap();
+            let ctx = egui::Context::default();
+            m.events(&ctx);
+            assert!(!m.migrating);
+            assert!(
+                m.selecting && m.catalog_loading && m.polling,
+                "migration completion must not unlock selection, catalog or status work"
+            );
+            assert_eq!(m.error, error.unwrap_or_default());
+            events
+                .send(Event::Full {
+                    connection_error: None,
+                    catalog_error: None,
+                    status: json!({"running":true}),
+                    packs: vec![],
+                    monitors: vec![],
+                    devices: vec![],
+                    palettes: vec![],
+                })
+                .unwrap();
+            m.events(&ctx);
+            assert!(
+                m.selecting,
+                "the following catalog cannot complete wallpaper selection"
+            );
+            assert_eq!(m.error, error.unwrap_or_default());
+            assert!(jobs.try_recv().is_err());
+        }
+    }
+
+    #[test]
+    fn monitor_changes_only_read_devices_and_catalog_refreshes_are_coalesced() {
+        let (mut m, events, jobs) = fixture();
+        let ctx = egui::Context::default();
+        m.catalog_loading = false;
+        m.status =
+            json!({"running":true,"playerPid":42,"monitorDevice":"old","monitorConnected":true});
+        let new =
+            json!({"running":true,"playerPid":42,"monitorDevice":"new","monitorConnected":true});
+        m.sync(new.clone());
+        assert!(matches!(jobs.try_recv().unwrap(), Job::ReadDevices));
+        m.sync(new.clone());
+        assert!(jobs.try_recv().is_err());
+        m.request_catalog(false);
+        m.request_catalog(false);
+        assert!(matches!(jobs.try_recv().unwrap(), Job::Full));
+        assert!(jobs.try_recv().is_err());
+        // A completed import during an older scan needs exactly one later scan.
+        m.request_catalog(true);
+        m.request_catalog(true);
+        for attempt in [0, 1] {
+            events
+                .send(Event::Full {
+                    connection_error: None,
+                    catalog_error: None,
+                    status: new.clone(),
+                    packs: vec![],
+                    monitors: vec![],
+                    devices: vec![],
+                    palettes: vec![],
+                })
+                .unwrap();
+            m.events(&ctx);
+            if attempt == 0 {
+                assert!(matches!(jobs.try_recv().unwrap(), Job::Full));
+            }
+            assert!(jobs.try_recv().is_err());
+        }
+    }
     #[test]
     fn pending_admin_handoff_blocks_native_close_until_ready_or_failure() {
         let (mut m, _, _) = fixture();
@@ -3058,8 +3457,104 @@ mod manager_tests {
         assert!(!m.can_game_compat());
         m.profile.values.insert("any".into(), json!(50));
         assert!(m.can_game_compat());
-        m.profile.begin_write(Default::default());
+        m.profile.begin_write();
         assert!(!m.can_game_compat());
+    }
+    #[test]
+    fn game_compat_waits_for_mutating_background_operations_and_folder_picker() {
+        let (mut m, _, _) = fixture();
+        assert!(m.can_game_compat());
+        let operations: [fn(&mut Manager, bool); 5] = [
+            |m, value| m.migrating = value,
+            |m, value| m.deleting = value,
+            |m, value| m.restart_pending = value,
+            |m, value| m.gpu_save_pending = value,
+            |m, value| m.startup_pending = value,
+        ];
+        for operation in operations {
+            operation(&mut m, true);
+            assert!(!m.can_game_compat());
+            operation(&mut m, false);
+            assert!(m.can_game_compat());
+        }
+        let (_send, receive) = mpsc::channel();
+        m.folder_request = Some((DirectoryField::Wallpapers, receive));
+        assert!(!m.can_game_compat());
+        m.folder_request = None;
+        m.queued_wallpaper = Some("wallpaper".into());
+        assert!(!m.can_game_compat());
+    }
+    #[test]
+    fn starting_import_blocks_game_compat_before_opening_the_native_picker() {
+        let (mut m, _, _) = fixture();
+        let ctx = egui::Context::default();
+        let mut frame = |events| {
+            ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| m.wallpaper_import.button(ui, true));
+                },
+            )
+        };
+        let output = frame(vec![]);
+        let position = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == "导入壁纸" => {
+                    Some(text.pos + text.galley.rect.center().to_vec2())
+                }
+                _ => None,
+            })
+            .unwrap();
+        frame(vec![egui::Event::PointerMoved(position)]);
+        for pressed in [true, false] {
+            frame(vec![egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+        }
+        assert!(m.wallpaper_import.busy());
+        assert!(!m.can_game_compat());
+    }
+    #[test]
+    fn interrupted_game_compat_releases_the_close_and_navigation_lock() {
+        let (mut m, _, _) = fixture();
+        let (send, receive) = mpsc::channel();
+        m.compat = Some(receive);
+        let ctx = egui::Context::default();
+        m.poll_game_compat(&ctx);
+        assert!(
+            m.compat.is_some(),
+            "an empty channel still owns the handoff"
+        );
+        assert!(!m.can_game_compat());
+        drop(send);
+        m.poll_game_compat(&ctx);
+        assert!(m.compat.is_none());
+        assert!(!m.compat_replaced);
+        assert!(m.can_game_compat());
+        assert!(m.error.contains("交接已中断"));
+        let mut input = egui::RawInput::default();
+        input
+            .viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .events
+            .push(egui::ViewportEvent::Close);
+        let output = ctx.run(input, |ctx| m.protect_game_compat_close(ctx));
+        assert!(
+            !output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::CancelClose))
+        );
     }
     #[test]
     fn completed_admin_handoff_never_replays_cached_profile_on_exit() {
@@ -3212,6 +3707,10 @@ mod manager_tests {
         manager.packs = ["card-a", "hidden", "card-b", "card-c"]
             .map(|id| json!({"id":id,"name":id}))
             .into();
+        manager.preferences.interface.wallpaper_order =
+            ["card-a", "offline", "hidden", "card-b", "card-c"]
+                .map(str::to_owned)
+                .into();
         manager.search = "card".into();
         manager.filter_wallpapers();
         let ctx = egui::Context::default();
@@ -3260,7 +3759,7 @@ mod manager_tests {
         assert_eq!(caption_count(frame(vec![Input::PointerMoved(to)])), 2);
         assert_eq!(caption_count(frame(vec![press(to, false)])), 1);
         assert!(
-            matches!(jobs.try_recv(), Ok(Job::SaveInterface(p)) if p.wallpaper_order == ["card-c","card-a","hidden","card-b"])
+            matches!(jobs.try_recv(), Ok(Job::SaveInterface(p)) if p.wallpaper_order == ["card-c","offline","card-a","hidden","card-b"])
         );
         assert!(jobs.try_recv().is_err());
     }
@@ -3343,7 +3842,7 @@ mod manager_tests {
         let ctx = egui::Context::default();
         let a = m.profile.select("a".into());
         m.profile.load("a", a, bundle("a", 80));
-        let edit = m.profile.begin_write(Default::default());
+        let edit = m.profile.begin_write();
         let b = m.profile.select("b".into());
         m.profile.load("b", b, bundle("b", 20));
         events
@@ -3421,19 +3920,202 @@ mod manager_tests {
     }
 
     #[test]
-    fn switching_flushes_old_draft_to_old_pack_before_selection() {
-        let (mut m, _, jobs) = fixture();
+    fn switching_waits_for_a_versioned_save_of_the_old_draft() {
+        let (mut m, events, jobs) = fixture();
+        let ctx = egui::Context::default();
+        m.status = json!({"running":true,"packId":"a"});
         let s = m.profile.select("a".into());
         m.profile.load("a", s, bundle("a", 20));
         m.profile.values.insert("any".into(), json!(70));
-        m.open_profile("b".into(), true);
-        assert!(matches!(jobs.try_recv().unwrap(),Job::WritePack{id,..}if id=="a"));
-        assert!(matches!(jobs.try_recv().unwrap(),Job::SelectPack{id,..}if id=="b"));
+        m.queued_wallpaper = Some("b".into());
+        m.dispatch_wallpaper_selection();
+        let Job::WritePack {
+            id,
+            selection,
+            edit,
+            values,
+            revision,
+        } = jobs.try_recv().unwrap()
+        else {
+            panic!("expected the old draft to save first");
+        };
+        assert_eq!(
+            (id.as_str(), selection, revision),
+            ("a", s, Some(json!(20)))
+        );
+        assert_eq!(values["any"], 70);
+        m.dispatch_wallpaper_selection();
+        assert!(jobs.try_recv().is_err());
+        events
+            .send(Event::PackSaved {
+                id,
+                selection,
+                edit,
+                bundle: bundle("a", 70),
+            })
+            .unwrap();
+        m.events(&ctx);
+        m.dispatch_wallpaper_selection();
+        assert!(matches!(jobs.try_recv().unwrap(), Job::SelectPack { id, .. } if id == "b"));
         assert!(m.profile.values.is_empty());
+    }
+
+    #[test]
+    fn rejected_save_cancels_switch_and_rebases_draft_without_replaying_it() {
+        let (mut m, events, jobs) = fixture();
+        let ctx = egui::Context::default();
+        m.status = json!({"running":true,"packId":"a"});
+        let s = m.profile.select("a".into());
+        m.profile.load("a", s, bundle("a", 20));
+        m.profile.values.insert("any".into(), json!(70));
+        m.queued_wallpaper = Some("b".into());
+        m.dispatch_wallpaper_selection();
+        let Job::WritePack {
+            id,
+            selection,
+            edit,
+            ..
+        } = jobs.try_recv().unwrap()
+        else {
+            panic!("expected write before switching");
+        };
+        events
+            .send(Event::PackFailed {
+                id,
+                selection,
+                edit: Some(edit),
+                error: "stale revision".into(),
+            })
+            .unwrap();
+        events
+            .send(Event::Status(
+                json!({"running":true,"packId":"a","packSettingsRevision":21}),
+            ))
+            .unwrap();
+        m.events(&ctx);
+        let Job::LoadPack { id, selection } = jobs.try_recv().unwrap() else {
+            panic!("expected only a read after the write was rejected");
+        };
+        assert_eq!(id, "a");
+        let mut fresh = bundle("a", 21);
+        fresh.values.insert("other".into(), json!(30));
+        events
+            .send(Event::PackLoaded {
+                id,
+                selection,
+                bundle: fresh,
+            })
+            .unwrap();
+        m.events(&ctx);
+        m.dispatch_wallpaper_selection();
+        m.flush_settings(&ctx);
+        assert!(jobs.try_recv().is_err());
+        assert_eq!(m.profile.values["any"], 70);
+        assert_eq!(m.profile.values["other"], 30);
+        assert_eq!(m.profile_save_error.as_deref(), Some("stale revision"));
+        assert!(m.queued_wallpaper.is_none());
+        m.write_profile_patch(m.profile.patch());
+        assert!(
+            matches!(jobs.try_recv().unwrap(), Job::WritePack { values, revision: Some(revision), .. }
+            if values["any"] == 70 && values.len() == 1 && revision == 21)
+        );
+    }
+
+    #[test]
+    fn restoring_the_active_profile_preserves_the_wallpaper_selection_error() {
+        let (mut m, events, jobs) = fixture();
+        let ctx = egui::Context::default();
+        m.status = json!({"running":true,"packId":"a"});
+        m.open_profile("b".into(), true);
+        let Job::SelectPack { id, selection } = jobs.try_recv().unwrap() else {
+            panic!("expected selection")
+        };
+        events
+            .send(Event::PackFailed {
+                id,
+                selection,
+                edit: None,
+                error: "failed to load b".into(),
+            })
+            .unwrap();
+        m.events(&ctx);
+        let Job::LoadPack { id, selection } = jobs.try_recv().unwrap() else {
+            panic!("expected fallback")
+        };
+        assert_eq!(id, "a");
+        events
+            .send(Event::PackLoaded {
+                id,
+                selection,
+                bundle: bundle("a", 20),
+            })
+            .unwrap();
+        m.events(&ctx);
+        assert_eq!(m.error, "failed to load b");
+        assert_eq!(m.profile.selected, "a");
+    }
+
+    #[test]
+    fn damaged_profile_can_be_recovered_through_the_button_without_a_bundle() {
+        use egui::{Event as Input, Modifiers, PointerButton, RawInput};
+
+        let (mut m, events, jobs) = fixture();
+        let ctx = egui::Context::default();
+        m.sync(json!({"running":true,"packId":"a"}));
+        let Job::LoadPack { id, selection } = jobs.try_recv().unwrap() else {
+            panic!("expected load")
+        };
+        events
+            .send(Event::PackFailed {
+                id,
+                selection,
+                edit: None,
+                error: "Invalid wallpaper profile revision".into(),
+            })
+            .unwrap();
+        m.events(&ctx);
+        assert!(m.profile.bundle.is_none());
+        let mut draw = |input| {
+            let mut rect = egui::Rect::NOTHING;
+            let _ = ctx.run(
+                RawInput {
+                    events: input,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| rect = m.profile_recovery_button(ui).unwrap().rect);
+                },
+            );
+            rect
+        };
+        let pos = draw(vec![]).center();
+        draw(vec![Input::PointerMoved(pos)]);
+        for pressed in [true, false] {
+            draw(vec![Input::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            }]);
+        }
+        assert!(matches!(jobs.try_recv().unwrap(), Job::RecoverPack(id) if id == "a"));
+        events
+            .send(Event::PackRecovered {
+                id: "a".into(),
+                result: Ok((bundle("a", 5), true)),
+            })
+            .unwrap();
+        m.events(&ctx);
+        assert_eq!(m.profile.values["any"], 5);
+        assert!(m.profile_recovery.is_none());
+        assert!(m.error.is_empty());
     }
     #[test]
     fn resetting_then_switching_cannot_resurrect_old_draft() {
-        let (mut m, _, jobs) = fixture();
+        let (mut m, events, jobs) = fixture();
+        let ctx = egui::Context::default();
+        m.status = json!({"running":true,"packId":"a"});
         let a = m.profile.select("a".into());
         let mut b = bundle("a", 20);
         b.schema = json!({"version":1,"groups":[{"id":"g","controls":[{"id":"any","default":5}]}]});
@@ -3441,15 +4123,30 @@ mod manager_tests {
         m.profile.values.insert("any".into(), json!(99));
         m.reset_profile();
         assert_eq!(m.profile.values["any"], 5);
-        m.open_profile("b".into(), true);
-        assert!(matches!(jobs.try_recv().unwrap(),Job::ResetPack{id,..}if id=="a"));
-        match jobs.try_recv().unwrap() {
-            Job::WritePack { id, values, .. } => {
-                assert_eq!(id, "a");
-                assert_eq!(values["any"], 5);
-            }
-            _ => panic!("expected defaults, not old draft"),
-        }
+        m.queued_wallpaper = Some("b".into());
+        m.dispatch_wallpaper_selection();
+        let Job::ResetPack {
+            id,
+            selection,
+            edit,
+            ..
+        } = jobs.try_recv().unwrap()
+        else {
+            panic!("expected reset")
+        };
+        assert_eq!(id, "a");
+        assert!(jobs.try_recv().is_err());
+        events
+            .send(Event::PackSaved {
+                id,
+                selection,
+                edit,
+                bundle: bundle("a", 5),
+            })
+            .unwrap();
+        m.events(&ctx);
+        m.dispatch_wallpaper_selection();
+        assert!(matches!(jobs.try_recv().unwrap(), Job::SelectPack { id, .. } if id == "b"));
     }
     #[test]
     fn final_flush_is_fifo_and_uses_only_changed_profile_fields() {
@@ -3457,21 +4154,17 @@ mod manager_tests {
         let s = m.profile.select("a".into());
         m.profile.load("a", s, bundle("a", 20));
         m.profile.values.insert("any".into(), json!(60));
-        let _ = m.tx.send(Job::WritePack {
-            id: "a".into(),
-            selection: s,
-            edit: 1,
-            values: m.profile.patch(),
-            revision: None,
-        });
+        m.write_profile_patch(m.profile.patch());
         m.profile.values.insert("any".into(), json!(70));
+        m.profile.changed(["any".into()]);
         let _done = m.queue_finish();
         assert!(matches!(jobs.try_recv().unwrap(), Job::WritePack { .. }));
         match jobs.try_recv().unwrap() {
-            Job::FlushAndQuit { id, values, .. } => {
-                assert_eq!(id, "a");
-                assert_eq!(values["any"], 70);
-                assert_eq!(values.len(), 1);
+            Job::FlushAndQuit { write, .. } => {
+                assert_eq!(write.id, "a");
+                assert_eq!(write.values["any"], 70);
+                assert_eq!(write.values.len(), 1);
+                assert_eq!(write.after, Some((s, 0)));
             }
             _ => panic!("final write must follow queued writes"),
         }
@@ -3479,34 +4172,56 @@ mod manager_tests {
     #[test]
     fn revert_to_baseline_while_write_inflight_is_flushed_on_exit_and_switch() {
         for exiting in [true, false] {
-            let (mut m, _, jobs) = fixture();
+            let (mut m, events, jobs) = fixture();
+            m.status = json!({"running":true,"packId":"a"});
             let s = m.profile.select("a".into());
             let mut b = bundle("a", 50);
             b.values.insert("untouched".into(), json!(90));
             m.profile.load("a", s, b);
             m.profile.values.insert("any".into(), json!(60));
             m.profile.changed(["any".into()]);
-            m.profile.begin_write(["any".into()].into());
+            let edit = m.profile.begin_write();
             m.profile.values.insert("any".into(), json!(50));
             m.profile.changed(["any".into()]);
             assert!(m.profile.patch().is_empty());
             if exiting {
                 let _ = m.queue_finish();
                 match jobs.try_recv().unwrap() {
-                    Job::FlushAndQuit { id, values, .. } => {
-                        assert_eq!(id, "a");
-                        assert_eq!(values["any"], 50);
-                        assert!(!values.contains_key("untouched"));
+                    Job::FlushAndQuit { write, .. } => {
+                        assert_eq!(write.id, "a");
+                        assert_eq!(write.values["any"], 50);
+                        assert!(!write.values.contains_key("untouched"));
+                        assert_eq!(write.after, Some((s, edit)));
                     }
                     _ => panic!("expected latest baseline flush"),
                 }
             } else {
-                m.open_profile("b".into(), true);
+                m.queued_wallpaper = Some("b".into());
+                m.dispatch_wallpaper_selection();
+                assert!(jobs.try_recv().is_err());
+                let mut saved = bundle("a", 60);
+                saved.values.insert("untouched".into(), json!(90));
+                events
+                    .send(Event::PackSaved {
+                        id: "a".into(),
+                        selection: s,
+                        edit,
+                        bundle: saved,
+                    })
+                    .unwrap();
+                m.events(&egui::Context::default());
+                m.dispatch_wallpaper_selection();
                 match jobs.try_recv().unwrap() {
-                    Job::WritePack { id, values, .. } => {
+                    Job::WritePack {
+                        id,
+                        values,
+                        revision,
+                        ..
+                    } => {
                         assert_eq!(id, "a");
                         assert_eq!(values["any"], 50);
                         assert!(!values.contains_key("untouched"));
+                        assert_eq!(revision, Some(json!(60)));
                     }
                     _ => panic!("expected latest baseline flush"),
                 }
@@ -3684,7 +4399,7 @@ mod calibration_lock_tests {
         assert!(
             matches!(jobs.try_recv().unwrap(),Job::Request(v) if v["settings"]["monitorDevice"]=="SECONDARY")
         );
-        assert!(matches!(jobs.try_recv().unwrap(), Job::Full));
+        assert!(matches!(jobs.try_recv().unwrap(), Job::ReadDevices));
         m.open_profile("another-wallpaper".into(), true);
         assert!(
             matches!(jobs.try_recv().unwrap(),Job::SelectPack{id,..} if id=="another-wallpaper")

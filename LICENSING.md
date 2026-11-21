@@ -1,4 +1,4 @@
-# 代码与素材的许可范围
+# 许可范围
 
 Action75 Wallpaper 的自有程序代码（控制台、播放器、开发接口、构建工具和示例代码）按 [Apache License 2.0](LICENSE) 分发。
 

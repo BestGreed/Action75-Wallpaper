@@ -5,6 +5,9 @@ use std::time::{Duration, Instant};
 const MAX_MESSAGE: usize = 65_536;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(6);
 
+#[cfg(all(windows, test))]
+pub(crate) use windows::test_server;
+
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 100
@@ -27,6 +30,16 @@ pub(crate) fn request_timeout_for_pid(
     timeout: Duration,
     expected_pid: Option<u32>,
 ) -> Result<Value, String> {
+    request_with_delivery(pipe, value, timeout, expected_pid, None)
+}
+
+pub(crate) fn request_with_delivery(
+    pipe: &str,
+    value: &Value,
+    timeout: Duration,
+    expected_pid: Option<u32>,
+    attempted: Option<&mut bool>,
+) -> Result<Value, String> {
     if !valid_name(pipe) {
         return Err("本地通信通道无效".into());
     }
@@ -38,11 +51,17 @@ pub(crate) fn request_timeout_for_pid(
     }
     #[cfg(windows)]
     {
-        windows::request(pipe, &bytes, Instant::now() + timeout, expected_pid)
+        windows::request(
+            pipe,
+            &bytes,
+            Instant::now() + timeout,
+            expected_pid,
+            attempted,
+        )
     }
     #[cfg(not(windows))]
     {
-        let _ = (bytes, timeout, expected_pid);
+        let _ = (bytes, timeout, expected_pid, attempted);
         Err("播放器通信仅支持 Windows".into())
     }
 }
@@ -276,6 +295,7 @@ mod windows {
         bytes: &[u8],
         deadline: Instant,
         expected_pid: Option<u32>,
+        attempted: Option<&mut bool>,
     ) -> Result<Value, String> {
         let name: Vec<u16> = format!(r"\\.\pipe\{pipe_name}")
             .encode_utf16()
@@ -287,6 +307,11 @@ mod windows {
             if unsafe { GetNamedPipeServerProcessId(pipe.0, &mut pid) } == 0 || pid != expected {
                 return Err("播放器身份已变更，请重试".into());
             }
+        }
+        if let Some(attempted) = attempted {
+            // Cancellation can race completion of the write. From here onward
+            // a missing reply does not prove that the player did not act.
+            *attempted = true;
         }
         let mut offset = 0;
         while offset < bytes.len() {
@@ -314,7 +339,7 @@ mod windows {
     }
 
     #[cfg(test)]
-    pub(super) mod test_server {
+    pub(crate) mod test_server {
         use super::*;
         use std::sync::{
             atomic::{AtomicU32, Ordering},
@@ -413,6 +438,92 @@ mod windows {
             });
             receiver.recv_timeout(Duration::from_secs(2)).unwrap();
             (name, handle)
+        }
+
+        /// Serve a finite script on a caller-owned test endpoint. A missing
+        /// response models disconnect after delivery, before acknowledgement.
+        pub fn spawn_script(
+            name: String,
+            replies: Vec<Option<Value>>,
+            mut received: impl FnMut(&Value) + Send + 'static,
+        ) -> thread::JoinHandle<Vec<Value>> {
+            let (ready, receiver) = mpsc::channel();
+            let handle = thread::spawn(move || {
+                let path: Vec<u16> = format!(r"\\.\pipe\{name}")
+                    .encode_utf16()
+                    .chain(Some(0))
+                    .collect();
+                let mut requests = Vec::new();
+                for (index, reply) in replies.into_iter().enumerate() {
+                    let pipe = Handle(unsafe {
+                        CreateNamedPipeW(path.as_ptr(), 3, 8, 1, 65536, 65536, 0, ptr::null())
+                    });
+                    assert!(pipe.0 != INVALID_HANDLE);
+                    if index == 0 {
+                        ready.send(()).unwrap();
+                    }
+                    let connected = unsafe { ConnectNamedPipe(pipe.0, ptr::null_mut()) };
+                    assert!(connected != 0 || unsafe { GetLastError() } == 535);
+                    let mut request = Vec::new();
+                    loop {
+                        let mut bytes = [0u8; 256];
+                        let mut count = 0;
+                        let read = unsafe {
+                            ReadFile(
+                                pipe.0,
+                                bytes.as_mut_ptr().cast(),
+                                bytes.len() as u32,
+                                &mut count,
+                                ptr::null_mut(),
+                            )
+                        };
+                        assert!(read != 0 && count != 0);
+                        request.extend_from_slice(&bytes[..count as usize]);
+                        if request.contains(&b'\n') {
+                            break;
+                        }
+                    }
+                    let request = serde_json::from_slice(&request).unwrap();
+                    received(&request);
+                    requests.push(request);
+                    if let Some(reply) = reply {
+                        let mut bytes = serde_json::to_vec(&reply).unwrap();
+                        bytes.push(b'\n');
+                        let mut sent = 0;
+                        assert_ne!(
+                            unsafe {
+                                WriteFile(
+                                    pipe.0,
+                                    bytes.as_ptr().cast(),
+                                    bytes.len() as u32,
+                                    &mut sent,
+                                    ptr::null_mut(),
+                                )
+                            },
+                            0
+                        );
+                        assert_eq!(sent as usize, bytes.len());
+                        let mut ack = [0u8; 1];
+                        let mut count = 0;
+                        assert_ne!(
+                            unsafe {
+                                ReadFile(
+                                    pipe.0,
+                                    ack.as_mut_ptr().cast(),
+                                    1,
+                                    &mut count,
+                                    ptr::null_mut(),
+                                )
+                            },
+                            0
+                        );
+                        assert_eq!(&ack, b"\n");
+                    }
+                }
+                requests
+            });
+            receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+            handle
         }
     }
 }

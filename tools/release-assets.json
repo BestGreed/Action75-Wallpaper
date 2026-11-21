@@ -20,6 +20,67 @@
     "Licenses/MinGW-w64-notices.txt",
     "Licenses/nlohmann-json-LICENSE.txt"
   ],
+  "nativeBuildAliases": {
+    "black-hole": "event-horizon-native"
+  },
+  "externalWallpaperFiles": {
+    "paintball-native": [
+      "scene.json",
+      "canvas.efk",
+      "materials/PaintCanvas_Native.efkmat",
+      "materials/PaintCanvas_Native.efkmatd",
+      "materials/PaintDrop_Native.efkmat",
+      "materials/PaintDrop_Native.efkmatd",
+      "materials/PaintFlash_Native.efkmat",
+      "materials/PaintFlash_Native.efkmatd",
+      "materials/PaintSplash_Native01.efkmat",
+      "materials/PaintSplash_Native01.efkmatd",
+      "materials/PaintSplash_Native02.efkmat",
+      "materials/PaintSplash_Native02.efkmatd",
+      "materials/PaintSplash_Native03.efkmat",
+      "materials/PaintSplash_Native03.efkmatd",
+      "materials/PaintSplash_Native04.efkmat",
+      "materials/PaintSplash_Native04.efkmatd",
+      "materials/PaintSplash_Native05.efkmat",
+      "materials/PaintSplash_Native05.efkmatd",
+      "materials/PaintSplash_Native06.efkmat",
+      "materials/PaintSplash_Native06.efkmatd",
+      "materials/PaintSplash_Native07.efkmat",
+      "materials/PaintSplash_Native07.efkmatd",
+      "materials/PaintSplash_Native08.efkmat",
+      "materials/PaintSplash_Native08.efkmatd",
+      "materials/PaintSplash_Native09.efkmat",
+      "materials/PaintSplash_Native09.efkmatd",
+      "materials/PaintSplat_Native.efkmat",
+      "materials/PaintSplat_Native.efkmatd",
+      "paintball-01.efk",
+      "paintball-02.efk",
+      "paintball-03.efk",
+      "paintball-04.efk",
+      "paintball-05.efk",
+      "paintball-06.efk",
+      "paintball-07.efk",
+      "paintball-08.efk",
+      "paintball-09.efk",
+      "textures/Finalmouse_Paintball_3x3TextureSheet_WithChannelOffsets.png",
+      "textures/T_CanvasBG_01.png",
+      "textures/T_Droplets.png",
+      "textures/T_Flash.png",
+      "textures/T_RainbowGrad_01.png",
+      "textures/T_SplatWave.png"
+    ]
+  },
+  "generatedWallpaperFiles": {
+    "paintball-native": [
+      "textures/baked/Finalmouse_Paintball_3x3TextureSheet_WithChannelOffsets.dds",
+      "textures/baked/T_CanvasBG_01.dds",
+      "textures/baked/T_Droplets.dds",
+      "textures/baked/T_Flash.dds",
+      "textures/baked/T_RainbowGrad_01.dds",
+      "textures/baked/T_SplatWave.dds",
+      "textures/baked/canvas-baked.dds"
+    ]
+  },
   "wallpapers": {
     "afterimage": ["wallpaper.dll", "scene.json", "background.png", "preview.png", "burst.png", "manifest.json", "settings.json"],
     "black-hole": ["manifest.json", "wallpaper.dll", "nebula-source.txt", "nebula.png", "preview.png", "settings.json"],

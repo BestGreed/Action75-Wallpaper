@@ -1,9 +1,9 @@
-"""Build a source archive without local state, binaries or downloaded dependencies."""
+"""Archive source, the author SDK and declared distributable assets."""
 import argparse
 from pathlib import Path
 import tempfile
 from zipfile import ZIP_DEFLATED, ZipFile
-from release_payload import ROOT, external_wallpaper_assets, release_files, version
+from release_payload import ROOT, digest, release_asset, release_files, version
 
 
 SOURCE_ENTRIES = [
@@ -11,14 +11,24 @@ SOURCE_ENTRIES = [
     ".clang-format", ".impeccable/design.json", "docs",
     "apps/manager", "apps/manager/vendor/egui-wgpu", "native/windows-player", "tools", "skills/action75-wallpaper-author",
     "examples/author-wallpapers", "examples/native-wallpapers",
+    "examples/author-wallpapers/sources/dx12/night-orbit-trio/vendor",
+    "examples/author-wallpapers/sources/dx12/soundings-echo/vendor",
+    "vendor-source/windows-native/nlohmann/json.hpp",
 ]
+JSON_HEADER = Path("vendor-source/windows-native/nlohmann/json.hpp")
+JSON_SHA256 = "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
 
 
-def write_archive(root, output_dir):
+def write_archive(root, output_dir, *, wallpapers=None):
+    root = root.resolve(strict=True)
+    if wallpapers is not None:
+        wallpapers = wallpapers.resolve(strict=True)
     app_version = version(root)
     output = output_dir / f"ACTION75-source-{app_version}.zip"
     excluded = {"target", "build", "vendor", "__pycache__", "logs", "data", "artifacts"}
-    files = set(release_files(root)) - external_wallpaper_assets(root)
+    files = set(release_files(root, include_external=False, wallpapers=wallpapers))
+    if digest(root / JSON_HEADER) != JSON_SHA256:
+        raise ValueError("SDK requires the unmodified nlohmann/json 3.12.0 header")
     for optional in ("BUILDING.md", ".github/workflows/windows.yml"):
         if (root / optional).is_file():
             files.add(Path(optional))
@@ -38,7 +48,10 @@ def write_archive(root, output_dir):
         temporary = Path(scratch) / output.name
         with ZipFile(temporary, "w", ZIP_DEFLATED, compresslevel=9) as archive:
             for relative in sorted(files):
-                archive.write(root / relative, f"ACTION75-{app_version}/{relative.as_posix()}")
+                source = release_asset(root, relative, wallpapers)
+                if source.resolve(strict=True) != source:
+                    raise ValueError(f"Source archive input redirects to another path: {relative}")
+                archive.write(source, f"ACTION75-{app_version}/{relative.as_posix()}")
         temporary.replace(output)
     print(f"{output}: {len(files)} files, {output.stat().st_size} bytes")
     return output
@@ -47,8 +60,9 @@ def write_archive(root, output_dir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "release")
+    parser.add_argument("--wallpapers", type=Path, help="Use the built-in packs from a verified staging directory.")
     args = parser.parse_args()
-    write_archive(ROOT, args.output_dir)
+    write_archive(ROOT, args.output_dir, wallpapers=args.wallpapers)
 
 
 if __name__ == "__main__":

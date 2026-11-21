@@ -18,6 +18,8 @@ enum Notice {
 #[derive(Default)]
 pub struct Updates {
     installed: bool,
+    blocked: Option<String>,
+    preserved_wallpapers: String,
     checked: Option<Instant>,
     release: Option<Release>,
     job: Option<Receiver<Notice>>,
@@ -30,6 +32,14 @@ pub struct Updates {
 impl Updates {
     pub fn enable(&mut self, root: &Path) {
         self.installed = update_install::installed(root);
+        if self.installed {
+            self.blocked = update_install::check_download_permission().err();
+            let path = root.join("data/preserved-wallpapers.txt");
+            if let Ok(packs) = std::fs::read_to_string(&path) {
+                self.preserved_wallpapers = packs;
+                let _ = std::fs::remove_file(path);
+            }
+        }
     }
 
     fn run(&mut self, ctx: &egui::Context, task: impl FnOnce() -> Notice + Send + 'static) {
@@ -102,6 +112,7 @@ impl Updates {
             return false;
         }
         if can_install
+            && self.blocked.is_none()
             && let Some(release) = self.release.clone()
             && let Some(path) = self.installer.take()
         {
@@ -139,7 +150,10 @@ impl Updates {
         if let Some(release) = self.release.clone() {
             ui.label(format!("发现新版本 {}", release.version));
             if ui
-                .add_enabled(!busy && can_install, egui::Button::new("立即更新"))
+                .add_enabled(
+                    !busy && can_install && self.blocked.is_none(),
+                    egui::Button::new("立即更新"),
+                )
                 .clicked()
             {
                 self.text = "正在下载并验证安装包…".into();
@@ -155,6 +169,15 @@ impl Updates {
         }
         if !self.text.is_empty() {
             ui.weak(&self.text);
+        }
+        if let Some(reason) = &self.blocked {
+            ui.weak(reason);
+        }
+        if !self.preserved_wallpapers.is_empty() {
+            ui.weak(format!(
+                "已保留同 ID 的导入壁纸 {}",
+                self.preserved_wallpapers
+            ));
         }
     }
 

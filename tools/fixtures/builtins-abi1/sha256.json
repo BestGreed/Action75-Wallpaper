@@ -1,0 +1,29 @@
+{
+  "afterimage": {
+    "wallpaper.dll": "43b29b4879b728e986d7fac15aca5047bca63bd345e7a0e94505aff1f3b8c1ce",
+    "scene.json": "19374c37fda655c22c17f513325efac33b6fc65d3bab227971653b8e3fe2b577",
+    "background.png": "654e42f2062a1c942b94ae92ccc5423f48363337754fbd983da87e0c7d03f5e4",
+    "preview.png": "831191332c99873567ecdca27216ee8035b2911170dc86aeabe4507e906d7780",
+    "burst.png": "947c441365b00b1e8014fcd49622071cfbf248dd1d5c3dffa5059f10a724443e",
+    "manifest.json": "f8b0927a56ed71a6d66d69985363f45049f860ad10fdcc5f2ece06248ee1404e",
+    "settings.json": "46fa5b06c4b819049c7616c76ab37b6a4e164ed8964b3680e6220d1843239eef"
+  },
+  "stillwater": {
+    "wallpaper.dll": "aac96ece340ec240155a0454e27e55492929de084f095491522298352f253e98",
+    "manifest.json": "648da0c8479c10d3c3b04d02e1bd40f63f08ac21d5368f9e051ce983500d0591",
+    "preview.png": "c4a5efedced5a073724e82be514d2f4ad3c1370bdcac3a0f29baccfb2f5c76cb",
+    "settings.json": "6f2f4a4babfc3ac53aad76197b4fd689ad69e1feba717d70ee26308c77e3bcd7"
+  },
+  "glass-shatter": {
+    "wallpaper.dll": "676541f9c540d0b5d4d2ab31e1cc2f511838625948cd4ff735b6a723613900bf",
+    "manifest.json": "8d71827c3033cb5504801bc9178563330c49bf9124906fdc576ecc16e250b1fa",
+    "preview.png": "c7c7174eede43dcf01d14e53d188904173f5a2f36fe552631fc12e5a374da279",
+    "settings.json": "a2340c3678bfb26164f8b7812626404ab9ed4291891ab584608ef15d1cb24138"
+  },
+  "night-fireworks": {
+    "wallpaper.dll": "99869fee2c50a7767e3e034b7f324c1e6b93373d0ef48a1d5d81e136af7643e0",
+    "manifest.json": "beba92d3fbdbfcb30d7c89d403d564ef28c7469204d8d254b5bfdcd2762016a6",
+    "preview.png": "9cf277b81526cfc10bfd7936371486e672d59b2c9f5cbca3ca0788fc9bdd1945",
+    "settings.json": "7b49637d61673ed98087bfe502067d683ecadb83b07cf0cabd971b1d5c2720fa"
+  }
+}

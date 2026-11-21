@@ -145,7 +145,14 @@ fn appearance_rank(control: &Value) -> Option<usize> {
 
 fn control_visible(control: &Value, values: &Map<String, Value>) -> bool {
     control.get("visibleWhen").is_none_or(|condition| {
-        values.get(condition["id"].as_str().unwrap_or("")) == condition.get("equals")
+        let actual = values.get(condition["id"].as_str().unwrap_or(""));
+        let expected = condition.get("equals");
+        match (actual, expected) {
+            (Some(Value::Number(a)), Some(Value::Number(b))) if a.is_f64() || b.is_f64() => {
+                a.as_f64() == b.as_f64()
+            }
+            _ => actual == expected,
+        }
     })
 }
 
@@ -243,15 +250,7 @@ fn show_controls<'a>(
                         // Slider can mark itself changed just by rounding an
                         // off-step migrated value during layout. Only user
                         // manipulation may replace the canonical JSON value.
-                        let user_edit = response.dragged()
-                            || response.is_pointer_button_down_on()
-                            || response.clicked()
-                            || (response.has_focus()
-                                && ui.input(|i| {
-                                    i.key_pressed(egui::Key::ArrowLeft)
-                                        || i.key_pressed(egui::Key::ArrowRight)
-                                }));
-                        if response.changed() && user_edit {
+                        if super::percent_ui::slider_edited(ui, &response) {
                             value = if number.fract() == 0. && number.abs() < 9e15 {
                                 json!(number as i64)
                             } else {
@@ -342,8 +341,10 @@ fn show_controls<'a>(
                         }
                         changed |= trace.changed;
                         if control["allowSingleHue"] == true {
-                            if let Some(r) = super::percent_ui::single_color_hue(ui, &mut bridge) {
-                                changed |= r.changed();
+                            if let Some((_, edited)) =
+                                super::percent_ui::single_color_hue(ui, &mut bridge)
+                            {
+                                changed |= edited;
                             }
                         }
                         if changed {
@@ -682,6 +683,40 @@ mod tests {
         });
         assert!(!out.rendered.contains_key("conditional"));
         assert!(out.errors.iter().any(|e| e.contains("future-widget")));
+    }
+
+    #[test]
+    fn visible_when_matches_equal_numeric_representations() {
+        let control = json!({"visibleWhen":{"id":"mode","equals":1.0}});
+        for (value, visible) in [
+            (json!(1), true),
+            (json!(1.0), true),
+            (json!(2), false),
+            (json!("1"), false),
+            (json!(true), false),
+        ] {
+            assert_eq!(
+                control_visible(&control, &Map::from_iter([("mode".into(), value)])),
+                visible
+            );
+        }
+    }
+
+    #[test]
+    fn opening_a_single_color_palette_keeps_rgb_and_emits_no_edit() {
+        let schema = json!({"version":1,"groups":[{"controls":[{"id":"tint","type":"palette","maxColors":1,
+            "allowSingleHue":true,"default":{"preset":"custom","colors":[[255,23,72]]}}]}]});
+        let mut values = action75_manager::pack_model::defaults(&schema);
+        let original = values.clone();
+        let ctx = egui::Context::default();
+        let _ = ctx.run(RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let out = show(ui, &schema, &mut values, &[]);
+                assert!(out.errors.is_empty());
+                assert!(out.changed_fields.is_empty());
+            });
+        });
+        assert_eq!(values, original);
     }
     #[test]
     fn arbitrary_slider_changes_only_its_canonical_value_on_real_input() {

@@ -20,6 +20,7 @@ use windows::Win32::{
 
 const BOARD_FRAME_FILL: Color32 = Color32::from_rgb(29, 39, 46);
 const BOARD_FRAME_SELECTED: Color32 = Color32::from_rgb(155, 207, 249);
+const DISPLAY_CHECK_INTERVAL: Duration = Duration::from_millis(400);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
@@ -45,6 +46,53 @@ enum Action {
     End,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CalibrationDisplay {
+    device: String,
+    identity: String,
+    serial: String,
+    bounds: [i32; 4],
+}
+
+impl CalibrationDisplay {
+    fn selected(monitors: &Value) -> Option<Self> {
+        let monitor = monitors
+            .as_array()?
+            .iter()
+            .find(|monitor| monitor["selected"] == true && monitor["primary"] != true)?;
+        let identity = monitor["monitorIdentity"].as_str()?.to_owned();
+        let device = monitor["device"].as_str()?.to_owned();
+        if identity.is_empty() || device.is_empty() {
+            return None;
+        }
+        Some(Self {
+            device,
+            identity,
+            serial: monitor["monitorSerial"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            bounds: monitor_bounds(monitor)?,
+        })
+    }
+
+    fn same_display(&self, other: &Self) -> bool {
+        if !self.serial.is_empty() && !other.serial.is_empty() {
+            self.serial == other.serial
+        } else {
+            self.identity.eq_ignore_ascii_case(&other.identity)
+        }
+    }
+
+    fn confirm(&self, current: Self) -> Result<Self, String> {
+        if self.same_display(&current) {
+            Ok(current)
+        } else {
+            Err("键盘副屏已更换，请重新连接原副屏。校准草稿仍保留。".into())
+        }
+    }
+}
+
 struct Session {
     model: Calibration,
     entered: BTreeMap<String, Point>,
@@ -52,7 +100,10 @@ struct Session {
     undo: Vec<BTreeMap<String, Point>>,
     selected: Option<String>,
     drag: Option<(String, [f64; 2])>,
-    bounds: [i32; 4],
+    display: CalibrationDisplay,
+    display_issue: Option<String>,
+    display_check_pending: bool,
+    next_display_check: Instant,
     placement: Placement,
 }
 impl Session {
@@ -64,8 +115,32 @@ impl Session {
             undo: vec![],
             selected: None,
             drag: None,
-            bounds: prepared.bounds,
+            display: prepared.display,
+            display_issue: None,
+            display_check_pending: false,
+            next_display_check: Instant::now() + DISPLAY_CHECK_INTERVAL,
             placement: Placement::default(),
+        }
+    }
+
+    fn update_display(&mut self, result: Result<CalibrationDisplay, String>) -> bool {
+        match result {
+            Ok(display) => {
+                let changed = self.display != display || self.display_issue.is_some();
+                self.display = display;
+                self.display_issue = None;
+                if changed {
+                    self.placement = Placement::default();
+                    self.drag = None;
+                }
+                changed
+            }
+            Err(error) => {
+                self.display_issue = Some(error);
+                self.placement = Placement::default();
+                self.drag = None;
+                true
+            }
         }
     }
     fn replace_points(&mut self, points: BTreeMap<String, Point>) {
@@ -124,28 +199,32 @@ impl State {
 struct Prepared {
     model: Calibration,
     defaults: BTreeMap<String, Point>,
-    bounds: [i32; 4],
+    display: CalibrationDisplay,
 }
 enum Work {
     Begin(u64),
+    CheckDisplay(u64),
     Save(u64, Calibration),
     End(u64),
     Shutdown(mpsc::Sender<()>),
 }
 enum Reply {
     Begun(u64, Result<Prepared, String>),
+    DisplayChecked(u64, Result<CalibrationDisplay, String>),
     Saved(u64, Result<Calibration, String>),
     Ended(u64, Result<(), String>),
 }
 
 trait Backend: Send + 'static {
     fn begin(&mut self) -> Result<Prepared, String>;
+    fn check_display(&self) -> Result<CalibrationDisplay, String>;
     fn save(&mut self, model: &Calibration) -> Result<Calibration, String>;
     fn end(&mut self) -> Result<(), String>;
 }
 struct Host {
     root: PathBuf,
     paused: Option<PausedPlayer>,
+    display: Option<CalibrationDisplay>,
 }
 
 struct PausedPlayer {
@@ -213,24 +292,32 @@ fn resume_owned(
     *paused = None;
     Ok(())
 }
+
+fn read_calibration_display(
+    root: &std::path::Path,
+    player: &PausedPlayer,
+) -> Result<CalibrationDisplay, String> {
+    if player.exited() {
+        return Err("播放器已退出，校准草稿仍保留。".into());
+    }
+    let monitors = core::command(
+        root,
+        json!({"action":"listMonitors", "expectedPlayerPid":player.pid}),
+    )?;
+    CalibrationDisplay::selected(&monitors)
+        .ok_or_else(|| "请连接原键盘副屏，校准草稿仍保留。".into())
+}
+
 impl Backend for Host {
     fn begin(&mut self) -> Result<Prepared, String> {
         let model = Calibration::load(&self.root)?;
         let defaults = Calibration::default_points(&self.root)?;
         let status = core::command(&self.root, json!({"action":"status"}))?;
         let player = PausedPlayer::watch(&status)?;
-        let monitors = core::command(&self.root, json!({"action":"listMonitors"}))?;
-        let monitor = monitors
-            .as_array()
-            .and_then(|m| {
-                m.iter().find(|m| {
-                    m["selected"] == true
-                        && m["primary"] != true
-                        && m["device"] == status["monitorDevice"]
-                })
-            })
-            .ok_or("请先选择已连接的键盘副屏")?;
-        let bounds = monitor_bounds(monitor).ok_or("副屏尺寸无效")?;
+        let display = read_calibration_display(&self.root, &player)?;
+        if status["monitorConnected"] != true || status["monitorDevice"] != display.device {
+            return Err("请先选择已连接的键盘副屏".into());
+        }
         let pid = player.pid;
         if let Err(error) = pause_owned(&mut self.paused, player, |request| {
             core::command(&self.root, request)
@@ -242,17 +329,30 @@ impl Backend for Host {
             let _ = self.end();
             return Err(error);
         }
+        self.display = Some(display);
+        let display = match self.check_display() {
+            Ok(display) => display,
+            Err(error) => {
+                let _ = self.end();
+                return Err(error);
+            }
+        };
         Ok(Prepared {
             model,
             defaults,
-            bounds,
+            display,
         })
     }
+
+    fn check_display(&self) -> Result<CalibrationDisplay, String> {
+        let player = self.paused.as_ref().ok_or("校准会话已结束")?;
+        let original = self.display.as_ref().ok_or("无法确认原键盘副屏")?;
+        original.confirm(read_calibration_display(&self.root, player)?)
+    }
+
     fn save(&mut self, model: &Calibration) -> Result<Calibration, String> {
         if let Some(player) = &self.paused {
-            if player.exited() {
-                return Err("播放器已退出，尚未保存的校准仍可查看。请结束后重新开始。".into());
-            }
+            self.check_display()?;
             core::save_calibration_for_player(&self.root, model, player.pid)
         } else {
             core::save_calibration_and_reload(&self.root, model)
@@ -261,7 +361,9 @@ impl Backend for Host {
     fn end(&mut self) -> Result<(), String> {
         resume_owned(&mut self.paused, |request| {
             core::command(&self.root, request)
-        })
+        })?;
+        self.display = None;
+        Ok(())
     }
 }
 fn worker<B: Backend>(
@@ -273,6 +375,7 @@ fn worker<B: Backend>(
     while let Ok(job) = jobs.recv() {
         let reply = match job {
             Work::Begin(g) => Reply::Begun(g, backend.begin()),
+            Work::CheckDisplay(g) => Reply::DisplayChecked(g, backend.check_display()),
             Work::Save(g, model) => Reply::Saved(g, backend.save(&model)),
             Work::End(g) => Reply::Ended(g, backend.end()),
             Work::Shutdown(done) => {
@@ -326,6 +429,7 @@ impl Controller {
         let host = Host {
             root: self.root.clone(),
             paused: None,
+            display: None,
         };
         let ctx = ctx.clone();
         thread::spawn(move || worker(host, jobs, replies, ctx));
@@ -403,9 +507,11 @@ impl Controller {
         self.ensure_worker(ctx);
         let mut s = self.state.lock().unwrap();
         let model = match (action, s.phase) {
-            (Action::Save | Action::SaveEnd, Phase::Active) => {
-                s.session.as_ref().map(|session| &session.model)
-            }
+            (Action::Save | Action::SaveEnd, Phase::Active) => s
+                .session
+                .as_ref()
+                .filter(|session| session.display_issue.is_none())
+                .map(|session| &session.model),
             (Action::SaveFit, Phase::Idle) => s.fit_preview.as_ref(),
             (Action::RecoverDefaults, Phase::Idle) => s
                 .saved
@@ -458,6 +564,15 @@ impl Controller {
                             }
                         }
                     }
+                    Reply::DisplayChecked(g, result) if g == s.generation => {
+                        if let Some(session) = s.session.as_mut() {
+                            session.display_check_pending = false;
+                            session.next_display_check = Instant::now() + DISPLAY_CHECK_INTERVAL;
+                            if session.update_display(result) {
+                                let _ = native::hide(&board_title(g));
+                            }
+                        }
+                    }
                     Reply::Saved(g, result) if g == s.generation && s.phase == Phase::Saving => {
                         s.phase = if s.session.is_some() {
                             Phase::Active
@@ -489,6 +604,9 @@ impl Controller {
                             Err(error) => {
                                 s.error = error;
                                 s.close_cancelled = close_after_save;
+                                if let Some(session) = s.session.as_mut() {
+                                    session.next_display_check = Instant::now();
+                                }
                             }
                         }
                     }
@@ -514,6 +632,33 @@ impl Controller {
         end |= self.state.lock().unwrap().close_requested;
         if end {
             self.end(ctx);
+        } else {
+            let mut s = self.state.lock().unwrap();
+            if s.phase != Phase::Active {
+                return;
+            }
+            let generation = s.generation;
+            let Some(session) = s.session.as_mut() else {
+                return;
+            };
+            if session.display_check_pending {
+                return;
+            }
+            let remaining = session
+                .next_display_check
+                .saturating_duration_since(Instant::now());
+            if !remaining.is_zero() {
+                ctx.request_repaint_after(remaining);
+            } else if self
+                .tx
+                .as_ref()
+                .is_some_and(|tx| tx.send(Work::CheckDisplay(generation)).is_ok())
+            {
+                session.display_check_pending = true;
+            } else {
+                session.update_display(Err("校准控制线程已退出，草稿仍保留。".into()));
+                let _ = native::hide(&board_title(generation));
+            }
         }
     }
     fn observe_revision(&mut self, revision: Option<&str>, using_fallback: bool) {
@@ -556,7 +701,7 @@ impl Controller {
         let bounds = s
             .session
             .as_ref()
-            .map(|session| session.bounds)
+            .map(|session| session.display.bounds)
             .or_else(|| {
                 let device = connected
                     .then(|| status["monitorDevice"].as_str())
@@ -772,8 +917,11 @@ impl Controller {
             return;
         }
         let Some(session) = &s.session else { return };
+        if session.display_issue.is_some() {
+            return;
+        }
         let generation = s.generation;
-        let bounds = session.bounds;
+        let bounds = session.display.bounds;
         drop(s);
         let title = board_title(generation);
         let state = self.state.clone();
@@ -790,7 +938,9 @@ impl Controller {
             move |ctx, class| {
                 let mut s = state.lock().unwrap();
                 if s.generation != generation
-                    || s.session.is_none()
+                    || s.session
+                        .as_ref()
+                        .is_none_or(|session| session.display_issue.is_some())
                     || !matches!(s.phase, Phase::Active | Phase::Saving)
                 {
                     return;
@@ -803,14 +953,17 @@ impl Controller {
                 } else {
                     let active = s.phase == Phase::Active;
                     let session = s.session.as_mut().unwrap();
-                    match session.placement.prepare(ctx, bounds, &title) {
+                    match session.placement.prepare(ctx, &session.display, &title) {
                         Ok(true) => {
                             draw_canvas(ctx, session, active);
                         }
                         Ok(false) => {}
                         Err(error) => {
-                            s.error = error;
-                            s.close_requested = true;
+                            session.update_display(Err(error));
+                            session.next_display_check = Instant::now();
+                            let _ = native::hide(&title);
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                            ctx.request_repaint_of(egui::ViewportId::ROOT);
                         }
                     }
                 }
@@ -838,7 +991,13 @@ fn show_manual_controls(
     button: &mut impl FnMut(&mut egui::Ui, &'static str, Action, bool) -> egui::Response,
 ) {
     ui.label(RichText::new("手动校准").size(17.));
-    let hint = if connected || s.session.is_some() {
+    let issue = s
+        .session
+        .as_ref()
+        .and_then(|session| session.display_issue.as_deref());
+    let hint = if let Some(issue) = issue {
+        issue
+    } else if connected || s.session.is_some() {
         "在键盘屏拖动键位，用方向键微调。"
     } else {
         "在「设备与输出」中连接键盘屏。"
@@ -862,13 +1021,14 @@ fn show_manual_controls(
         _ => {
             if let Some(session) = &s.session {
                 let active = s.phase == Phase::Active;
+                let can_save = active && session.display_issue.is_none();
                 ui.horizontal_wrapped(|ui| {
-                    button(ui, "保存并结束", Action::SaveEnd, active);
+                    button(ui, "保存并结束", Action::SaveEnd, can_save);
                     button(
                         ui,
                         "保存",
                         Action::Save,
-                        active
+                        can_save
                             && (session.model.changed()
                                 || session.model.recovery_notice().is_some()),
                     );
@@ -983,13 +1143,13 @@ impl Placement {
     fn prepare(
         &mut self,
         ctx: &egui::Context,
-        bounds: [i32; 4],
+        display: &CalibrationDisplay,
         title: &str,
     ) -> Result<bool, String> {
         let started = *self.started.get_or_insert_with(Instant::now);
         let canvas = ctx.viewport_rect();
         let geometry = CalibrationGeometry::new(
-            bounds,
+            display.bounds,
             [
                 canvas.left() as f64,
                 canvas.top() as f64,
@@ -999,7 +1159,7 @@ impl Placement {
         )
         .ok_or("校准画布尺寸无效")?;
         let scale = ctx.pixels_per_point();
-        let client = native::client(title, bounds)?;
+        let client = native::client(title, display)?;
         let scale_changed = self.scale != Some(scale);
         let matches = client.is_some_and(|rect| geometry.client_matches_target(rect, 0))
             && geometry.canvas_matches_target(scale as f64, 1.);
@@ -1023,7 +1183,7 @@ impl Placement {
                 position[0] as f32,
                 position[1] as f32,
             )));
-            native::place(title, bounds)?;
+            native::place(title, display)?;
         } else {
             if self.record_match(ctx.cumulative_frame_nr()) {
                 self.visible = true;
@@ -1046,7 +1206,7 @@ impl Placement {
 fn draw_canvas(ctx: &egui::Context, session: &mut Session, editable: bool) -> Rect {
     let canvas = ctx.viewport_rect();
     let geometry = CalibrationGeometry::new(
-        session.bounds,
+        session.display.bounds,
         [
             canvas.left() as f64,
             canvas.top() as f64,
@@ -1202,6 +1362,7 @@ fn key_label(code: &str) -> &str {
 
 #[cfg(windows)]
 mod native {
+    use super::CalibrationDisplay;
     #[repr(C)]
     struct Point {
         x: i32,
@@ -1220,6 +1381,7 @@ mod native {
         monitor: Rect,
         work: Rect,
         flags: u32,
+        device: [u16; 32],
     }
     #[link(name = "user32")]
     unsafe extern "system" {
@@ -1279,12 +1441,12 @@ mod native {
             }
         }
     }
-    pub fn client(title: &str, bounds: [i32; 4]) -> Result<Option<[i32; 4]>, String> {
+    pub fn client(title: &str, display: &CalibrationDisplay) -> Result<Option<[i32; 4]>, String> {
         let Some(hwnd) = owned(title)? else {
             return Ok(None);
         };
         let _dpi = Dpi::enter()?;
-        verify_target(bounds)?;
+        verify_target(display)?;
         let mut r = Rect {
             left: 0,
             top: 0,
@@ -1310,7 +1472,8 @@ mod native {
         }
         Ok(())
     }
-    fn verify_target(bounds: [i32; 4]) -> Result<(), String> {
+    fn verify_target(display: &CalibrationDisplay) -> Result<(), String> {
+        let bounds = display.bounds;
         let rect = Rect {
             left: bounds[0],
             top: bounds[1],
@@ -1333,6 +1496,7 @@ mod native {
                 bottom: 0,
             },
             flags: 0,
+            device: [0; 32],
         };
         if monitor == 0
             || unsafe { GetMonitorInfoW(monitor, &mut info) } == 0
@@ -1344,16 +1508,25 @@ mod native {
                 info.monitor.bottom - info.monitor.top,
             ] != bounds
         {
-            return Err("键盘副屏已变化，请重新开始校准".into());
+            return Err("键盘副屏已变化，校准草稿仍保留。".into());
+        }
+        let end = info
+            .device
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(info.device.len());
+        if !String::from_utf16_lossy(&info.device[..end]).eq_ignore_ascii_case(&display.device) {
+            return Err("键盘副屏已变化，校准草稿仍保留。".into());
         }
         Ok(())
     }
-    pub fn place(title: &str, bounds: [i32; 4]) -> Result<(), String> {
+    pub fn place(title: &str, display: &CalibrationDisplay) -> Result<(), String> {
         let Some(hwnd) = owned(title)? else {
             return Ok(());
         };
         let _dpi = Dpi::enter()?;
-        verify_target(bounds)?;
+        verify_target(display)?;
+        let bounds = display.bounds;
         if unsafe {
             SetWindowPos(
                 hwnd,
@@ -1373,13 +1546,14 @@ mod native {
 }
 #[cfg(not(windows))]
 mod native {
+    use super::CalibrationDisplay;
     pub fn hide(_: &str) -> Result<(), String> {
         Ok(())
     }
-    pub fn client(_: &str, _: [i32; 4]) -> Result<Option<[i32; 4]>, String> {
+    pub fn client(_: &str, _: &CalibrationDisplay) -> Result<Option<[i32; 4]>, String> {
         Err("校准需要 Windows".into())
     }
-    pub fn place(_: &str, _: [i32; 4]) -> Result<(), String> {
+    pub fn place(_: &str, _: &CalibrationDisplay) -> Result<(), String> {
         Err("校准需要 Windows".into())
     }
 }
@@ -1409,7 +1583,12 @@ mod tests {
         Prepared {
             model,
             defaults,
-            bounds: [-1920, 0, 1920, 720],
+            display: CalibrationDisplay {
+                device: "DISPLAY2".into(),
+                identity: "original-port".into(),
+                serial: "serial-1".into(),
+                bounds: [-1920, 0, 1920, 720],
+            },
         }
     }
     fn input(size: egui::Vec2, scale: f32, events: Vec<Event>) -> RawInput {
@@ -1535,6 +1714,86 @@ mod tests {
         }
         (controller, jobs, replies)
     }
+
+    #[test]
+    fn display_replacement_at_the_same_bounds_is_rejected() {
+        let original = prepared().display;
+        let mut replacement = original.clone();
+        replacement.serial = "serial-2".into();
+        assert!(original.confirm(replacement).is_err());
+
+        let mut reconnected = original.clone();
+        reconnected.device = "DISPLAY3".into();
+        reconnected.identity = "other-port".into();
+        reconnected.bounds = [0, 1080, 1600, 600];
+        assert_eq!(
+            original.confirm(reconnected.clone()),
+            Ok(reconnected.clone())
+        );
+        reconnected.serial.clear();
+        assert!(original.confirm(reconnected).is_err());
+    }
+
+    #[test]
+    fn missing_display_preserves_draft_and_undo_until_the_original_returns() {
+        let ctx = egui::Context::default();
+        let (mut controller, jobs, replies) = fixture();
+        let (generation, original, edited) = {
+            let mut state = controller.state.lock().unwrap();
+            let generation = state.generation;
+            let session = state.session.as_mut().unwrap();
+            let mut edited = session.model.points.clone();
+            edited.insert("KeyA".into(), Point { x: 0.61, y: 0.57 });
+            session.replace_points(edited.clone());
+            session.placement.visible = true;
+            session.next_display_check = Instant::now();
+            (generation, session.display.clone(), edited)
+        };
+
+        controller.poll(&ctx);
+        assert!(matches!(jobs.try_recv().unwrap(), Work::CheckDisplay(g) if g == generation));
+        replies
+            .send(Reply::DisplayChecked(generation, Err("设备已断开".into())))
+            .unwrap();
+        controller.poll(&ctx);
+        controller.save(&ctx, Action::Save);
+        assert!(jobs.try_recv().is_err());
+        {
+            let mut state = controller.state.lock().unwrap();
+            assert_eq!(state.phase, Phase::Active);
+            let session = state.session.as_mut().unwrap();
+            assert!(!session.placement.visible);
+            assert_eq!(session.model.points, edited);
+            assert_eq!(session.undo.len(), 1);
+            session.next_display_check = Instant::now();
+        }
+
+        controller.poll(&ctx);
+        assert!(matches!(jobs.try_recv().unwrap(), Work::CheckDisplay(g) if g == generation));
+        let mut reconnected = original.clone();
+        reconnected.bounds = [0, 1080, 1600, 600];
+        replies
+            .send(Reply::DisplayChecked(
+                generation,
+                original.confirm(reconnected.clone()),
+            ))
+            .unwrap();
+        controller.poll(&ctx);
+        {
+            let state = controller.state.lock().unwrap();
+            let session = state.session.as_ref().unwrap();
+            assert_eq!(session.display, reconnected);
+            assert!(session.display_issue.is_none());
+            assert_eq!(session.undo.len(), 1);
+        }
+        controller.save(&ctx, Action::Save);
+        let Work::Save(g, model) = jobs.try_recv().unwrap() else {
+            panic!("a draft can be saved after the original display returns")
+        };
+        assert_eq!(g, generation);
+        assert_eq!(model.points, edited);
+    }
+
     fn control_frame(
         ctx: &egui::Context,
         c: &mut Controller,
@@ -1782,6 +2041,9 @@ mod tests {
                 .push(format!("pause{}", self.lease));
             Ok(prepared())
         }
+        fn check_display(&self) -> Result<CalibrationDisplay, String> {
+            Ok(prepared().display)
+        }
         fn save(&mut self, model: &Calibration) -> Result<Calibration, String> {
             self.trace
                 .lock()
@@ -1922,6 +2184,7 @@ mod tests {
         c.poll(&ctx);
         assert!(c.take_close_cancelled());
         assert!(!c.take_close_cancelled());
+        assert!(matches!(jobs.try_recv().unwrap(), Work::CheckDisplay(7)));
         assert!(jobs.try_recv().is_err());
         let s = c.state.lock().unwrap();
         assert_eq!(s.phase, Phase::Active);

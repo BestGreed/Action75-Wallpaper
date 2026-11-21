@@ -1,6 +1,6 @@
 [package]
 name = "action75-manager"
-version = "0.3.10"
+version = "0.4.0"
 edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.88"
@@ -19,6 +19,7 @@ sha2 = "0.10"
 tempfile = "3"
 eframe = { version = "=0.33.3", default-features = false, features = ["glow", "wgpu", "default_fonts"] }
 image = { version = "=0.25.9", default-features = false, features = ["png", "jpeg"] }
+png = "=0.18.1"
 memmap2 = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }

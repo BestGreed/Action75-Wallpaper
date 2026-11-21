@@ -1,9 +1,9 @@
 ---
 name: action75-wallpaper-author
-description: 为 Windows 版 Action75 Wallpaper 制作、修改和验证可直接导入的互动壁纸包。涵盖按键图集、粒子、播放规则、自定义 C++/D3D11 场景，以及按对象组织的控制台参数。
+description: 为 Windows 版 Action75 Wallpaper 制作、修改和验证可直接导入的互动壁纸包。涵盖按键图集、粒子、播放规则、自定义 C++/D3D11 或 D3D12 场景，以及按对象组织的控制台参数。
 ---
 
-# 制作和验证 Action75 互动壁纸
+# 制作 Action75 互动壁纸
 
 交付一个可导入的作者文件夹。播放器提供按键位置、输出设备和帧调度；作品定义看到什么、按键如何改变场景、哪些参数允许用户调整。
 
@@ -13,8 +13,8 @@ description: 为 Windows 版 Action75 Wallpaper 制作、修改和验证可直�
 |---|---|
 | 在按键处播放一次独立的手绘动画，例如光环或墨迹 | 跟做[第一款壁纸](references/workshop.md)。用随附脚本生成图集、背景和两个 JSON，再换成自己的美术。 |
 | 同时发射许多粒子，需要各自的轨迹、重力、寿命或子发射器 | 用 Effekseer 制作资源，按[作者接口](references/pack.md)导出兼容的 CPU 粒子；有多个作品变体时再读[播放规则](references/playback.md)。 |
-| 组合已有八种烟火花型 | 用 `fireworks` 和[播放规则](references/playback.md)。作者自己设计的花型可走粒子、图集或原生路线。 |
-| 需要持续状态，例如磁液吸附、角色移动、游戏分数、按住与松开，或自写着色器 | 走[原生插件制作](references/native.md)。先编译并试播 SDK 示例，再替换作品的场景、输入和绘制逻辑。 |
+| 组合播放器已有的烟火花型 | 用 `fireworks` 和[播放规则](references/playback.md)。作者自己设计的花型可走粒子、图集或原生路线。 |
+| 需要持续状态，例如磁液吸附、角色移动、游戏分数、按住与松开，或自写着色器 | 走[原生插件制作](references/native.md)。D3D11 使用 ABI 1；D3D12 使用 ABI 2 和作者自己的着色器。先编译对应示例，再替换场景、输入和绘制逻辑。 |
 
 ## 设计画面和参数
 

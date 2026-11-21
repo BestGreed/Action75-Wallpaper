@@ -88,16 +88,44 @@ def matching_windows(enumerate_windows, parent, predicate):
     return windows
 
 
+def spawn_on_desktop(command, app, name):
+    process = Process()
+    process.desktop = name
+    startup = Startup(cb=C.sizeof(Startup), desktop=name)
+    command_line = C.create_unicode_buffer(subprocess.list2cmdline(command))
+    checked(spawn(str(command[0]), command_line, None, None, False, 0, None, str(app),
+                  C.byref(startup), C.byref(process)))
+    return process
+
+
+@contextmanager
+def installer_on_desktop(command, app, panel):
+    process = spawn_on_desktop(command, app, panel.desktop)
+    try:
+        yield process
+    finally:
+        if wait(process.handle, 0) != 0:
+            terminate(process.handle, 1)
+            wait(process.handle, 5000)
+        close(process.thread)
+        close(process.handle)
+
+
+def wait_for_process(process, seconds):
+    if wait(process.handle, seconds * 1000) != 0:
+        raise TimeoutError(f"Test process {process.pid} did not exit")
+    code = W.DWORD()
+    checked(exit_code(process.handle, C.byref(code)))
+    return code.value
+
+
 @contextmanager
 def manager_session(manager, app, *args):
     name = "Action75ReleaseQA-" + uuid.uuid4().hex
     desktop = checked(create_desktop(name, None, None, 0, 0x01FF, None))
     process = Process()
     try:
-        command = C.create_unicode_buffer(subprocess.list2cmdline([str(manager), "--root", str(app), *args]))
-        startup = Startup(cb=C.sizeof(Startup), desktop="WinSta0\\" + name)
-        checked(spawn(str(manager), command, None, None, False, 0, None, str(app),
-                      C.byref(startup), C.byref(process)))
+        process = spawn_on_desktop([manager, "--root", app, *args], app, "WinSta0\\" + name)
 
         def windows(title, class_name=None):
             def matches(window):

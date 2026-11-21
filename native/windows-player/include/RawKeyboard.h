@@ -59,7 +59,10 @@ public:
         std::uint64_t downEvents = 0, upEvents = 0, lastPacketMs = 0;
     };
     using Callback = std::function<void(const KeyEvent&)>;
-    RawKeyboard(const PlayerConfig& config, Callback callback);
+    using Devices = std::optional<std::vector<KeyboardDevice>>;
+    static Devices enumerate(const std::string& group = "VID_1CA6&PID_1A0B");
+    using DeviceEnumerator = std::function<Devices(const std::string&)>;
+    RawKeyboard(const PlayerConfig& config, Callback callback, DeviceEnumerator devices = enumerate);
     ~RawKeyboard();
     RawKeyboard(const RawKeyboard&) = delete;
     RawKeyboard& operator=(const RawKeyboard&) = delete;
@@ -68,21 +71,21 @@ public:
     void detach();
     bool process(UINT message, WPARAM wParam, LPARAM lParam);
     void setConfig(const PlayerConfig& config);
+    Devices refreshDevices();
     const std::string& lastError() const noexcept { return error_; }
     const Diagnostics& diagnostics() const noexcept { return diagnostics_; }
     std::size_t selectedDeviceCount() const noexcept { return selected_.size(); }
     bool registered() const noexcept { return window_ != nullptr; }
-    static std::vector<KeyboardDevice> enumerate(const std::string& group = "VID_1CA6&PID_1A0B");
-
 private:
-    void refreshDevices();
     void release(std::uint16_t usage);
     void emit(const KeyMapping& key, bool down);
     void releaseAll();
     PlayerConfig config_;
     Callback callback_;
+    DeviceEnumerator enumerateDevices_;
     HWND window_ = nullptr;
     std::unordered_set<std::uintptr_t> selected_;
+    std::unordered_set<std::uintptr_t> rejected_;
     KeyboardState state_;
     std::string error_;
     Diagnostics diagnostics_;

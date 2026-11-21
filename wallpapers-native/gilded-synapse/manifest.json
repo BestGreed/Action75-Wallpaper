@@ -6,5 +6,6 @@
   "settings": "settings.json",
   "preview": "preview.png",
   "entry": "wallpaper.dll",
-  "abi": 1
+  "abi": 2,
+  "renderer": "d3d12"
 }

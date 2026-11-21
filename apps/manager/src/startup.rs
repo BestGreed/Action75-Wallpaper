@@ -1,21 +1,27 @@
 mod scheduled_task;
 
-use std::{ffi::OsString, io, os::windows::ffi::OsStrExt, path::Path};
+use std::{
+    ffi::OsString,
+    io,
+    os::windows::ffi::{OsStrExt, OsStringExt},
+    path::Path,
+};
 use windows::{
     Win32::{
         Foundation::{
-            CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS, HANDLE,
-            WAIT_ABANDONED_0, WAIT_OBJECT_0,
+            CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS,
+            ERROR_UNSUPPORTED_TYPE, HANDLE, HLOCAL, LocalFree, WAIT_ABANDONED_0, WAIT_OBJECT_0,
         },
         System::{
             Registry::{
-                HKEY_CURRENT_USER, REG_SZ, RRF_RT_ANY, RegDeleteKeyValueW, RegGetValueW,
+                HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW,
                 RegSetKeyValueW,
             },
             Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject},
         },
+        UI::Shell::CommandLineToArgvW,
     },
-    core::{PCWSTR, w},
+    core::{HSTRING, PCWSTR, w},
 };
 
 // The tray reads this key and sends all changes through the controller.
@@ -140,23 +146,7 @@ struct WindowsStartup<'a> {
 
 impl StartupBackend for WindowsStartup<'_> {
     fn enabled(&self) -> Result<bool, String> {
-        let mut length = 0;
-        let result = unsafe {
-            RegGetValueW(
-                HKEY_CURRENT_USER,
-                RUN_KEY,
-                ENTRY,
-                RRF_RT_ANY,
-                None,
-                None,
-                Some(&mut length),
-            )
-        };
-        match result {
-            ERROR_SUCCESS => Ok(true),
-            ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => Ok(false),
-            error => Err(io::Error::from_raw_os_error(error.0 as i32).to_string()),
-        }
+        owns_entry(self.root, ENTRY)
     }
 
     fn legacy(&self) -> LegacyStartup {
@@ -184,19 +174,85 @@ impl StartupBackend for WindowsStartup<'_> {
                 return Err(io::Error::from_raw_os_error(result.0 as i32).to_string());
             }
         } else {
-            let result = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, ENTRY) };
-            if !matches!(
-                result,
-                ERROR_SUCCESS | ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND
-            ) {
-                return Err(io::Error::from_raw_os_error(result.0 as i32).to_string());
-            }
+            remove_owned(self.root, ENTRY)?;
         }
         Ok(())
     }
 
     fn set_legacy(&mut self, enabled: bool) -> Result<(), String> {
         scheduled_task::set_enabled(enabled)
+    }
+}
+
+fn owns_entry(root: &Path, entry: PCWSTR) -> Result<bool, String> {
+    let mut value = vec![0u16; 32768];
+    let mut bytes = (value.len() * size_of::<u16>()) as u32;
+    let result = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            RUN_KEY,
+            entry,
+            RRF_RT_REG_SZ,
+            None,
+            Some(value.as_mut_ptr().cast()),
+            Some(&mut bytes),
+        )
+    };
+    match result {
+        ERROR_SUCCESS => {
+            let end = value.iter().position(|&c| c == 0).unwrap_or(value.len());
+            Ok(command_targets(root, &OsString::from_wide(&value[..end])))
+        }
+        ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND | ERROR_UNSUPPORTED_TYPE => Ok(false),
+        error => Err(io::Error::from_raw_os_error(error.0 as i32).to_string()),
+    }
+}
+
+fn command_targets(root: &Path, command: &std::ffi::OsStr) -> bool {
+    if command.is_empty() {
+        return false;
+    }
+    let command: Vec<_> = command.encode_wide().chain(Some(0)).collect();
+    let mut count = 0;
+    let argv = unsafe { CommandLineToArgvW(PCWSTR(command.as_ptr()), &mut count) };
+    if argv.is_null() {
+        return false;
+    }
+    let executable = (count > 0).then(|| unsafe { OsString::from_wide((*argv).as_wide()) });
+    unsafe {
+        let _ = LocalFree(HLOCAL(argv.cast()));
+    }
+    let expected = root.join("dist/Action75Manager/Action75Manager.exe");
+    executable.is_some_and(|target| {
+        let target = Path::new(&target);
+        target.is_absolute()
+            && std::fs::canonicalize(target)
+                .ok()
+                .zip(std::fs::canonicalize(expected).ok())
+                .is_some_and(|(target, expected)| target == expected)
+    })
+}
+
+fn remove_owned(root: &Path, entry: PCWSTR) -> Result<(), String> {
+    if owns_entry(root, entry)? {
+        let result = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, entry) };
+        if !matches!(
+            result,
+            ERROR_SUCCESS | ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND
+        ) {
+            return Err(io::Error::from_raw_os_error(result.0 as i32).to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn remove_install_entry(root: &Path, qa_id: Option<&str>) -> Result<(), String> {
+    let _write = StartupWrite::acquire()?;
+    if let Some(id) = qa_id {
+        let value = HSTRING::from(format!("ACTION75-QA-{id}"));
+        remove_owned(root, PCWSTR(value.as_ptr()))
+    } else {
+        remove_owned(root, ENTRY)
     }
 }
 
@@ -355,5 +411,25 @@ mod tests {
             run_command(Path::new(r"C:\测试目录\Action75 QA")).unwrap(),
             r#""C:\测试目录\Action75 QA\dist\Action75Manager\Action75Manager.exe" --background"#,
         );
+    }
+
+    #[test]
+    fn startup_ownership_matches_only_the_executable_argument() {
+        let scratch = tempfile::tempdir().unwrap();
+        let first = scratch.path().join("installed copy");
+        let second = scratch.path().join("portable copy");
+        for root in [&first, &second] {
+            let path = root.join("dist/Action75Manager/Action75Manager.exe");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "").unwrap();
+        }
+        let owned = run_command(&first).unwrap();
+        let other = run_command(&second).unwrap();
+        assert!(command_targets(&first, &owned));
+        assert!(!command_targets(&first, &other));
+        assert!(!command_targets(
+            &first,
+            &OsString::from(format!("\"\" {}", owned.to_string_lossy()))
+        ));
     }
 }

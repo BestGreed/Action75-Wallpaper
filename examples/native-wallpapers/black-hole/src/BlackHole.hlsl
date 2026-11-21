@@ -50,6 +50,12 @@ ScreenVertex ScreenVs(uint vertex : SV_VertexID)
     return output;
 }
 
+float4 SkyMipPs(ScreenVertex input) : SV_Target
+{
+    // The view exposes only the previous level, in linear light for the artwork.
+    return sourceImage.SampleLevel(skySampler, input.uv, 0);
+}
+
 float Hash(float2 p)
 {
     float3 h = frac(float3(p.xyx) * float3(.1031, .11369, .13787));

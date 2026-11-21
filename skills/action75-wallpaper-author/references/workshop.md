@@ -16,7 +16,7 @@ python scripts/create_ring.py $pack --id mint-ring --name '薄荷光环'
 python scripts/preview.py --player $player --pack $pack --frame "$work/trial.png"
 ```
 
-试播成功会输出包 ID、`triggered: true` 和渲染帧数。打开生成的 PNG 看画面。成品有五个文件：
+试播成功会输出包 ID、`triggered: true` 和渲染帧数。原生作品的触发字段记录输入已送达。打开生成的 PNG 检查键位附近的画面。
 
 | 文件 | 改它会发生什么 |
 |---|---|
@@ -39,7 +39,7 @@ foreach ($scale in '0.5','1.4') {
 }
 ```
 
-对比两份目录中的 `frame-00300.png`，较大范围的光环应更宽，中心仍在同一键位。此时两张底板颜色应一致；到 `frame-01100.png` 应都恢复为底板。用 `trace.json` 核对实际采样时间、触发回执和坐标。想测亮度时，只变更 `glow`。查看实体分组、折叠、实际点击和保存恢复时，再在独立控制台导入包验收。
+对比两份目录中的 `frame-00300.png`，较大范围的光环应更宽，中心仍在同一键位。到 `frame-01100.png` 应都恢复为底板。用 `trace.json` 核对实际采样时间、回执和坐标。对原生作品，回执统计送达，实际显示以关键位置的像素回读为准。想测亮度时，只变更 `glow`。查看实体分组、折叠、实际点击和保存恢复时，再在独立控制台导入包验收。
 
 ## 遇到问题
 

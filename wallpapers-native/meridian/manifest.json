@@ -1,11 +1,12 @@
 {
-  "version": 1,
-  "id": "meridian",
-  "name": "日蚀经线 · Meridian",
-  "description": "连续时间解析轨道弧：平滑生长、沿弧流光和自然淡出。保留原背景及配色。",
-  "settings": "settings.json",
-  "kind": "native",
-  "abi": 1,
-  "entry": "wallpaper.dll",
-  "preview": "preview.png"
+  "abi" : 2,
+  "description" : "\u8fde\u7eed\u65f6\u95f4\u89e3\u6790\u8f68\u9053\u5f27\uff1a\u5e73\u6ed1\u751f\u957f\u3001\u6cbf\u5f27\u6d41\u5149\u548c\u81ea\u7136\u6de1\u51fa\u3002\u4fdd\u7559\u539f\u80cc\u666f\u53ca\u914d\u8272\u3002",
+  "entry" : "wallpaper.dll",
+  "id" : "meridian",
+  "kind" : "native",
+  "name" : "\u65e5\u8680\u7ecf\u7ebf \u00b7 Meridian",
+  "preview" : "preview.png",
+  "renderer" : "d3d12",
+  "settings" : "settings.json",
+  "version" : 1
 }

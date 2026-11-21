@@ -127,6 +127,16 @@ static void checkNativeImport(const fs::path &root) {
               catalogue[0].nativeModule == fs::canonical(directory / "bin/sparks.dll"),
           "native scan resolves the resource root and DLL without loading code");
 
+  auto dx12 = author;
+  dx12["abi"] = 2;
+  dx12["renderer"] = "d3d12";
+  write(manifest, dx12.dump());
+  catalogue = packs(root);
+  require(catalogue.size() == 1 && catalogue.front().usesD3D12, "native D3D12 scan");
+  dx12["abi"] = 1;
+  write(manifest, dx12.dump());
+  require(packs(root).empty(), "accepted D3D12 entry as ABI 1");
+
   for (const auto &abi : {json(2), json("1"), json(1.0), json(true)}) {
     auto invalid = author;
     invalid["abi"] = abi;

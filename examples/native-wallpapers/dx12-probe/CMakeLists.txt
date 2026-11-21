@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.24)
+project(Action75Dx12Probe LANGUAGES CXX)
+set(ACTION75_SDK "${CMAKE_CURRENT_SOURCE_DIR}/../../../skills/action75-wallpaper-author/sdk"
+    CACHE PATH "Public Action75 wallpaper SDK headers")
+add_library(wallpaper SHARED wallpaper.cpp)
+target_compile_features(wallpaper PRIVATE cxx_std_17)
+target_compile_definitions(wallpaper PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ACTION75_WALLPAPER12_EXPORTS)
+set_property(TARGET wallpaper PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
+target_include_directories(wallpaper PRIVATE "${ACTION75_SDK}")
+target_link_options(wallpaper PRIVATE /Brepro)
+install(TARGETS wallpaper RUNTIME DESTINATION .)
+install(FILES pack/manifest.json pack/settings.json DESTINATION .)

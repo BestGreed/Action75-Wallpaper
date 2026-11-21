@@ -21,12 +21,18 @@ public:
     const auto safe = std::clamp(fps, 1u, 120u);
     return std::chrono::duration_cast<Duration>(std::chrono::nanoseconds((1000000000ll+safe/2)/safe));
   }
-  Plan plan(Time now, bool presentable, bool dirty, bool animating) const noexcept {
+  Plan plan(Time now, bool presentable, bool dirty, bool animating,
+            Duration requestedInterval = {}) const noexcept {
     if (!presentable) return {};
-    if (dirty) return {true, false, {}};
-    if (!animating) return {};
-    if (!armed_ || now >= deadline_) return {true, false, {}};
-    return {false, true, deadline_-now};
+    if (dirty && requestedInterval == Duration::zero()) return {true, false, {}};
+    if (!dirty && !animating) return {};
+    if (!armed_) return {true, false, {}};
+    // Longer plugin intervals can slow the cadence. Short requests use the
+    // paced deadline, including when new work invalidates the frame.
+    const auto due = !dirty && requestedInterval > period_
+        ? std::max(deadline_, lastRendered_ + requestedInterval) : deadline_;
+    if (now >= due) return {true, false, {}};
+    return {false, true, due-now};
   }
   void rendered(Time now, unsigned fps, bool remainsActive, bool resetPhase=false) noexcept {
     lastRendered_=now;

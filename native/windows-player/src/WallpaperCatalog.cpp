@@ -6,6 +6,7 @@
 #include <cctype>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <unordered_map>
 
 namespace action75 {
 namespace fs = std::filesystem;
@@ -92,15 +93,20 @@ static fs::path nativeAsset(const Pack &pack, const std::string &asset, bool pub
 }
 
 static void readNativePack(Pack &pack, const json &manifest, bool recovering) {
-  static constexpr std::array<std::string_view, 14> fields = {
+  static constexpr std::array<std::string_view, 15> fields = {
       "version", "id", "name", "kind", "description", "settings", "preview",
-      "author", "license", "packVersion", "enabled", "abi", "entry", "_action75Revision"};
+      "author", "license", "packVersion", "enabled", "abi", "entry", "renderer", "_action75Revision"};
   for (const auto &field : manifest.items())
     if (std::find(fields.begin(), fields.end(), field.key()) == fields.end())
       throw std::runtime_error("Unsupported native wallpaper manifest property");
   const auto &abi = manifest.at("abi");
-  if (!abi.is_number_integer() || abi != 1)
-    throw std::runtime_error("Unsupported native wallpaper ABI");
+  const auto renderer = manifest.find("renderer");
+  pack.usesD3D12 = abi.is_number_integer() && abi == 2 &&
+                   renderer != manifest.end() && *renderer == "d3d12";
+  const bool legacy = abi.is_number_integer() && abi == 1 &&
+                      (renderer == manifest.end() || *renderer == "d3d11");
+  if (!legacy && !pack.usesD3D12)
+    throw std::runtime_error("Unsupported native wallpaper ABI and renderer combination");
   pack.resourceDirectory = pack.importedRevision.empty()
                                ? fs::canonical(pack.directory)
                                : strictPackPath(pack.directory, fs::u8path(".action75-versions/" +
@@ -162,6 +168,7 @@ std::vector<Pack> packs(const fs::path &root, const ImportedRevision *recovery) 
   const bool separateBundled = !recovery && !fs::equivalent(libraries.front(), bundled, comparisonError);
   const std::array folders = {libraries[0], libraries[1], bundled};
   std::vector<Pack> result;
+  std::unordered_map<std::string, std::size_t> ids;
   for (std::size_t i = 0; i < (separateBundled ? folders.size() : libraries.size()); ++i) {
     const bool bundledOnly = i == libraries.size();
     // Migration removes the original manifest after copying the library.
@@ -326,16 +333,23 @@ std::vector<Pack> packs(const fs::path &root, const ImportedRevision *recovery) 
           continue;
         if ((recovery || bundledOnly) && !p.supported)
           continue;
-        const auto existing = std::find_if(result.begin(), result.end(), [&](const Pack &pack) {
-          return samePackId(pack.id, p.id);
-        });
-        if (existing == result.end())
-          result.push_back(std::move(p));
-        else if (bundledOnly && existing->importedRevision.empty()) {
+        auto foldedId = p.id;
+        std::transform(foldedId.begin(), foldedId.end(), foldedId.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        const auto [existing, inserted] = ids.emplace(std::move(foldedId), result.size());
+        if (inserted) {
+          try {
+            result.push_back(std::move(p));
+          } catch (...) {
+            ids.erase(existing);
+            throw;
+          }
+        } else if (bundledOnly && result[existing->second].importedRevision.empty()) {
           // Upgrades replace the view of legacy bundled copies, while a managed
           // author pack with the same ID keeps its published version.
-          p.id = existing->id;
-          *existing = std::move(p);
+          auto &replaced = result[existing->second];
+          p.id = replaced.id;
+          replaced = std::move(p);
         }
         if (recovery && !result.empty())
           return result;
@@ -345,6 +359,41 @@ std::vector<Pack> packs(const fs::path &root, const ImportedRevision *recovery) 
     }
   }
   return result;
+}
+
+WallpaperCatalogSnapshot scanWallpaperCatalog(const fs::path &root, const fs::path &stateDirectory,
+                                              const std::optional<Pack> &activeImport,
+                                              const PackSettingsStore::CatalogSchemas &schemas) {
+  WallpaperCatalogSnapshot snapshot{{}, PackSettingsStore(stateDirectory), std::nullopt, {}};
+  auto discovered = packs(root);
+  if (activeImport && std::none_of(discovered.begin(), discovered.end(), [&](const Pack &pack) {
+        return samePackId(pack.id, activeImport->id);
+      })) {
+    const auto directories = wallpaperDirectories(root);
+    const auto parent = activeImport->directory.parent_path();
+    if (std::any_of(directories.begin(), directories.end(), [&](const fs::path &dir) {
+          std::error_code ec;
+          return fs::equivalent(parent, dir, ec);
+        })) {
+      const ImportedRevision revision{activeImport->id, activeImport->importedRevision};
+      auto recovered = packs(root, &revision);
+      if (!recovered.empty())
+        snapshot.retainedActive = std::move(recovered.front());
+    }
+  }
+  snapshot.entries.reserve(discovered.size());
+  for (auto &pack : discovered) {
+    try {
+      const auto cached = schemas.find(pack.id);
+      if (cached != schemas.end() && PackSettingsStore::unchangedSchema(
+            cached->second, pack.directory, pack.settings, pack.kind))
+        snapshot.unchangedSchemas.insert(pack.id);
+      else
+        snapshot.settings.registerPack(pack.id, pack.directory, pack.settings, pack.kind);
+      snapshot.entries.push_back(std::move(pack));
+    } catch (const std::exception &) { /* A conflicting extension must not block other wallpapers. */ }
+  }
+  return snapshot;
 }
 
 } // namespace action75

@@ -2,19 +2,10 @@
   "version": 1,
   "id": "lantern-almanac",
   "name": "灯历 · 八式焰花",
-  "kind": "effekseer",
+  "kind": "native",
+  "abi": 2,
+  "renderer": "d3d12",
+  "entry": "wallpaper.dll",
   "settings": "settings.json",
-  "preview": "cover.png",
-  "effect": "rose-letter.efk",
-  "effects": [
-    "rose-letter.efk",
-    "gilded-willow.efk",
-    "tidal-orbit.efk",
-    "paper-aster.efk",
-    "porcelain-peony.efk",
-    "jade-palm.efk",
-    "prism-wheel.efk",
-    "festival-bouquet.efk"
-  ],
-  "scale": 1
+  "preview": "cover.png"
 }

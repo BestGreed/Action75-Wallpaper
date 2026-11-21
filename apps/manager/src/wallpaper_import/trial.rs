@@ -146,6 +146,7 @@ pub(super) fn run(
     stage: &Path,
     nonce: &str,
     native: bool,
+    integrated: bool,
 ) -> Result<Exit, String> {
     if native {
         let worker = executable.with_file_name(WORKER);
@@ -155,10 +156,17 @@ pub(super) fn run(
             return Err(format!("原生壁纸需要播放器同目录的 {WORKER}"));
         }
     }
-    run_process(executable, stage, nonce, native).map_err(|e| format!("无法运行隔离试播，{e}"))
+    run_process(executable, stage, nonce, native, integrated)
+        .map_err(|e| format!("无法运行隔离试播，{e}"))
 }
 
-fn run_process(exe: &Path, stage: &Path, nonce: &str, native: bool) -> windows::core::Result<Exit> {
+fn run_process(
+    exe: &Path,
+    stage: &Path,
+    nonce: &str,
+    native: bool,
+    integrated: bool,
+) -> windows::core::Result<Exit> {
     let token = ordinary_token()?;
     let desktop_name = format!("Action75Import-{nonce}");
     let desktop_path = wide(format!("WinSta0\\{desktop_name}"));
@@ -167,6 +175,9 @@ fn run_process(exe: &Path, stage: &Path, nonce: &str, native: bool) -> windows::
     command.push("\" --root \"");
     command.push(stage);
     command.push("\" --import-trial");
+    if integrated {
+        command.push(" --integrated-gpu");
+    }
     let mut command = wide(command);
     let application = wide(exe);
     let working_dir = wide(exe.parent().unwrap());

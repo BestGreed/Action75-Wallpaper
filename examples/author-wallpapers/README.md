@@ -1,12 +1,16 @@
-# 独立作者壁纸
+# 独立作者壁纸 · 原生 D3D12
 
-从控制台的「导入壁纸」选择 packs 下的一款作品文件夹。作品使用独立 ID。软件可以沿用已保存的偏好设置；首次体验作品默认值时可在参数面板恢复默认。
+从控制台的「导入壁纸」选择 `packs` 下的一款作品文件夹。四个正式成品均为 Windows x64 原生 **ABI 2 / D3D12** 包，需要支持该接口的播放器和配套 Worker。各包包含自己的 DLL、设置声明与运行资源；效果和播放规则在包内执行，宿主仅提供公开事件、参数和 D3D12 命令列表。
 
-| 作品 | 使用的公开接口 | 可观测的行为 |
-|---|---|---|
-| [海图回声](packs/soundings-echo) | PNG 逐帧图集 | 按键处展开声波环，可调尺寸 |
-| [夜航三景](packs/night-orbit-trio) | 内置烟火渲染与参数声明 | 每两键按土星、垂柳、棕榈的次序轮放 |
-| [灯历 · 八式焰花](packs/lantern-almanac) | 八个作者原创的 Effekseer CPU 粒子文件与包内播放声明 | 八个发射图案，带拖尾与余烬；可多选、切换随机、调整节奏与外观 |
-| [潮标 · 偏岸](packs/tidemark-bearing) | 由效果工程解释的动态输入 | 调节 bearing，橙色浮标移动，青色刻线固定 |
+| 成品 | 包内实现 | 保留的交互 | 独立源码 |
+|---|---|---|---|
+| [海图回声](packs/soundings-echo) | 原始 24 帧 PNG 图集与 D3D12 着色器 | 按键处展开声波环，原尺寸、插值、并发与背景设置 | [soundings-echo](sources/dx12/soundings-echo) |
+| [夜航三景](packs/night-orbit-trio) | 原烟火模拟、HDR、辉光、烟雾与倒影的 D3D12 管线 | 默认每两键按土星、垂柳、棕榈轮放；原多选、随机与节奏 | [night-orbit-trio](sources/dx12/night-orbit-trio) |
+| [灯历 · 八式焰花](packs/lantern-almanac) | 原八份 `.efk`、真实 Effekseer CPU 模拟与 D3D12 Renderer | 八种真实花型、拖尾、余烬；原多选、随机、节奏和外观参数 | [particles](sources/dx12/particles) |
+| [潮标 · 偏岸](packs/tidemark-bearing) | 原 `.efk`、真实动态输入与 Effekseer D3D12 Renderer | `bearing` 改变橙色浮标位置，青色刻线固定 | [particles](sources/dx12/particles) |
 
-可编辑文件在 [sources](sources) 下。各作品的源码按作者原始目录组织；运行生成器时，会在生成器自己的工作目录旁新建成品。用户播放只需 packs 中的单一文件夹。通用粒子变体和动态输入需要支持这些接口的播放器。[开发技能](../../skills/action75-wallpaper-author/SKILL.md)
+包 ID、控件 ID、设置范围与默认值沿用原作品，旧参数值仍有相同含义。两个粒子包共享同一份包侧运行库，通过各自资源、参数声明与 `particles.json` 定义作品；没有按壁纸 ID 分派的宿主特例，也没有 D3D11On12。完整构建方法见 [D3D12 源码说明](sources/dx12/README.md)。用户只需导入对应的成品文件夹。
+
+`sources/atlas`、`sources/particle` 中保留原始图集生成器和 Effekseer 编辑工程，供修改美术与了解旧格式使用。它们生成的旧清单不是此处默认交付的原生成品；编辑资源后应按 D3D12 源码说明重新安装包。[作者技能](../../skills/action75-wallpaper-author/SKILL.md)
+
+迁移前的完整包与 SHA-256 清单保存在 `artifacts/dx12-all/baseline/08`；实测报告、逐帧对照和隔离导入回执见 [验收报告](../../artifacts/dx12-all/08/README.md)。验收不操作正在使用的安装或实体副屏。

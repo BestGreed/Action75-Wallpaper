@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "supernova",
+      "label": "超新星",
+      "entity": "超新星",
+      "controls": [
+        {
+          "id": "novaBrightness", "type": "slider", "label": "亮度",
+          "appearance": "brightness", "default": 1, "min": 0, "max": 1.6, "step": 0.05,
+          "binding": { "target": "effectBrightness" }
+        },
+        {
+          "id": "novaColor", "type": "color", "label": "色彩滤镜",
+          "appearance": "color", "default": [255, 255, 255],
+          "binding": { "target": "effectColor" }
+        },
+        {
+          "id": "novaRadius", "type": "slider", "label": "爆发范围",
+          "default": 1, "min": 0.55, "max": 1.45, "step": 0.05, "unit": "×",
+          "binding": { "target": "effectScale" }
+        },
+        {
+          "id": "novaDuration", "type": "slider", "label": "持续时间",
+          "default": 0.83, "min": 0.45, "max": 1.35, "step": 0.01, "unit": "秒",
+          "binding": { "target": "effectDuration" }
+        }
+      ]
+    },
+    {
+      "id": "accretion",
+      "label": "黑洞与吸积盘",
+      "entity": "黑洞与吸积盘",
+      "controls": [
+        {
+          "id": "diskBrightness", "type": "slider", "label": "吸积盘亮度",
+          "appearance": "brightness", "default": 1, "min": 0, "max": 1.6, "step": 0.05,
+          "binding": { "target": "effectBrightness" }
+        }
+      ]
+    },
+    {
+      "id": "sky",
+      "label": "深空",
+      "entity": "深空",
+      "controls": [
+        {
+          "id": "skyMode", "type": "select", "label": "背景",
+          "appearance": "style", "default": 0,
+          "options": [{ "value": 0, "label": "星云" }, { "value": 1, "label": "虚空" }],
+          "binding": { "target": "background.style" }
+        },
+        {
+          "id": "skyBrightness", "type": "slider", "label": "亮度",
+          "appearance": "brightness", "default": 1, "min": 0, "max": 1.65, "step": 0.05,
+          "binding": { "target": "background.brightness" }
+        },
+        {
+          "id": "skyHue", "type": "slider", "label": "色相",
+          "appearance": "hue", "default": 0, "min": 0, "max": 360, "step": 1, "unit": "°",
+          "binding": { "target": "background.hue" }
+        },
+        {
+          "id": "skySaturation", "type": "slider", "label": "饱和度",
+          "appearance": "saturation", "default": 1, "min": 0, "max": 1.5, "step": 0.05,
+          "binding": { "target": "background.saturation" }
+        },
+        {
+          "id": "skyColor", "type": "color", "label": "色彩滤镜",
+          "appearance": "color", "default": [255, 255, 255],
+          "binding": { "target": "background.color" }
+        }
+      ]
+    }
+  ]
+}

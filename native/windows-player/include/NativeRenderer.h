@@ -11,6 +11,7 @@
 #include <wrl/client.h>
 
 namespace action75 {
+bool saveRgbaFrame(const std::filesystem::path &file,unsigned width,unsigned height,UINT rowPitch,BYTE *pixels,std::string &error);
 class VideoBackground;
 enum class GpuPreference { Discrete, Integrated };
 

@@ -186,6 +186,29 @@ void inputTests() {
     require(action75::connectedKeyboardGroup(group, devices), "Accept the same keyboard when it reconnects");
     require(!action75::connectedKeyboardGroup("", devices), "First run requires an explicit selection");
 
+    const auto firstDevice = reinterpret_cast<HANDLE>(1);
+    const auto secondDevice = reinterpret_cast<HANDLE>(2);
+    action75::RawKeyboard::Devices inventory = std::vector<action75::KeyboardDevice>{
+        {firstDevice, L"HID#VID_1CA6&PID_1A0B", true}};
+    action75::PlayerConfig config;
+    action75::RawKeyboard keyboard(config, {}, [&](const auto&) { return inventory; });
+    require(keyboard.refreshDevices().has_value() && keyboard.selectedDeviceCount() == 1,
+            "Accept a valid keyboard inventory");
+    inventory = std::nullopt;
+    require(!keyboard.refreshDevices() && keyboard.selectedDeviceCount() == 1,
+            "An enumeration failure must preserve the last selection");
+    inventory = std::vector<action75::KeyboardDevice>{{firstDevice, L"", false},
+                                                     {secondDevice, L"", false}};
+    const auto unnamed = keyboard.refreshDevices();
+    require((*unnamed)[0].selected && !(*unnamed)[1].selected && keyboard.selectedDeviceCount() == 1,
+            "Keep a known collection when its name is temporarily unavailable");
+    (*inventory)[1] = {secondDevice, L"HID#VID_1CA6&PID_1A0B&COL02", true};
+    require((*keyboard.refreshDevices())[1].selected && keyboard.selectedDeviceCount() == 2,
+            "Return and route the same refreshed keyboard snapshot");
+    inventory->clear();
+    require(keyboard.refreshDevices().has_value() && keyboard.selectedDeviceCount() == 0,
+            "A successful empty inventory removes old bindings");
+
     action75::KeyboardState held;
     require(held.transition(1,4,true), "First key down emits");
     require(!held.transition(1,4,true), "Auto repeat must not emit twice");

@@ -1,6 +1,6 @@
-# 从源码构建 Action75 Wallpaper
+# Action75 Wallpaper
 
-面向 Action75 键盘屏的 Windows 互动壁纸软件。Rust/egui 管理界面与 C++17/D3D11 播放器，本地渲染，支持按键交互。
+面向 Action75 键盘屏的 Windows 互动壁纸软件。管理界面使用 Rust 和 egui，C++17 播放器负责本地渲染和按键交互。当前源码支持 D3D11 和 D3D12，播放器按壁纸包声明选择后端。D3D12 作品的接口与示例见[壁纸制作指南](skills/action75-wallpaper-author/references/native.md#d3d12-与-abi-2)。
 
 ## 使用
 
@@ -23,27 +23,30 @@
 
 ```powershell
 python tools/restore-wallpaper-assets.py
-./tools/build-manager.ps1 -Test
-./tools/build-player.ps1 -Test
-./tools/package.ps1 -Compiler 'C:/path/to/InnoSetup/ISCC.exe'
+python tools/release_build.py --test --output-dir artifacts/distribution-build
+python tools/package-source.py --output-dir artifacts/source
+$archive = (Get-ChildItem artifacts/source -Filter 'ACTION75-source-*.zip' -File).FullName
+./examples/native-wallpapers/verify-sdk.ps1 -Archive $archive -OutputDirectory artifacts/author-builds -WallpaperAssets wallpapers-native -EffekseerArchive vendor-source/windows-native/EffekseerForCpp1.80.8.zip
+python tools/stage-native-wallpapers.py --sdk-output artifacts/author-builds --output artifacts/distribution-wallpapers
+./tools/package.ps1 -BuildReceipt artifacts/distribution-build/build.json -Wallpapers artifacts/distribution-wallpapers -Compiler 'C:/path/to/InnoSetup/ISCC.exe'
 ```
 
-本地打包会把正式安装器写入 `release/`。
+本地打包会把正式安装器写入 `release/`。在 GitHub Actions 手动运行 Windows checks 后，也可从该次运行的 `action75-wallpaper-installer` 下载正式安装器。
 
 首次构建需下载 Cargo 锁定依赖、nlohmann JSON 3.12.0 和 Effekseer 1.80.8；原生依赖下载有固定 SHA-256 校验。打包使用 Inno Setup 的命令行编译器 ISCC。可通过上面的 `-Compiler` 指定安装路径。
 内置壁纸均为 Windows x64 原生壁纸包。将 `wallpapers-native/<壁纸 ID>` 整个文件夹交给其他用户，即可通过控制台导入；设置、配色和图像资源随包交付。旧版用户保留同一壁纸 ID 和参数配置。
 
-改动迁移包的 C++ 或着色器后，在已配置的原生构建目录运行 `cmake --build native/windows-player/build --config Release --target action75_migrated_packs`，更新 13 个发行文件夹的 DLL。黑洞沿用[独立工程](examples/native-wallpapers/black-hole/README.md)，构建后将其 `pack/wallpaper.dll` 同步到 `wallpapers-native/black-hole`。历史格式的作者包继续使用原有加载路径。
+原生壁纸通过 [独立作者工程](examples/native-wallpapers/README.md) 构建并暂存。用 `examples/native-wallpapers/verify-sdk.ps1 -Archive <源码包> -Project <工程名>` 从源码包复建，再核对输出包的 ABI、导出和依赖。播放器构建目录中的 ABI1 参考 DLL 留给兼容测试。第三方 ABI1 和历史格式的作者包继续走原加载路径。
 
-水彩材质的可编辑 HLSL 位于 `native/windows-player/materials/paintball`，修改后运行 `python tools/compile-paintball-materials.py` 更新壁纸包。
+水彩材质的可编辑 HLSL 位于 `native/windows-player/materials/paintball`。修改后用 `python tools/compile-paintball-materials.py` 更新材质源，再构建 `atlas-packs` 生成 DX12 缓存及成品。
 `tools/release-assets.json` 定义安装包和源码归档共同分发的文件。新增内置壁纸或资源时更新这份清单。
 
-`python tools/verify-release.py --compiler '<ISCC.exe 路径>'` 构建带独立身份的测试安装器，检查安装、重复安装、卸载和正式安装登记。完整验收还会在隔离桌面操作控制台的「导入壁纸」，验证参数、目录重载和逐款壁纸的硬件离屏负载。仅检查安装生命周期时可传入 `--install-only`。
+`python tools/verify-release.py --receipt artifacts/distribution-build/build.json --compiler '<ISCC.exe 路径>'` 构建带独立身份的测试安装器，检查安装、重复安装、同 ID 壁纸保留、播放中卸载和正式安装登记。完整验收还会在隔离桌面导入壁纸，验证参数、目录重载和离屏负载。CI 使用 `--install-only` 完成安装生命周期检查。
 
-断屏重连回归包含在 `./tools/build-player.ps1 -Test` 中。升级验收使用独立安装目录与本机测试更新源。安装 Python 依赖 `psutil` 和 `pywin32` 后，先运行下列命令生成两个测试安装包，再验证播放中升级和暂停时升级。将旧版播放器与同目录下的 Worker 一起保留供对照。
+断屏重连回归包含在 `./tools/build-player.ps1 -Test` 中。本地升级验收使用独立安装身份与文件更新源。安装 Python 依赖 `psutil` 和 `pywin32` 后，运行下列命令构建两套测试程序，再验证会话恢复。Windows checks 的手动构建使用已发布的上一版安装器进行升级和回退验收，通过后才上传候选安装器。
 
 ```powershell
-python tools/verify-installed-update.py build --work artifacts/update-qa --baseline-player '<旧版 Action75Native.exe 路径>'
+python tools/verify-installed-update.py build --work artifacts/update-qa --wallpapers artifacts/distribution-wallpapers
 python tools/verify-installed-update.py run --work artifacts/update-qa --playing
 python tools/verify-installed-update.py run --work artifacts/update-qa
 ```

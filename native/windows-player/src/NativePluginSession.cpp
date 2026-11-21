@@ -4,7 +4,11 @@
 #include <sddl.h>
 #include <objbase.h>
 #include <filesystem>
+#include <cstdio>
+#include <mutex>
+#include <new>
 #include <sstream>
+#include <string_view>
 #include <vector>
 #include <cstring>
 #include <cwctype>
@@ -115,13 +119,232 @@ std::wstring idString() {
   StringFromGUID2(guid, buffer, 64);
   return std::wstring(buffer + 1, 36);
 }
+constexpr std::wstring_view StagePrefix = L"Action75-worker-";
+constexpr std::wstring_view CleanupSuffix = L".cleanup";
+constexpr char CleanupRecord[] = "Action75WorkerCleanupV1";
+constexpr char PendingExitTag[] = "Action75WorkerCleanupV2";
+
+struct PendingExitRecord {
+  char tag[sizeof(PendingExitTag)];
+  DWORD pid;
+  FILETIME created;
+};
+
+void cleanupDiagnostic(const char *operation, unsigned long error) noexcept {
+  char text[160]{};
+  std::snprintf(text, sizeof(text), "Action75 Worker cleanup: %s (0x%08lX)\n", operation, error);
+  OutputDebugStringA(text);
+}
+
+DWORD removeStage(const fs::path &stage) {
+  if (stage.empty())
+    return ERROR_SUCCESS;
+  const auto path = extendedPath(stage);
+  const auto flags = GetFileAttributesW(path.c_str());
+  if (flags == INVALID_FILE_ATTRIBUTES) {
+    const auto error = GetLastError();
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? ERROR_SUCCESS : error;
+  }
+  if (!(flags & FILE_ATTRIBUTE_DIRECTORY) || (flags & FILE_ATTRIBUTE_REPARSE_POINT))
+    return ERROR_INVALID_NAME;
+  std::error_code error;
+  fs::remove_all(path, error);
+  return static_cast<DWORD>(error.value());
+}
+
+std::wstring_view cleanupIdentity(std::wstring_view fileName) noexcept {
+  constexpr size_t GuidSize = 36;
+  if (fileName.size() != StagePrefix.size() + GuidSize + CleanupSuffix.size() ||
+      fileName.substr(0, StagePrefix.size()) != StagePrefix ||
+      fileName.substr(StagePrefix.size() + GuidSize) != CleanupSuffix)
+    return {};
+  const auto identity = fileName.substr(StagePrefix.size(), GuidSize);
+  for (size_t i = 0; i < identity.size(); ++i) {
+    const bool separator = i == 8 || i == 13 || i == 18 || i == 23;
+    if (separator ? identity[i] != L'-' : !std::iswxdigit(identity[i]))
+      return {};
+  }
+  return identity;
+}
+
+bool cleanupReady(const char *bytes, DWORD size) noexcept {
+  if (size == sizeof(CleanupRecord) - 1)
+    return std::memcmp(bytes, CleanupRecord, size) == 0;
+  PendingExitRecord record{};
+  if (size != sizeof(record))
+    return false;
+  std::memcpy(&record, bytes, sizeof(record));
+  if (std::memcmp(record.tag, PendingExitTag, sizeof(PendingExitTag)) != 0 || !record.pid)
+    return false;
+  Handle process(OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, record.pid));
+  if (!process.value)
+    return GetLastError() == ERROR_INVALID_PARAMETER;
+  if (WaitForSingleObject(process.value, 0) == WAIT_OBJECT_0)
+    return true;
+  // A recycled PID does not identify the Worker that owned this stage.
+  FILETIME created{}, exit{}, kernel{}, user{};
+  return GetProcessTimes(process.value, &created, &exit, &kernel, &user) &&
+         CompareFileTime(&created, &record.created) != 0;
+}
+
+bool profileRemoved(HRESULT result) noexcept {
+  return SUCCEEDED(result) || result == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) ||
+         result == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+}
+
+// Unmarked directories may still be in use by another player instance.
+void retryRecordedCleanup(const fs::path &temp) {
+  std::error_code ec;
+  unsigned attempted = 0;
+  for (fs::directory_iterator it(temp, ec), end; !ec && it != end && attempted < 16;
+       it.increment(ec)) {
+    const auto name = it->path().filename().wstring();
+    const auto identity = cleanupIdentity(name);
+    if (identity.empty())
+      continue;
+    auto path = extendedPath(it->path());
+    Handle marker(CreateFileW(path.c_str(), GENERIC_READ | DELETE, FILE_SHARE_DELETE, nullptr,
+                              OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (marker.value == INVALID_HANDLE_VALUE)
+      continue;
+    BY_HANDLE_FILE_INFORMATION attributes{};
+    char record[sizeof(PendingExitRecord) + 1]{};
+    DWORD bytes = 0;
+    if (!GetFileInformationByHandle(marker.value, &attributes) ||
+        (attributes.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) ||
+        !ReadFile(marker.value, record, sizeof(record), &bytes, nullptr) ||
+        !cleanupReady(record, bytes))
+      continue;
+    ++attempted;
+    const auto failure = removeStage(temp / (std::wstring(StagePrefix) + std::wstring(identity)));
+    const auto profile = L"Action75.Wallpaper." + std::wstring(identity);
+    const auto result = DeleteAppContainerProfile(profile.c_str());
+    if (!failure && profileRemoved(result)) {
+      FILE_DISPOSITION_INFO disposition{TRUE};
+      if (!SetFileInformationByHandle(marker.value, FileDispositionInfo, &disposition,
+                                      sizeof(disposition)))
+        cleanupDiagnostic("remove pending record", GetLastError());
+    } else {
+      cleanupDiagnostic("retry pending cleanup", failure ? failure : static_cast<DWORD>(result));
+    }
+  }
+}
+
+void recordPendingCleanup(const fs::path &stage, HANDLE awaitingExit = nullptr) {
+  if (stage.empty())
+    return;
+  const void *record = CleanupRecord;
+  DWORD size = sizeof(CleanupRecord) - 1;
+  PendingExitRecord pending{};
+  if (awaitingExit) {
+    pending.pid = GetProcessId(awaitingExit);
+    FILETIME exit{}, kernel{}, user{};
+    if (!pending.pid || !GetProcessTimes(awaitingExit, &pending.created, &exit, &kernel, &user)) {
+      cleanupDiagnostic("identify pending Worker", GetLastError());
+      return;
+    }
+    std::memcpy(pending.tag, PendingExitTag, sizeof(PendingExitTag));
+    record = &pending;
+    size = sizeof(pending);
+  }
+  auto path = extendedPath(stage);
+  path += CleanupSuffix;
+  Handle marker(CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
+                            FILE_ATTRIBUTE_NORMAL, nullptr));
+  if (marker.value == INVALID_HANDLE_VALUE) {
+    const auto error = GetLastError();
+    if (error != ERROR_FILE_EXISTS)
+      cleanupDiagnostic("record pending cleanup", error);
+    return;
+  }
+  DWORD bytes = 0;
+  if (!WriteFile(marker.value, record, size, &bytes, nullptr) || bytes != size)
+    cleanupDiagnostic("record pending cleanup", GetLastError());
+}
+
+bool cleanExitedWorker(const fs::path &stage, const wchar_t *profile) noexcept {
+  try {
+    DWORD removal = removeStage(stage);
+    constexpr DWORD delays[]{20, 50, 100};
+    for (const auto delay : delays) {
+      if (removal != ERROR_SHARING_VIOLATION && removal != ERROR_LOCK_VIOLATION &&
+          removal != ERROR_ACCESS_DENIED && removal != ERROR_DIR_NOT_EMPTY)
+        break;
+      Sleep(delay);
+      removal = removeStage(stage);
+    }
+    const auto result = profile ? DeleteAppContainerProfile(profile) : S_OK;
+    if (!removal && profileRemoved(result))
+      return true;
+    cleanupDiagnostic("clear exited Worker", removal ? removal : static_cast<DWORD>(result));
+    recordPendingCleanup(stage);
+  } catch (...) {
+    OutputDebugStringA("Action75 Worker cleanup: could not prepare cleanup paths\n");
+  }
+  return false;
+}
+
+struct DeferredWorkerCleanup {
+  fs::path stage;
+  std::wstring profile;
+  Handle process;
+
+  static void CALLBACK finish(PTP_CALLBACK_INSTANCE callback, void *context,
+                              PTP_WAIT wait, TP_WAIT_RESULT result) noexcept {
+    std::unique_ptr<DeferredWorkerCleanup> cleanup(static_cast<DeferredWorkerCleanup *>(context));
+    SetThreadpoolWait(wait, nullptr, nullptr);
+    CloseThreadpoolWait(wait);
+    if (result != WAIT_OBJECT_0)
+      return;
+    CallbackMayRunLong(callback);
+    const bool cleaned = cleanExitedWorker(cleanup->stage, cleanup->profile.empty() ? nullptr : cleanup->profile.c_str());
+    if (cleaned && !cleanup->stage.empty()) {
+      try {
+        auto marker = extendedPath(cleanup->stage);
+        marker += CleanupSuffix;
+        std::error_code error;
+        fs::remove(marker, error);
+        if (error)
+          cleanupDiagnostic("remove completed cleanup record", error.value());
+      } catch (...) {
+        OutputDebugStringA("Action75 Worker cleanup: could not remove completed cleanup record\n");
+      }
+    }
+  }
+};
+
+void deferWorkerCleanup(Handle &process, fs::path &stage, std::wstring &profile) noexcept {
+  try {
+    // The next player can retry if this one exits before the callback runs.
+    recordPendingCleanup(stage, process.value);
+  } catch (...) {
+    OutputDebugStringA("Action75 Worker cleanup: could not record running Worker\n");
+  }
+  std::unique_ptr<DeferredWorkerCleanup> cleanup(new (std::nothrow) DeferredWorkerCleanup);
+  if (!cleanup)
+    return;
+  const auto wait = CreateThreadpoolWait(DeferredWorkerCleanup::finish, cleanup.get(), nullptr);
+  if (!wait) {
+    cleanupDiagnostic("schedule Worker cleanup", GetLastError());
+    return;
+  }
+  cleanup->stage = std::move(stage);
+  cleanup->profile = std::move(profile);
+  cleanup->process.value = std::exchange(process.value, nullptr);
+  const auto handle = cleanup.release()->process.value;
+  SetThreadpoolWait(wait, handle, nullptr);
+}
 } // namespace
 struct NativePluginSession::Impl {
   fs::path stage;
   std::wstring profile;
   PSID sid = nullptr;
   HDESK desktop = nullptr;
-  Handle process, job, request, response, mapping, shared;
+  Handle process, job, request, response, mapping, shared, sharedFence;
+  bool composition = false;
+  ComPtr<ID3D12Resource> surface12;
+  ComPtr<ID3D12Fence> fence12;
+  UINT64 handoff=0;
   Mailbox *msg = nullptr;
   ComPtr<ID3D11DeviceContext> context;
   ComPtr<ID3D11Texture2D> surface;
@@ -135,26 +358,32 @@ struct NativePluginSession::Impl {
         msg->operation = Operation::Exit;
         SetEvent(request.value);
       }
-      if (WaitForSingleObject(process.value, 80) != WAIT_OBJECT_0) {
+      // A healthy D3D12 Worker can spend longer in driver/DLL teardown than
+      // it spends in a normal event callback.
+      if (WaitForSingleObject(process.value, 250) != WAIT_OBJECT_0)
         TerminateProcess(process.value, 1);
-        WaitForSingleObject(process.value, 300);
-      }
     }
     job.reset();
+    const bool exited = !process.value || WaitForSingleObject(process.value, 300) == WAIT_OBJECT_0;
     if (desktop)
       CloseDesktop(desktop);
     if (msg)
       UnmapViewOfFile(msg);
-    if (sid) {
-      DeleteAppContainerProfile(profile.c_str());
+    if (exited)
+      cleanExitedWorker(stage, sid ? profile.c_str() : nullptr);
+    else
+      deferWorkerCleanup(process, stage, profile);
+    if (sid)
       FreeSid(sid);
-    }
-    if (!stage.empty()) {
-      std::error_code ignored;
-      fs::remove_all(stage, ignored);
-    }
   }
   void call(Operation operation, DWORD timeout) {
+    if (composition && (operation == Operation::Event || operation == Operation::HitTest ||
+                        operation == Operation::Render)) {
+      // A callback first waits for the prior submission. Validation also waits for its new frame.
+      timeout += FrameCompletionTimeoutMs;
+      if (operation == Operation::Render && msg->waitForFrame)
+        timeout += FrameCompletionTimeoutMs;
+    }
     msg->operation = operation;
     msg->diagnostic[0] = 0;
     msg->status = E_PENDING;
@@ -172,8 +401,9 @@ struct NativePluginSession::Impl {
       throw std::runtime_error(
           std::string(msg->diagnostic, strnlen_s(msg->diagnostic, sizeof(msg->diagnostic))));
   }
-  void launch(ID3D11Device *device, const fs::path &packPath, const fs::path &module,
-              unsigned width, unsigned height, const std::string &json) {
+  void launch(ID3D11Device *device, ID3D12Device *device12, const fs::path &packPath, const fs::path &module,
+              unsigned width, unsigned height, const std::string &json,
+              LUID compositionAdapter = {}, HANDLE compositionSurface = nullptr) {
     const fs::path root = fs::absolute(packPath).lexically_normal();
     const fs::path relative =
         (module.is_absolute() ? module.lexically_relative(root) : module).lexically_normal();
@@ -181,8 +411,18 @@ struct NativePluginSession::Impl {
         relative.native().find(L':') != std::wstring::npos ||
         _wcsicmp(relative.extension().c_str(), L".dll") != 0)
       throw std::runtime_error("Invalid wallpaper DLL path");
-    if (!device || width == 0 || height == 0 || width > 16384 || height > 16384)
+    if ((!device && !device12 && !compositionSurface) || width == 0 || height == 0 ||
+        width > 16384 || height > 16384)
       throw std::runtime_error("Invalid wallpaper render target");
+    const auto temp = fs::temp_directory_path();
+    static std::once_flag cleanup;
+    std::call_once(cleanup, [&] {
+      try {
+        retryRecordedCleanup(temp);
+      } catch (...) {
+        OutputDebugStringA("Action75 Worker cleanup: could not scan pending records\n");
+      }
+    });
     auto identity = idString();
     profile = L"Action75.Wallpaper." + identity;
     checkHr(CreateAppContainerProfile(profile.c_str(), L"Action75 Wallpaper",
@@ -198,7 +438,7 @@ struct NativePluginSession::Impl {
               reinterpret_cast<PSECURITY_DESCRIPTOR *>(&descriptor.value), nullptr),
           "Create worker ACL");
     SECURITY_ATTRIBUTES stageAccess{sizeof(stageAccess), descriptor.value, FALSE};
-    auto newStage = fs::temp_directory_path() / (L"Action75-worker-" + identity);
+    auto newStage = temp / (std::wstring(StagePrefix) + identity);
     check(CreateDirectoryW(newStage.c_str(), &stageAccess), "Create private worker directory");
     stage = newStage;
     const auto pack = stage / L"pack";
@@ -214,31 +454,70 @@ struct NativePluginSession::Impl {
     msg = static_cast<Mailbox *>(
         MapViewOfFile(mapping.value, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(Mailbox)));
     check(msg != nullptr, "Map worker IPC");
-    ComPtr<IDXGIDevice> dxgi;
-    ComPtr<IDXGIAdapter> adapter;
-    DXGI_ADAPTER_DESC desc{};
-    checkHr(device->QueryInterface(IID_PPV_ARGS(&dxgi)), "Get graphics device");
-    checkHr(dxgi->GetAdapter(&adapter), "Get graphics adapter");
-    checkHr(adapter->GetDesc(&desc), "Get adapter identity");
-    D3D11_TEXTURE2D_DESC texture{};
-    texture.Width = width;
-    texture.Height = height;
-    texture.MipLevels = 1;
-    texture.ArraySize = 1;
-    texture.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    texture.SampleDesc.Count = 1;
-    texture.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-    texture.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
-    checkHr(device->CreateTexture2D(&texture, nullptr, &surface),
-            "Create shared wallpaper texture");
-    ComPtr<IDXGIResource1> resource;
-    checkHr(surface.As(&resource), "Get shared wallpaper resource");
-    checkHr(surface.As(&mutex), "Get wallpaper texture mutex");
-    checkHr(resource->CreateSharedHandle(&inherit,
-                                         DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
-                                         nullptr, &shared.value),
-            "Share wallpaper texture");
-    device->GetImmediateContext(&context);
+    composition = compositionSurface != nullptr;
+    msg->abi = device12 || composition ? 2 : 1;
+    msg->composition = composition;
+    if (composition) {
+      msg->adapter = compositionAdapter;
+      // This surface is created for this session only. The worker receives no
+      // host window, desktop, target or composition-device handle.
+      check(DuplicateHandle(GetCurrentProcess(), compositionSurface, GetCurrentProcess(),
+                            &shared.value, 0, TRUE, DUPLICATE_SAME_ACCESS),
+            "Duplicate wallpaper composition surface");
+    } else if (device12) {
+      msg->adapter = device12->GetAdapterLuid();
+      D3D12_RESOURCE_DESC d{};
+      d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+      d.Width = width;
+      d.Height = height;
+      d.MipLevels = d.DepthOrArraySize = 1;
+      d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+      d.SampleDesc.Count = 1;
+      d.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+      D3D12_HEAP_PROPERTIES memory{};
+      memory.Type = D3D12_HEAP_TYPE_DEFAULT;
+      memory.CreationNodeMask = memory.VisibleNodeMask = 1;
+      checkHr(device12->CreateCommittedResource(&memory, D3D12_HEAP_FLAG_SHARED, &d,
+                                                D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                                IID_PPV_ARGS(&surface12)),
+              "Create shared D3D12 texture");
+      checkHr(device12->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&fence12)),
+              "Create wallpaper handoff fence");
+      checkHr(device12->CreateSharedHandle(surface12.Get(), &inherit, GENERIC_ALL, nullptr,
+                                           &shared.value),
+              "Share D3D12 texture");
+      checkHr(device12->CreateSharedHandle(fence12.Get(), &inherit, GENERIC_ALL, nullptr,
+                                           &sharedFence.value),
+              "Share D3D12 fence");
+    } else {
+      ComPtr<IDXGIDevice> dxgi;
+      ComPtr<IDXGIAdapter> adapter;
+      checkHr(device->QueryInterface(IID_PPV_ARGS(&dxgi)), "Get graphics device");
+      checkHr(dxgi->GetAdapter(&adapter), "Get graphics adapter");
+      DXGI_ADAPTER_DESC desc{};
+      checkHr(adapter->GetDesc(&desc), "Get adapter identity");
+      msg->adapter = desc.AdapterLuid;
+      D3D11_TEXTURE2D_DESC texture{};
+      texture.Width = width;
+      texture.Height = height;
+      texture.MipLevels = 1;
+      texture.ArraySize = 1;
+      texture.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+      texture.SampleDesc.Count = 1;
+      texture.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+      texture.MiscFlags =
+          D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+      checkHr(device->CreateTexture2D(&texture, nullptr, &surface),
+              "Create shared wallpaper texture");
+      ComPtr<IDXGIResource1> resource;
+      checkHr(surface.As(&resource), "Get shared wallpaper resource");
+      checkHr(surface.As(&mutex), "Get wallpaper texture mutex");
+      checkHr(resource->CreateSharedHandle(&inherit,
+                                           DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                                           nullptr, &shared.value),
+              "Share wallpaper texture");
+      device->GetImmediateContext(&context);
+    }
     job.reset(CreateJobObjectW(nullptr, nullptr));
     check(job.value != nullptr, "Create worker job");
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
@@ -275,15 +554,17 @@ struct NativePluginSession::Impl {
     check(UpdateProcThreadAttribute(attributes.list, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
                                     &capabilities, sizeof(capabilities), nullptr, nullptr),
           "Configure worker AppContainer");
-    HANDLE handles[] = {mapping.value, request.value, response.value, shared.value};
-    check(UpdateProcThreadAttribute(attributes.list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handles,
-                                    sizeof(handles), nullptr, nullptr),
+    std::vector<HANDLE> handles{mapping.value, request.value, response.value, shared.value};
+    if (sharedFence.value) handles.push_back(sharedFence.value);
+    check(UpdateProcThreadAttribute(attributes.list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handles.data(),
+                                    handles.size()*sizeof(HANDLE), nullptr, nullptr),
           "Limit inherited handles");
     std::wostringstream cmd;
     cmd << L'"' << exe.native() << L'"';
-    for (auto h : handles)
+    for (const auto h : {mapping.value, request.value, response.value, shared.value})
       cmd << L' ' << reinterpret_cast<uintptr_t>(h);
-    cmd << L" \"" << pack.native() << L"\" \"" << (pack / relative).native() << L"\"";
+    cmd << L" \"" << pack.native() << L"\" \"" << extendedPath(pack / relative).native() << L"\"";
+    if (sharedFence.value) cmd << L' ' << reinterpret_cast<uintptr_t>(sharedFence.value);
     auto command = cmd.str();
     // AppContainer setup needs the profile paths. Never pass user-defined
     // environment entries (API tokens, agent sockets, etc.) into an author DLL.
@@ -315,7 +596,6 @@ struct NativePluginSession::Impl {
     for (auto handle : handles)
       check(SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0), "Seal inherited handle");
     check(AssignProcessToJobObject(job.value, process.value), "Confine wallpaper to job");
-    msg->adapter = desc.AdapterLuid;
     msg->width = width;
     msg->height = height;
     textField(msg->settings, sizeof(msg->settings), json.c_str());
@@ -331,7 +611,15 @@ NativePluginSession::~NativePluginSession() = default;
 bool NativePluginSession::active() const noexcept {
   return impl_ && WaitForSingleObject(impl_->process.value, 0) == WAIT_TIMEOUT;
 }
-void NativePluginSession::stop() noexcept { impl_.reset(); }
+unsigned NativePluginSession::renderAbi() const noexcept {
+  return active() ? (impl_->composition || impl_->surface12 ? 2u : 1u) : 0u;
+}
+void NativePluginSession::stop() noexcept {
+  // Recovery still needs the Worker's device-loss report after the mailbox is unmapped.
+  if (impl_)
+    stoppedWithCompositionDeviceLoss_ = compositionDeviceLost();
+  impl_.reset();
+}
 DWORD NativePluginSession::workerPid() const noexcept {
   return impl_ ? GetProcessId(impl_->process.value) : 0;
 }
@@ -343,11 +631,80 @@ bool NativePluginSession::start(ID3D11Device *device, const fs::path &root, cons
                                 std::string &error) {
   try {
     auto candidate = std::make_unique<Impl>();
-    candidate->launch(device, root, module, width, height, json);
+    candidate->launch(device, nullptr, root, module, width, height, json);
     impl_ = std::move(candidate);
     return true;
   } catch (const std::exception &e) {
     error = e.what();
+    return false;
+  }
+}
+bool NativePluginSession::start12(ID3D12Device *device,const fs::path &root,const fs::path &module,
+                                  unsigned width,unsigned height,const std::string &json,std::string &error) {
+  try {
+    auto candidate=std::make_unique<Impl>();
+    candidate->launch(nullptr,device,root,module,width,height,json);
+    impl_=std::move(candidate);
+    return true;
+  } catch(const std::exception &e) { error=e.what(); return false; }
+}
+bool NativePluginSession::startComposition(LUID adapter, HANDLE surface, const fs::path &root,
+                                            const fs::path &module, unsigned width, unsigned height,
+                                            const std::string &json, std::string &error) {
+  try {
+    auto candidate = std::make_unique<Impl>();
+    candidate->launch(nullptr, nullptr, root, module, width, height, json, adapter, surface);
+    impl_ = std::move(candidate);
+    return true;
+  } catch (const std::exception &failure) {
+    error = failure.what();
+    return false;
+  }
+}
+bool NativePluginSession::renderComposition(double seconds, int32_t &delay, bool validate,
+                                             HRESULT &present, std::string &error) {
+  if (!impl_ || !impl_->composition) {
+    error = "No active D3D12 composition worker";
+    return false;
+  }
+  try {
+    impl_->msg->seconds = seconds;
+    impl_->msg->waitForFrame = validate;
+    impl_->call(Operation::Render, 500);
+    delay = impl_->msg->delay;
+    present = impl_->msg->presentResult;
+    if (delay < -1 || (FAILED(present) && present != DXGI_ERROR_WAS_STILL_DRAWING))
+      throw std::runtime_error("Invalid D3D12 composition result");
+    return true;
+  } catch (const std::exception &failure) {
+    error = failure.what();
+    return false;
+  }
+}
+bool NativePluginSession::compositionDeviceLost() const noexcept {
+  if (!impl_)
+    return stoppedWithCompositionDeviceLoss_;
+  return impl_->composition &&
+         InterlockedCompareExchange(&impl_->msg->compositionDeviceRemoved, 0, 0) != 0;
+}
+bool NativePluginSession::render12(double seconds,int32_t &nextDelay,const Copy12 &copy,std::string &error) {
+  if(!impl_ || !impl_->surface12) { error="No active D3D12 wallpaper"; return false; }
+  try {
+    const auto workerDone=impl_->handoff+1;
+    impl_->msg->waitValue=impl_->handoff;
+    impl_->msg->signalValue = workerDone;
+    impl_->msg->seconds = seconds;
+    impl_->call(Operation::Render, 500);
+    if (!copy(impl_->surface12.Get(), impl_->fence12.Get(), workerDone, error)) {
+      stop();
+      return false;
+    }
+    impl_->handoff = workerDone + 1;
+    nextDelay = impl_->msg->delay;
+    return true;
+  } catch (const std::exception &e) {
+    error = e.what();
+    stop();
     return false;
   }
 }

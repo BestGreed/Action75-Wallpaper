@@ -1,0 +1,16 @@
+Night Orbit Trio D3D12 author package
+
+The original Action75 Wallpaper FireworksScene CPU seed generation, trajectory
+data, variant rules, layer grading and Fireworks HLSL are retained under the
+project Apache-2.0 license (LICENSE). They were copied into this self-contained
+author project from native/windows-player/src/FireworksScene.cpp and its related
+headers/materials before the D3D12 adaptation. These source paths document
+provenance only; the build does not include or link the player's private source.
+
+src/PatternData.inc: original deterministic seed generation.
+src/Simulation.inc: original configuration, lifespan, selection and burst state.
+src/Fireworks.hlsl and LayerColor.hlsli: original rendering equations.
+tests/reference: frozen original D3D11 reference, test executable only.
+
+nlohmann/json is distributed under its MIT license in vendor/nlohmann-LICENSE.txt.
+The public Action75 ABI headers are copied under sdk/.

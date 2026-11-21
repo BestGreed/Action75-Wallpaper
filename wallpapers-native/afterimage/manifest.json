@@ -1,11 +1,12 @@
 {
-  "version": 1,
-  "id": "afterimage",
-  "name": "余像 · Afterimage",
-  "description": "玻璃切面的紫色薄暮；短促的棱镜闪光沿放射方向散开。",
-  "settings": "settings.json",
-  "kind": "native",
-  "abi": 1,
-  "entry": "wallpaper.dll",
-  "preview": "preview.png"
+  "abi" : 2,
+  "description" : "\u73bb\u7483\u5207\u9762\u7684\u7d2b\u8272\u8584\u66ae\uff1b\u77ed\u4fc3\u7684\u68f1\u955c\u95ea\u5149\u6cbf\u653e\u5c04\u65b9\u5411\u6563\u5f00\u3002",
+  "entry" : "wallpaper.dll",
+  "id" : "afterimage",
+  "kind" : "native",
+  "name" : "\u4f59\u50cf \u00b7 Afterimage",
+  "preview" : "preview.png",
+  "renderer" : "d3d12",
+  "settings" : "settings.json",
+  "version" : 1
 }

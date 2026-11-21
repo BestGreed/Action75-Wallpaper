@@ -24,7 +24,6 @@ pub struct Bundle {
 #[derive(Debug)]
 struct PendingWrite {
     edit: u64,
-    keys: BTreeSet<String>,
     edited_after_send: BTreeSet<String>,
 }
 
@@ -57,22 +56,43 @@ impl Draft {
         self.bundle = Some(bundle);
         true
     }
+    pub fn reload(&mut self, id: &str, selection: u64, bundle: Bundle) -> bool {
+        let patch = self.patch();
+        if !self.load(id, selection, bundle) {
+            return false;
+        }
+        for (key, value) in patch {
+            if let Some(current) = self.values.get_mut(&key) {
+                *current = value;
+            }
+        }
+        true
+    }
+    pub fn discard(&mut self) {
+        if let Some(bundle) = &self.bundle {
+            self.values.clone_from(&bundle.values);
+        }
+    }
     pub fn changed(&mut self, fields: impl IntoIterator<Item = String>) {
         self.edit = self.edit.wrapping_add(1);
         if let Some(write) = &mut self.in_flight {
             write.edited_after_send.extend(fields);
         }
     }
-    pub fn begin_write(&mut self, keys: BTreeSet<String>) -> u64 {
+    pub fn begin_write(&mut self) -> u64 {
         self.in_flight = Some(PendingWrite {
             edit: self.edit,
-            keys,
             edited_after_send: BTreeSet::new(),
         });
         self.edit
     }
     pub fn writing(&self) -> bool {
         self.in_flight.is_some()
+    }
+    pub fn dirty(&self) -> bool {
+        self.bundle
+            .as_ref()
+            .is_some_and(|bundle| self.values != bundle.values)
     }
     pub fn patch(&self) -> Map<String, Value> {
         let Some(bundle) = &self.bundle else {
@@ -84,18 +104,30 @@ impl Draft {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     }
-    pub fn final_patch(&self) -> Map<String, Value> {
-        let mut patch = self.patch();
-        if let Some(write) = &self.in_flight {
-            // Include an explicit edit back to the old baseline even if the pending write
-            // changed that field indirectly (for example the other end of a range).
-            for key in write.keys.union(&write.edited_after_send) {
-                if let Some(value) = self.values.get(key) {
-                    patch.insert(key.clone(), value.clone());
-                }
-            }
+    pub fn finish(&self, save: bool) -> FinalWrite {
+        let after = self
+            .in_flight
+            .as_ref()
+            .map(|write| (self.selection, write.edit));
+        let values = if !save {
+            Map::new()
+        } else if let Some(write) = &self.in_flight {
+            // The worker will already have applied the write that is in flight.
+            // Follow it only with values edited since that request was sent.
+            write
+                .edited_after_send
+                .iter()
+                .filter_map(|key| Some((key.clone(), self.values.get(key)?.clone())))
+                .collect()
+        } else {
+            self.patch()
+        };
+        FinalWrite {
+            id: self.selected.clone(),
+            values,
+            revision: self.bundle.as_ref().map(|bundle| bundle.revision.clone()),
+            after,
         }
-        patch
     }
     pub fn ack(&mut self, id: &str, selection: u64, edit: u64, bundle: Bundle) -> bool {
         if bundle.pack_id != id {
@@ -132,6 +164,13 @@ impl Draft {
         }
     }
 }
+
+pub struct FinalWrite {
+    pub id: String,
+    pub values: Map<String, Value>,
+    pub revision: Option<Value>,
+    pub after: Option<(u64, u64)>,
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,7 +185,7 @@ mod tests {
         d.load("a", a, bundle("a", 80));
         d.values.insert("arbitrary".into(), json!(95));
         d.changed(["arbitrary".into()]);
-        let edit = d.begin_write(["arbitrary".into()].into());
+        let edit = d.begin_write();
         assert!(d.ack("a", a, edit, bundle("a", 95)));
         let b = d.select("b".into());
         d.load("b", b, bundle("b", 20));
@@ -160,7 +199,7 @@ mod tests {
         let mut d = Draft::default();
         let a = d.select("a".into());
         d.load("a", a, bundle("a", 80));
-        let e = d.begin_write(BTreeSet::new());
+        let e = d.begin_write();
         let b = d.select("b".into());
         d.load("b", b, bundle("b", 20));
         assert!(!d.ack("a", a, e, bundle("a", 90)));
@@ -174,7 +213,7 @@ mod tests {
         d.load("a", s, bundle("a", 50));
         d.values.insert("arbitrary".into(), json!(60));
         d.changed(["arbitrary".into()]);
-        let e = d.begin_write(["arbitrary".into()].into());
+        let e = d.begin_write();
         d.values.insert("arbitrary".into(), json!(70));
         d.changed(["arbitrary".into()]);
         assert!(d.ack("a", s, e, bundle("a", 60)));
@@ -197,7 +236,7 @@ mod tests {
         assert!(d.load(id, selection, initial.clone()));
         d.values.insert("impactMin".into(), json!(2.00));
         d.changed(["impactMin".into()]);
-        let edit = d.begin_write(["impactMin".into()].into());
+        let edit = d.begin_write();
 
         d.values.insert("spread".into(), json!(1.20));
         d.changed(["spread".into()]);
@@ -216,7 +255,7 @@ mod tests {
         let mut d = Draft::default();
         let s = d.select("a".into());
         d.load("a", s, bundle("a", 20));
-        let edit = d.begin_write(BTreeSet::new());
+        let edit = d.begin_write();
         assert!(!d.fail("a", s, edit + 1));
         assert!(d.writing());
         assert!(d.fail("a", s, edit));

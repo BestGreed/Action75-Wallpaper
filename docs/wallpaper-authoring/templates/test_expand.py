@@ -11,7 +11,8 @@ from expand import Expander, encode_settings, native_check, read_json
 
 HERE = Path(__file__).resolve().parent
 BUILTINS = HERE / "builtins.json"
-PACKS = HERE.parents[2] / "wallpapers-native"
+ROOT = HERE.parents[2]
+PACKS = ROOT / "wallpapers-native"
 NATIVE_CHECK = os.environ.get("ACTION75_SCHEMA_CHECKER")
 
 
@@ -22,12 +23,22 @@ class SettingsTemplateTests(unittest.TestCase):
         for pack, manifest in sorted(manifests.items()):
             with self.subTest(pack=pack):
                 expander = Expander()
-                expected = read_json(manifest.parent / read_json(manifest)["settings"])
+                definition = read_json(manifest)
+                expected = read_json(manifest.parent / definition["settings"])
                 actual = expander.expand(f"{BUILTINS}#/{pack}")
                 self.assertEqual(json.dumps(actual, sort_keys=True), json.dumps(expected, sort_keys=True))
                 payload = encode_settings(actual)
                 if NATIVE_CHECK:
-                    native_check(Path(NATIVE_CHECK), payload)
+                    native_check(Path(NATIVE_CHECK), payload, definition.get("kind"))
+
+    @unittest.skipUnless(NATIVE_CHECK, "set ACTION75_SCHEMA_CHECKER for native schema validation")
+    def test_both_sdk_examples_accept_author_controls_without_bindings(self):
+        for example in ("key-game", "tidal-signal"):
+            with self.subTest(example=example):
+                pack = ROOT / "examples/native-wallpapers" / example / "pack"
+                manifest = read_json(pack / "manifest.json")
+                settings = read_json(pack / manifest["settings"])
+                native_check(Path(NATIVE_CHECK), encode_settings(settings), manifest["kind"])
 
     def test_author_example_overrides_values_ranges_units_and_binding(self):
         expanded = Expander().expand(str(HERE / "amber-atlas.json"))
@@ -75,7 +86,7 @@ class SettingsTemplateTests(unittest.TestCase):
 
     @unittest.skipUnless(NATIVE_CHECK, "set ACTION75_SCHEMA_CHECKER for native schema validation")
     def test_the_native_parser_rejects_an_unknown_renderer_binding(self):
-        settings = Expander().expand(f"{BUILTINS}#/afterimage")
+        settings = Expander().expand(str(HERE / "amber-atlas.json"))
         settings["groups"][0]["controls"][0]["binding"] = {"target": "unknown.target"}
         payload = encode_settings(settings)
         with self.assertRaisesRegex(ValueError, "unknown.target"):

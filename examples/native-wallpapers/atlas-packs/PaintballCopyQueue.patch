@@ -1,0 +1,237 @@
+--- a/src/3rdParty/LLGI/src/DX12/LLGI.GraphicsDX12.h
++++ b/src/3rdParty/LLGI/src/DX12/LLGI.GraphicsDX12.h
+@@ -25,6 +25,7 @@
+ 
+ 	const D3D12_COMMAND_LIST_TYPE commandListType_ = D3D12_COMMAND_LIST_TYPE_DIRECT;
+ 	ID3D12CommandQueue* commandQueue_ = nullptr;
++	ID3D12CommandQueue* textureUploadQueue_ = nullptr;
+ 	ID3D12CommandAllocator* commandAllocator_ = nullptr;
+ 	ReferenceObject* owner_ = nullptr;
+ 
+@@ -81,7 +82,8 @@
+ 
+ 	// int32_t GetCurrentSwapBufferIndex() const;
+ 	int32_t GetSwapBufferCount() const;
+-	ID3D12CommandQueue* GetCommandQueue() { return commandQueue_; }
++	ID3D12CommandQueue* GetCommandQueue();
++	ID3D12CommandQueue* GetTextureUploadQueue() const { return textureUploadQueue_; }
+ 
+ 	ID3D12Resource* CreateResource(D3D12_HEAP_TYPE heapType,
+ 								   DXGI_FORMAT format,
+--- a/src/3rdParty/LLGI/src/DX12/LLGI.GraphicsDX12.cpp
++++ b/src/3rdParty/LLGI/src/DX12/LLGI.GraphicsDX12.cpp
+@@ -8,6 +8,7 @@
+ #include "LLGI.ShaderDX12.h"
+ #include "LLGI.SingleFrameMemoryPoolDX12.h"
+ #include "LLGI.TextureDX12.h"
++#include <stdexcept>
+ 
+ namespace LLGI
+ {
+@@ -25,8 +26,15 @@
+ 	, swapBufferCount_(swapBufferCount)
+ 	, owner_(owner)
+ {
++	if (commandQueue_ && commandQueue_->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_COPY)
++	{
++		textureUploadQueue_ = commandQueue_;
++		commandQueue_ = nullptr;
++	}
++
+ 	SafeAddRef(device_);
+ 	SafeAddRef(commandQueue_);
++	SafeAddRef(textureUploadQueue_);
+ 	SafeAddRef(owner_);
+ 
+ 	HRESULT hr;
+@@ -34,8 +42,11 @@
+ 	hr = device->CreateCommandAllocator(commandListType_, IID_PPV_ARGS(&commandAllocator_));
+ 	assert(SUCCEEDED(hr));
+ 
+-	hr = commandQueue_->GetTimestampFrequency(&timestampFrequency_);
+-	assert(SUCCEEDED(hr));
++	if (commandQueue_)
++	{
++		hr = commandQueue_->GetTimestampFrequency(&timestampFrequency_);
++		assert(SUCCEEDED(hr));
++	}
+ }
+ 
+ GraphicsDX12::~GraphicsDX12()
+@@ -44,10 +55,28 @@
+ 
+ 	SafeRelease(device_);
+ 	SafeRelease(commandQueue_);
++	SafeRelease(textureUploadQueue_);
+ 	SafeRelease(commandAllocator_);
+ 	SafeRelease(owner_);
+ }
+ 
++ID3D12CommandQueue* GraphicsDX12::GetCommandQueue()
++{
++	// The host submits borrowed lists. Only full SDK submissions need this DIRECT queue.
++	if (!commandQueue_)
++	{
++		D3D12_COMMAND_QUEUE_DESC desc{};
++		if (FAILED(device_->CreateCommandQueue(&desc, IID_PPV_ARGS(&commandQueue_))))
++			throw std::runtime_error("Create Effekseer DX12 fallback queue");
++		if (FAILED(commandQueue_->GetTimestampFrequency(&timestampFrequency_)))
++		{
++			SafeRelease(commandQueue_);
++			throw std::runtime_error("Read Effekseer DX12 queue timestamp frequency");
++		}
++	}
++	return commandQueue_;
++}
++
+ void GraphicsDX12::Execute(CommandList* commandList)
+ {
+ 	if (commandList->GetIsInRenderPass())
+@@ -58,8 +87,9 @@
+ 
+ 	auto cl = (CommandListDX12*)commandList;
+ 	auto cl_internal = cl->GetCommandList();
+-	commandQueue_->ExecuteCommandLists(1, (ID3D12CommandList**)(&cl_internal));
+-	commandQueue_->Signal(cl->GetFence(), cl->GetAndIncFenceValue());
++	auto* queue = GetCommandQueue();
++	queue->ExecuteCommandLists(1, (ID3D12CommandList**)(&cl_internal));
++	queue->Signal(cl->GetFence(), cl->GetAndIncFenceValue());
+ }
+ 
+ void GraphicsDX12::WaitFinish()
+--- a/src/3rdParty/LLGI/src/DX12/LLGI.TextureDX12.h
++++ b/src/3rdParty/LLGI/src/DX12/LLGI.TextureDX12.h
+@@ -33,6 +33,7 @@
+ 	int32_t cpu_memory_size_;
+ 	TextureParameter parameter_;
+ 
++	ID3D12CommandQueue* GetDirectQueue() const;
+ 	void CreateUploadReadbackBuffer();
+ 
+ 	void GenerateMipmapsOnLoad();
+--- a/src/3rdParty/LLGI/src/DX12/LLGI.TextureDX12.cpp
++++ b/src/3rdParty/LLGI/src/DX12/LLGI.TextureDX12.cpp
+@@ -35,7 +35,8 @@
+ 
+ 	assert(graphics_ != nullptr);
+ 	device_ = graphics_->GetDevice();
+-	commandQueue_ = graphics_->GetCommandQueue();
++	if (graphics_->GetTextureUploadQueue() == nullptr)
++		commandQueue_ = graphics_->GetCommandQueue();
+ 
+ 	SafeAddRef(device_);
+ 	SafeAddRef(commandQueue_);
+@@ -76,6 +77,11 @@
+ 	}
+ 	SafeRelease(device_);
+ 	SafeRelease(commandQueue_);
++}
++
++ID3D12CommandQueue* TextureDX12::GetDirectQueue() const
++{
++	return commandQueue_ ? commandQueue_ : graphics_->GetCommandQueue();
+ }
+ 
+ bool TextureDX12::Initialize(const TextureParameter& parameter)
+@@ -160,18 +166,19 @@
+ 	}
+ 	else if (type_ == TextureType::Color)
+ 	{
+-
++		const bool copyOnly = graphics_ && graphics_->GetTextureUploadQueue() &&
++			resourceFlag == D3D12_RESOURCE_FLAG_NONE && parameter.SampleCount == 1;
++		state_ = copyOnly ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_DEST;
+ 		texture_ = CreateResourceBuffer(device_,
+ 										D3D12_HEAP_TYPE_DEFAULT,
+ 										dxgiFormat_,
+ 										dimension,
+-										D3D12_RESOURCE_STATE_COPY_DEST,
++										state_,
+ 										resourceFlag,
+ 										parameter.Size,
+ 										parameter.SampleCount,
+ 										parameter.MipLevelCount);
+ 
+-		state_ = D3D12_RESOURCE_STATE_COPY_DEST;
+ 	}
+ 
+ 	if (texture_ == nullptr)
+@@ -253,6 +260,10 @@
+ 
+ void TextureDX12::Unlock()
+ {
++	auto* copyQueue = graphics_ && state_ == D3D12_RESOURCE_STATE_COMMON
++		? graphics_->GetTextureUploadQueue() : nullptr;
++	auto* queue = copyQueue ? copyQueue : GetDirectQueue();
++	const auto type = copyQueue ? D3D12_COMMAND_LIST_TYPE_COPY : D3D12_COMMAND_LIST_TYPE_DIRECT;
+ 	uint8_t* ptr = nullptr;
+ 	buffer_for_upload_->Map(0, nullptr, (void**)&ptr);
+ 
+@@ -308,14 +319,14 @@
+ 		goto FAILED_EXIT;
+ 	}
+ 
+-	hr = device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator));
++	hr = device_->CreateCommandAllocator(type, IID_PPV_ARGS(&commandAllocator));
+ 	if (FAILED(hr))
+ 	{
+ 		SHOW_DX12_ERROR(hr, device_);
+ 		goto FAILED_EXIT;
+ 	}
+ 
+-	hr = device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator, NULL, IID_PPV_ARGS(&commandList));
++	hr = device_->CreateCommandList(0, type, commandAllocator, NULL, IID_PPV_ARGS(&commandList));
+ 	if (FAILED(hr))
+ 	{
+ 		SHOW_DX12_ERROR(hr, device_);
+@@ -329,7 +340,8 @@
+ 		goto FAILED_EXIT;
+ 	}
+ 
+-	ResourceBarrier(commandList, D3D12_RESOURCE_STATE_COPY_DEST);
++	if (!copyQueue)
++		ResourceBarrier(commandList, D3D12_RESOURCE_STATE_COPY_DEST);
+ 
+ 	for (UINT subresource = 0; subresource < static_cast<UINT>(footprints_.size()); subresource++)
+ 	{
+@@ -344,14 +356,15 @@
+ 		commandList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+ 	}
+ 
+-	ResourceBarrier(commandList, D3D12_RESOURCE_STATE_GENERIC_READ);
++	if (!copyQueue)
++		ResourceBarrier(commandList, D3D12_RESOURCE_STATE_GENERIC_READ);
+ 
+ 	commandList->Close();
+ 	commandLists[0] = commandList;
+-	commandQueue_->ExecuteCommandLists(1, commandLists);
++	queue->ExecuteCommandLists(1, commandLists);
+ 
+ 	// TODO optimize it
+-	hr = commandQueue_->Signal(fence, 1);
++	hr = queue->Signal(fence, 1);
+ 	fence->SetEventOnCompletion(1, event);
+ 	WaitForSingleObject(event, INFINITE);
+ 
+@@ -404,7 +417,7 @@
+ 
+ bool TextureDX12::GetData(std::vector<uint8_t>& data)
+ {
+-
++	auto* queue = GetDirectQueue();
+ 	ID3D12CommandAllocator* commandAllocator = nullptr;
+ 	ID3D12GraphicsCommandList* commandList = nullptr;
+ 	ID3D12Fence* fence = nullptr;
+@@ -460,10 +473,10 @@
+ 
+ 	commandList->Close();
+ 	commandLists[0] = commandList;
+-	commandQueue_->ExecuteCommandLists(1, commandLists);
++	queue->ExecuteCommandLists(1, commandLists);
+ 
+ 	// TODO optimize it
+-	hr = commandQueue_->Signal(fence, 1);
++	hr = queue->Signal(fence, 1);
+ 	fence->SetEventOnCompletion(1, event);
+ 	WaitForSingleObject(event, INFINITE);
+ 

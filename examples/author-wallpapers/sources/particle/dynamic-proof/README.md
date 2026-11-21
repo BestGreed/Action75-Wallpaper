@@ -1,5 +1,7 @@
 # 潮标 · 偏岸
 
+此目录保留原始编辑工程与旧 `effekseer` 格式的动态输入教程、测试证据。默认交付的 [正式包](../../../packs/tidemark-bearing) 使用原生 ABI 2 / D3D12，仍由真实 Effekseer 解释同一份 `.efk` 的动态输入；原生构建见 [particles 源码](../../dx12/particles/README.md)。本页的旧宿主兼容情况仅为历史记录。
+
 这是一个独立可导入的 CPU 粒子包。导入文件夹为 `tidemark-bearing`。青色刻线标示触发原点，橙色浮标的水平位置由作者定义的“浮标偏岸”控制，范围 −1 至 +1，默认 +0.5。
 
 参数 `bearing` 绑定 `effect.dynamicInput` 的 `index: 0`。原创工程 `tidemark.efkproj` 把 `@O.x = @In0 * 60` 应用于橙色粒子的固定位置，青色粒子独立。两种颜色使用 Effekseer 的 CPU sprite 内置材质。工程、封面和参数清单由 build.py 创建。

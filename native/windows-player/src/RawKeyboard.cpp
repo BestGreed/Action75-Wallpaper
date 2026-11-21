@@ -126,26 +126,26 @@ std::vector<std::uint16_t> KeyboardState::clear() {
     return released;
 }
 
-RawKeyboard::RawKeyboard(const PlayerConfig& config, Callback callback)
-    : config_(config), callback_(std::move(callback)) {}
+RawKeyboard::RawKeyboard(const PlayerConfig& config, Callback callback, DeviceEnumerator devices)
+    : config_(config), callback_(std::move(callback)), enumerateDevices_(std::move(devices)) {}
 
 RawKeyboard::~RawKeyboard() { detach(); }
 
-std::vector<KeyboardDevice> RawKeyboard::enumerate(const std::string& group) {
+RawKeyboard::Devices RawKeyboard::enumerate(const std::string& group) {
     // A composite keyboard can publish several collections while it connects.
     // Retry if the inventory grows between the size query and the actual read.
     std::vector<RAWINPUTDEVICELIST> raw;
     UINT actual = UINT(-1);
     for (unsigned attempt = 0; attempt < 3; ++attempt) {
         UINT count = 0;
-        if (GetRawInputDeviceList(nullptr, &count, sizeof(RAWINPUTDEVICELIST)) == UINT(-1)) return {};
-        if (!count) return {};
+        if (GetRawInputDeviceList(nullptr, &count, sizeof(RAWINPUTDEVICELIST)) == UINT(-1)) return std::nullopt;
+        if (!count) return std::vector<KeyboardDevice>{};
         raw.resize(count);
         actual = GetRawInputDeviceList(raw.data(), &count, sizeof(RAWINPUTDEVICELIST));
         if (actual != UINT(-1)) break;
-        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) return {};
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) return std::nullopt;
     }
-    if (actual == UINT(-1)) return {};
+    if (actual == UINT(-1)) return std::nullopt;
     std::vector<KeyboardDevice> devices;
     for (UINT index = 0; index < actual; ++index) {
         if (raw[index].dwType != RIM_TYPEKEYBOARD) continue;
@@ -178,16 +178,27 @@ void RawKeyboard::detach() {
         window_ = nullptr;
     }
     selected_.clear();
+    rejected_.clear();
 }
 
-void RawKeyboard::refreshDevices() {
-    std::unordered_set<std::uintptr_t> selected;
-    for (const auto& device : enumerate(config_.deviceGroup))
-        if (device.selected) selected.insert(reinterpret_cast<std::uintptr_t>(device.handle));
+RawKeyboard::Devices RawKeyboard::refreshDevices() {
+    auto devices = enumerateDevices_(config_.deviceGroup);
+    if (!devices) return std::nullopt;
+    std::unordered_set<std::uintptr_t> selected, rejected;
+    for (auto& device : *devices) {
+        const auto handle = reinterpret_cast<std::uintptr_t>(device.handle);
+        // A collection may be listed before its name is available. Keep
+        // known classifications and let input retry unresolved collections.
+        if (device.path.empty()) device.selected = selected_.count(handle) != 0;
+        if (device.selected) selected.insert(handle);
+        else if (!device.path.empty() || rejected_.count(handle)) rejected.insert(handle);
+    }
     for (const auto handle : selected_)
         if (!selected.count(handle))
             for (const auto usage : state_.removeDevice(handle)) release(usage);
     selected_ = std::move(selected);
+    rejected_ = std::move(rejected);
+    return devices;
 }
 
 void RawKeyboard::release(std::uint16_t usage) {
@@ -207,6 +218,10 @@ void RawKeyboard::releaseAll() {
 
 void RawKeyboard::setConfig(const PlayerConfig& config) {
     releaseAll();
+    if (config_.deviceGroup != config.deviceGroup) {
+        selected_.clear();
+        rejected_.clear();
+    }
     config_ = config;
     if (window_) refreshDevices();
 }
@@ -218,6 +233,7 @@ bool RawKeyboard::process(UINT message, WPARAM wParam, LPARAM lParam) {
             const auto handle = static_cast<std::uintptr_t>(lParam);
             for (const auto usage : state_.removeDevice(handle)) release(usage);
             selected_.erase(handle);
+            rejected_.erase(handle);
         } else if (wParam == GIDC_ARRIVAL) refreshDevices();
         return true;
     }
@@ -236,7 +252,16 @@ bool RawKeyboard::process(UINT message, WPARAM wParam, LPARAM lParam) {
         return true;
     }
     const auto device = reinterpret_cast<std::uintptr_t>(input.header.hDevice);
-    if (!selected_.count(device)) return true;
+    if (!selected_.count(device)) {
+        if (!device || rejected_.count(device)) return true;
+        const auto path = devicePath(input.header.hDevice);
+        if (path.empty()) return true;
+        if (!matchesDeviceGroup(path, config_.deviceGroup)) {
+            rejected_.insert(device);
+            return true;
+        }
+        selected_.insert(device);
+    }
     ++diagnostics_.selectedPackets;
     auto scan = input.data.keyboard.MakeCode;
     if (!scan) scan = static_cast<USHORT>(MapVirtualKeyW(input.data.keyboard.VKey, MAPVK_VK_TO_VSC));

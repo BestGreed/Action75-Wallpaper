@@ -11,18 +11,23 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
 import subprocess
+from tempfile import TemporaryDirectory
 import time
 from threading import Event,Thread
 import uuid
 import winreg
+from zipfile import ZipFile
 
 import psutil
 import win32ts
-from release_payload import ROOT, MANAGER, PLAYER, WORKER, DEFAULT_COMPILER, build_installer, version as project_version
+from release_build import build_release, file_version as version, validate_receipt
+from release_payload import ROOT, MANAGER, PLAYER, WORKER, DEFAULT_COMPILER, build_installer, release_asset, release_files, version as project_version
 from release_qa_gui import (
-    W, checked, client_rect, manager_session, per_monitor_coordinates, post, wait_for, window_dpi,
+    W, checked, client_rect, installer_on_desktop, manager_session, per_monitor_coordinates, post,
+    wait_for, wait_for_process, window_dpi,
 )
 
 spec=importlib.util.spec_from_file_location("release_checks",ROOT/"tools/verify-release.py")
@@ -50,48 +55,43 @@ def read(path):return json.loads(path.read_bytes())
 def write(path,obj):path.write_text(json.dumps(obj,indent=2,ensure_ascii=False),encoding="utf-8")
 def require(condition,message):
     if not condition:raise RuntimeError(str(message))
-def version(path):
-    import win32api
-    v=win32api.GetFileVersionInfo(str(path),"\\")
-    return ".".join(map(str,[v["FileVersionMS"]>>16,v["FileVersionMS"]&65535,v["FileVersionLS"]>>16]))
-def prepare(work,player,cargo,previous,current,baseline_player):
-    work.mkdir(parents=True,exist_ok=True)
-    config=work/"build.json"
-    token=read(config)["qaId"] if config.exists() else uuid.uuid4().hex
-    replay=work/"feed"; replay.mkdir(exist_ok=True)
-    env=dict(os.environ,ACTION75_QA_UPDATE_DIR=str(replay),ACTION75_QA_INSTALL_ID=token)
-    source=work/"snapshot"
-    for relative in ("assets/app.ico","assets/app.png","assets/ui/action75-display.otf","tools/release-assets.json",
-                     "wallpapers-native/keycap-glow/layout.json"):
-        target=source/relative;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/relative,target)
-    manager=source/"apps/manager"
-    for directory in ("src", "vendor"):
-        shutil.copytree(ROOT/"apps/manager"/directory,manager/directory,dirs_exist_ok=True)
-    for f in ("Cargo.toml","Cargo.lock","build.rs","manager.manifest"):shutil.copy2(ROOT/"apps/manager"/f,manager/f)
-    builds={}
-    for ver in (previous,current):
-        for f in ("Cargo.toml","Cargo.lock"):
-            text=(ROOT/"apps/manager"/f).read_text("utf8")
-            text,n=re.subn(r'(name = "action75-manager"\s+version = ")[^"]+',lambda m:m[1]+ver,text,count=1)
-            require(n==1,"Unable to set manager package version in "+f)
-            if f=="Cargo.toml":
-                text=text.replace('name = "Action75Manager"','name = "Action75UpdateQaManager"')
-            (manager/f).write_text(text,encoding="utf8")
-        # Cargo's target cache is shared, the packaged executable is copied out for each version.
-        target=work/"cargo-target" if os.environ.get("ACTION75_E2E_CLEAN_TARGET") else ROOT/"apps/manager/target"
-        result=subprocess.run([cargo,"build","--release","--locked","--features","update-qa","--bin","Action75UpdateQaManager",
-                 "--manifest-path",str(manager/"Cargo.toml"),"--target-dir",str(target)],cwd=ROOT/"apps/manager",env=env,
-                 stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
-        (work/f"build-{ver}.log").write_bytes(result.stdout)
-        require(result.returncode==0,result.stdout[-3500:].decode(errors="replace"))
-        frozen=work/f"manager-{ver}.exe";shutil.copy2(target/"release/Action75UpdateQaManager.exe",frozen)
-        require(version(frozen)==ver,"Manager PE version mismatch")
-        native = baseline_player if ver == previous and baseline_player else player
-        pkg=build_installer(DEFAULT_COMPILER,frozen,native,work,qa_id=token,qa_version=ver)
-        require(version(pkg)==ver,"Installer PE version mismatch")
-        builds[ver]=dict(installer=pkg.name,installerSha256=qa.digest(pkg),managerSha256=qa.digest(frozen),
-                         playerSha256=qa.digest(native),workerSha256=qa.digest(native.with_name(WORKER.name)))
-        write(config,dict(qaId=token,packages=builds))
+def prepare(work, cargo, previous, current, wallpapers=None):
+    work.mkdir(parents=True)
+    token = uuid.uuid4().hex
+    replay = work / "feed"
+    replay.mkdir()
+    archive_tools = runpy.run_path(str(ROOT / "tools/package-source.py"))
+    source_zip = archive_tools["write_archive"](ROOT, work / "source", wallpapers=wallpapers)
+    builds = {}
+    # The pinned C++ runtime has long nested source names on Windows.
+    with TemporaryDirectory(prefix="a75-src-") as scratch:
+        with ZipFile(source_zip) as archive:
+            archive.extractall(scratch)
+        source = Path(scratch) / f"ACTION75-{project_version()}"
+        external = set(release_files(wallpapers=wallpapers)) - set(release_files(include_external=False, wallpapers=wallpapers))
+        pinned_runtime = Path("vendor-source/windows-native/EffekseerForCpp1.80.8.zip")
+        if (ROOT / pinned_runtime).is_file():
+            external.add(pinned_runtime)
+        for relative in external:
+            target = source / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(release_asset(ROOT, relative, wallpapers), target)
+        for ver in (previous, current):
+            for name in ("Cargo.toml", "Cargo.lock"):
+                path = Path("apps/manager") / name
+                text = (ROOT / path).read_text("utf-8")
+                text, count = re.subn(r'(name = "action75-manager"\s+version = ")[^"]+',
+                                      lambda match: match[1] + ver, text, count=1)
+                require(count == 1, f"Unable to set manager package version in {name}")
+                (source / path).write_text(text, encoding="utf-8")
+            receipt = build_release(work / f"build-{ver}", root=source, qa_id=token,
+                                    update_feed=replay, cargo=cargo)
+            _, binaries = validate_receipt(source, receipt, token)
+            package = build_installer(DEFAULT_COMPILER, receipt, work, root=source, qa_id=token)
+            require(version(package) == ver, "Installer PE version mismatch")
+            builds[ver] = dict(installer=package.name, installerSha256=qa.digest(package),
+                               managerSha256=qa.digest(binaries[MANAGER]), playerSha256=qa.digest(binaries[PLAYER]),
+                               workerSha256=qa.digest(binaries[WORKER]))
     filename=asset_name(current)
     shutil.copy2(work/builds[current]["installer"],replay/filename)
     release=dict(tag_name="v"+current,draft=False,prerelease=False,assets=[dict(
@@ -99,7 +99,7 @@ def prepare(work,player,cargo,previous,current,baseline_player):
         digest="sha256:"+qa.digest(replay/filename),browser_download_url=
         f"https://github.com/blackwhite-poi/Action75-Wallpaper/releases/download/v{current}/{filename}")])
     write(replay/"release.json",release)
-    return read(config)
+    write(work / "build.json", dict(qaId=token, packages=builds))
 
 def click(window,xy):
     with per_monitor_coordinates():
@@ -170,7 +170,7 @@ def exercise(work,position,portable,keep,importer,simulate_lock,playing):
         write(data/"fm-calibration.json",calibration)
         (data/"player-pipe.txt").write_text(pipe,encoding="ascii")
         # Use a real versioned imported directory, not an asset that the new installer ships.
-        src=ROOT/"examples/native-wallpapers/key-game/pack"
+        src=qa.LEGACY_ABI1_PACK
         pack_id=read(src/"manifest.json")["id"];imported=app/"wallpapers-native"/pack_id
         state=run/"player-data";state.mkdir()
         shutil.copy2(data/"fm-calibration.json",state/"fm-calibration.json")
@@ -286,15 +286,177 @@ def exercise(work,position,portable,keep,importer,simulate_lock,playing):
     require(report.get("maxPlayersSampled")==1,"Overlapping QA players in handoff")
     print(path,flush=True)
 
+
+RELEASE_REPO = "blackwhite-poi/Action75-Wallpaper"
+
+
+def download_published_baseline(work, candidate):
+    # The Windows curl build trusts the same certificate store as Setup.
+    curl = [Path(os.environ["SystemRoot"]) / "System32/curl.exe", "-q", "--fail", "--silent",
+            "--show-error", "--proto", "=https", "--proto-redir", "=https",
+            "--user-agent", "ACTION75 upgrade verification"]
+    config = ""
+    if token := os.environ.get("GH_TOKEN"):
+        config = f'header = "Authorization: Bearer {token}"\n'
+    api = f"https://api.github.com/repos/{RELEASE_REPO}/releases?per_page=50"
+    releases = json.loads(subprocess.check_output(
+        [*curl, "--max-time", "25", "--header", "Accept: application/vnd.github+json",
+         "--config", "-", api], input=config.encode("ascii"), creationflags=qa.FLAGS))
+    options = []
+    for release in releases:
+        tag = release["tag_name"]
+        if release["draft"] or release["prerelease"] or not tag.startswith("v"):
+            continue
+        previous = tag[1:]
+        try:
+            upgrade_versions(previous, candidate)
+        except ValueError:
+            continue
+        name = asset_name(previous)
+        for asset in release["assets"]:
+            url = f"https://github.com/{RELEASE_REPO}/releases/download/{tag}/{name}"
+            if (asset["name"] == name and asset["state"] == "uploaded"
+                    and asset["browser_download_url"] == url
+                    and 0 < asset["size"] < 256 * 1024 * 1024
+                    and re.fullmatch(r"sha256:[a-f0-9]{64}", asset.get("digest") or "")):
+                options.append((tuple(map(int, previous.split("."))), tag, asset))
+    if not options:
+        raise RuntimeError(f"No published installer with a checksum precedes {candidate}")
+    _, tag, asset = max(options, key=lambda option: option[0])
+    path = work / asset["name"]
+    subprocess.run([*curl, "--location", "--max-time", "60", "--max-filesize", str(asset["size"]),
+                    "--output", path, asset["browser_download_url"]], check=True, creationflags=qa.FLAGS)
+    require(path.stat().st_size == asset["size"], "Published installer size mismatch")
+    require(qa.digest(path) == asset["digest"].removeprefix("sha256:"), "Published installer SHA-256 mismatch")
+    require(version(path) == tag[1:], "Published installer PE version differs from the release tag")
+    metadata = {"version": tag[1:], "url": asset["browser_download_url"],
+                "bytes": asset["size"], "sha256": qa.digest(path)}
+    return path, metadata
+
+
+def verify_installer_handoff(run, baseline, metadata, candidate, receipt, rollback, install_id):
+    import win32event
+    import win32file
+
+    run.mkdir()
+    app = run / "installed"
+    data = app / "data"
+    uninstaller = app / "unins000.exe"
+    registered = partial(qa.registration, install_id)
+    require(registered() is None, "The tested installation identity is already in use")
+    report = {"baseline": metadata, "candidate": receipt, "rollback": rollback, "passed": False}
+    try:
+        subprocess.run([baseline, *qa.SILENT, "/SP-", "/NOICONS", f"/DIR={app}",
+                        f"/LOG={run / 'baseline-install.log'}"], check=True, timeout=120, creationflags=qa.FLAGS)
+        previous = metadata["version"]
+        registration = registered()
+        require(registration["DisplayVersion"][0] == previous
+                and Path(registration["InstallLocation"][0]).resolve() == app.resolve()
+                and version(app / MANAGER) == previous, "Wrong real baseline installation")
+        originals = {relative.as_posix(): qa.digest(app / relative) for relative in (MANAGER, PLAYER, WORKER)}
+        data.mkdir(exist_ok=True)
+        prefs = {"setupComplete": True, "panelOpen": False, "wallpaperDir": "", "logDir": ""}
+        write(data / "app-settings.json", prefs)
+        calibration = data / "fm-calibration.json"
+        shutil.copy2(app / "assets/defaults/fm-calibration.json", calibration)
+        preserved = qa.digest(calibration)
+        with qa.headless_playback(run, app, "afterimage", paused=rollback) as (player, status):
+            pipe = status["playerExplicitPipe"]
+            state = status["playerStateDirectory"]
+            token = uuid.uuid4().hex
+            event = win32event.CreateEvent(None, True, False, f"Local\\Action75Update-{token}")
+            resume = data / f"update-resume-{token}.json"
+            write(resume, dict(pid=player.pid, state=state, pipe=pipe, headless=True, hardware=False))
+
+            lock = None
+            try:
+                with manager_session(app / MANAGER, app) as (panel, windows):
+                    window = wait_for(lambda: windows("Action75 Wallpaper"), "released controller", 45)[0]
+                    if rollback:
+                        lock = win32file.CreateFile(str(app / MANAGER), win32file.GENERIC_READ,
+                                                    win32file.FILE_SHARE_READ, None, win32file.OPEN_EXISTING, 0, None)
+                    command = [candidate, *qa.SILENT, "/SP-", "/NORESTARTAPPLICATIONS", "/A75UPDATE=1",
+                               f"/DIR={app}", f"/A75READY={token}", f"/A75PARENT={panel.pid}",
+                               f"/LOG={run / 'upgrade.log'}"]
+                    with installer_on_desktop(command, app, panel) as installer:
+                        require(win32event.WaitForSingleObject(event, 45000) == 0,
+                                "Candidate installer did not acknowledge the released controller")
+                        checked(post(window, 0x0010, 0, 0))  # WM_CLOSE of the isolated test panel
+                        upgrade_code = wait_for_process(installer, 180)
+                    report["installerExitCode"] = upgrade_code
+                    require((upgrade_code != 0) == rollback, "Unexpected success or failure from the candidate installer")
+                    require(player.wait(timeout=10) == 0, "Original player did not exit normally")
+                    qa.assert_process_exited(status["nativeWorkerPid"])
+                    panel_processes = wait_for(lambda: own_processes(app, MANAGER), "restored controller", 45)
+                    restored = qa.pipe_request(pipe, "status")
+                    player_processes = own_processes(app, PLAYER)
+                    require(len(panel_processes) == len(player_processes) == 1
+                            and panel_processes[0].pid != panel.pid
+                            and restored["playerPid"] == player_processes[0].pid != player.pid,
+                            "Expected exactly one restored player and controller")
+                    require(restored["headless"] and restored["paused"] == rollback
+                            and restored["packId"] == status["packId"] and restored["nativeWorkerPid"] > 0,
+                            "Playback session was not restored")
+                    expected = previous if rollback else receipt["version"]
+                    require(registered()["DisplayVersion"][0] == expected
+                            and version(app / MANAGER) == expected, "Unexpected installed version after handoff")
+                    digests = {relative.as_posix(): qa.digest(app / relative) for relative in (MANAGER, PLAYER, WORKER)}
+                    require(digests == (originals if rollback else receipt["sha256"]), "Wrong executable bytes")
+                    require(qa.digest(calibration) == preserved and read(data / "app-settings.json").items() >= prefs.items(),
+                            "Preferences or calibration changed during upgrade")
+                    require(not resume.exists(), "Upgrade session record was not consumed")
+                    report.update(passed=True, version=expected, binaries=digests,
+                                  oldPlayerPid=player.pid, newPlayerPid=restored["playerPid"],
+                                  oldPanelPid=panel.pid, newPanelPid=panel_processes[0].pid)
+            finally:
+                if lock:
+                    lock.Close()
+                event.Close()
+    finally:
+        try:
+            # Also works for the unmodified older uninstaller.
+            for relative in (MANAGER, PLAYER):
+                for process in own_processes(app, relative):
+                    try:
+                        process.terminate()
+                        process.wait(10)
+                    except psutil.NoSuchProcess:
+                        pass
+            if uninstaller.is_file() and registered() is not None:
+                subprocess.run([uninstaller, *qa.SILENT, f"/LOG={run / 'uninstall.log'}"],
+                               check=True, timeout=60, creationflags=qa.FLAGS)
+            wait_for(lambda: registered() is None, "isolated installation registration to clear")
+        finally:
+            write(run / "result.json", report)
+
+
+def exercise_published(work, candidate, receipt_path):
+    require(os.environ.get("GITHUB_ACTIONS") == "true"
+            and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted",
+            "The public baseline may only be installed on a disposable GitHub-hosted runner")
+    installed, autorun, links = qa.production_snapshot()
+    require(installed is None and autorun is None and not any(links),
+            "Existing ACTION75 installation signals found; refusing the published-upgrade test")
+    receipt, _ = validate_receipt(ROOT, receipt_path)
+    require(version(candidate) == receipt["version"], "Candidate does not match the current receipt")
+    work.mkdir(parents=True)
+    baseline, metadata = download_published_baseline(work, receipt["version"])
+    write(work / "baseline.json", metadata)
+    for rollback in (False, True):
+        verify_installer_handoff(work / ("rollback" if rollback else "upgrade"),
+                                 baseline, metadata, candidate, receipt, rollback, qa.PRODUCTION_ID)
+
+
 if __name__=="__main__":
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("mode",choices=["build","run"])
+    p.add_argument("mode",choices=["build","run","published"])
     p.add_argument("--work",type=Path,required=True)
-    p.add_argument("--player",type=Path,default=ROOT/PLAYER)
-    p.add_argument("--cargo",default="cargo")
+    p.add_argument("--cargo")
+    p.add_argument("--wallpapers",type=Path,help="Verified staged library for the two QA installer builds")
     p.add_argument("--from-version",help="Installed QA version; defaults to the previous patch release")
     p.add_argument("--to-version",default=project_version(),help="Candidate QA version; defaults to the current manager version")
-    p.add_argument("--baseline-player",type=Path,help="Player and adjacent worker to use in the old installer; defaults to --player")
+    p.add_argument("--candidate",type=Path,help="Production candidate installer for disposable CI")
+    p.add_argument("--receipt",type=Path,help="Build receipt for the production candidate")
     p.add_argument("--cta",type=float,nargs=2,default=(284,-18),help="Logical pixels; negative coordinates count from the far edge")
     p.add_argument("--portable",type=Path)
     p.add_argument("--import-tool",type=Path,help="Optional compiled production importer for seeding the test fixture")
@@ -304,5 +466,10 @@ if __name__=="__main__":
     args=p.parse_args()
     if args.mode=="build":
         previous,current=upgrade_versions(args.from_version,args.to_version)
-        prepare(args.work.resolve(),args.player.resolve(),args.cargo,previous,current,args.baseline_player)
-    else:exercise(args.work.resolve(),args.cta,args.portable,args.keep,args.import_tool,args.simulate_lock,args.playing)
+        prepare(args.work.resolve(),args.cargo,previous,current,args.wallpapers)
+    elif args.mode == "published":
+        if not args.candidate or not args.receipt:
+            p.error("published mode requires --candidate and --receipt")
+        exercise_published(args.work.resolve(), args.candidate.resolve(strict=True), args.receipt)
+    else:
+        exercise(args.work.resolve(),args.cta,args.portable,args.keep,args.import_tool,args.simulate_lock,args.playing)

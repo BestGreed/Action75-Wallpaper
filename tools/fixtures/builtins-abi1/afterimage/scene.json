@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "afterimage",
+  "name": "余像 · Afterimage",
+  "kind": "spriteBurst",
+  "description": "玻璃切面的紫色薄暮；短促的棱镜闪光沿放射方向散开。",
+  "background": "background.png",
+  "effect": "burst.png",
+  "columns": 6,
+  "rows": 4,
+  "duration": 0.6,
+  "diameter": 348,
+  "settings": "settings.json"
+}

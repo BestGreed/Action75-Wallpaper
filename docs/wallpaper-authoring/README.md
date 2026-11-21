@@ -6,7 +6,7 @@
 
 ## 从哪个版本开始
 
-在 `DeepSeek/Action75-OpenSource` 工作区内，以当前源码、`wallpapers-native` 和 `tools` 为准。这里的控制台使用 Rust/egui，键盘屏由 C++17/D3D11 播放器绘制。目标是 Windows 扩展模式下的 Action75，基准画幅为 **1920×720（8∶3）**，播放帧率上限为 **60 FPS**。
+在 `DeepSeek/Action75-OpenSource` 工作区内，以当前源码、`wallpapers-native` 和 `tools` 为准。控制台使用 Rust/egui，C++ 播放器支持 D3D11 和 D3D12 原生作者包。目标是 Windows 扩展模式下的 Action75，基准画幅为 **1920×720（8∶3）**，播放帧率上限为 **60 FPS**。[原生 SDK 示例](../../examples/native-wallpapers/README.md)
 
 先读仓库 README 和产品约定，再打开与本次任务最接近的一款壁纸的 `manifest.json`、`settings.json` 和对应渲染器。`action75-wallpaper` 是早期 Electron 版，`Action75-v2-Trial` 是历史试用部署。旁边的研究目录、`dist` 和 `release` 留有实验或构建产物。交付前用当前源码构建或核实使用的二进制来源，尤其是同一工作区有其他会话正在修改时。 [仓库 README](../../README.md) · [产品约定](../product-decisions.md)
 
@@ -17,7 +17,7 @@ flowchart LR
     Pack["壁纸包、默认参数、素材"] --> Scene
     Manager["Rust/egui 壁纸库与参数面板"] -->|"本机命名管道 / JSON"| Player["C++ 播放器"]
     Player --> Scene
-    Scene --> GPU["D3D11 / HLSL 合成"]
+    Scene --> GPU["D3D11 / D3D12 · HLSL 绘制"]
     GPU --> Screen["Action75 键盘屏"]
 ```
 

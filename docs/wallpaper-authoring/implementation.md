@@ -4,14 +4,16 @@
 
 ## 先选实现路线
 
+当前 14 款内置壁纸以 D3D12 ABI 2 原生包发布。下表中的 `spriteBurst`、`field` 等名称描述原有声明式路线与场景实现；内置包的实际类型以各自清单中的 `kind: native`、`abi: 2` 和 `renderer: d3d12` 为准。新作者包仍可用图集、兼容的 Effekseer 或烟火声明，也可提供原生 DLL。各路线使用对应的清单和参数协议。[原生 SDK](../../examples/native-wallpapers/README.md) · [当前内置配方](templates/README.md)
+
 | 需求 | 已有路线 | 可读样板 |
 | --- | --- | --- |
-| 换底图，加一段局部按键光效、波纹或纸面印染 | `spriteBurst`，以底图和 PNG 动画图集组成壁纸包 | [潮汐玻璃](../../wallpapers-native/tidal-glass/manifest.json) · [朱砂拓印](../../wallpapers-native/folio/manifest.json) |
+| 换底图，加一段局部按键光效、波纹或纸面印染 | `spriteBurst`，以底图和 PNG 动画图集组成壁纸包 | [最小图集练习](#first-pack)；[海图回声](../../examples/author-wallpapers/packs/soundings-echo/manifest.json)现为独立 ABI 2 实现 |
 | 需要连续计算的轨迹、位移或渐变 | `proceduralBurst`，用时间计算形态。先读当前 `proceduralStyle` 的分支 | [日蚀经线](../../wallpapers-native/meridian/manifest.json) · [ProceduralBurst.cpp](../../native/windows-player/src/ProceduralBurst.cpp) |
 | 键帽内部发光、描边或局部纹路 | `keycap`，读取 `layout.json`，用物理键码定位键帽，限制影响范围 | [键影](../../wallpapers-native/keycap-glow/manifest.json) · [KeycapEffect.cpp](../../native/windows-player/src/KeycapEffect.cpp) |
 | 键间传播、持续底纹、流场或全屏形变 | `field`，用 `fieldTheme` 选择已有场特效，配套 `layout.json` | [潮汐绢墨](../../wallpapers-native/silk-nebula/manifest.json) · [FieldEffect.cpp](../../native/windows-player/src/FieldEffect.cpp) |
-| 编辑粒子发射器、曲线、贴图与材质 | `effekseer`，使用导出的效果及包内素材。可声明 `effect` 或 `effects`，可选 `canvasEffect` | [水彩喷溅](../../wallpapers-native/paintball-native/manifest.json) · [EffekseerBackend.h](../../native/windows-player/include/EffekseerBackend.h) |
-| 全屏引力透镜、吸积盘、静默区或拖动主体 | `native`，独立 DLL 从包目录加载星云底图 | [黑洞](../../wallpapers-native/black-hole/manifest.native.json) · [BlackHoleScene.cpp](../../examples/native-wallpapers/black-hole/src/BlackHoleScene.cpp) · [BlackHole.hlsl](../../examples/native-wallpapers/black-hole/src/BlackHole.hlsl) |
+| 编辑粒子发射器、曲线和贴图 | `effekseer` 作者包使用兼容的 CPU 效果及包内素材，可声明 `effect` 或 `effects` | [灯历作者包](../../examples/author-wallpapers/packs/lantern-almanac/manifest.json) · [EffekseerBackend.h](../../native/windows-player/include/EffekseerBackend.h) |
+| 全屏引力透镜、吸积盘、静默区或拖动主体 | `native`，独立 DLL 从包目录加载星云底图 | [黑洞](../../wallpapers-native/black-hole/manifest.json) · [BlackHoleScene.cpp](../../examples/native-wallpapers/black-hole/src/BlackHoleScene.cpp) · [BlackHole.hlsl](../../examples/native-wallpapers/black-hole/src/BlackHole.hlsl) |
 | 共享水面、随机力度范围或可选光学背景 | `waterSurface`。「水波」的包 ID 仍为 `stillwater`。触发时随机取样，计算着色器推进波面，渲染着色器绘制水面与背景。清单省略 `background` | [水波清单](../../wallpapers-native/stillwater/manifest.json) · [水波参数](../../wallpapers-native/stillwater/settings.json) · [WaterSurface.cpp](../../native/windows-player/src/WaterSurface.cpp) |
 | 花型组合、重力下坠、长尾和实时倒影 | `fireworks`。勾选播放花型后可固定播放或组合轮换，前景和背景分别调节。它也提供构建时编译 HLSL 的示例 | [烟火清单](../../wallpapers-native/night-fireworks/manifest.json) · [烟火参数](../../wallpapers-native/night-fireworks/settings.json) · [FireworksScene.cpp](../../native/windows-player/src/FireworksScene.cpp) |
 | 碎裂、分枝与带折射的小片 | `glassShatter`。「碎光玻璃」用预生成的裂纹和碎片轮廓做实例化绘制。每次触发随机取样，背景由场景绘制 | [碎光玻璃清单](../../wallpapers-native/glass-shatter/manifest.json) · [碎光玻璃参数](../../wallpapers-native/glass-shatter/settings.json) · [GlassShatter.cpp](../../native/windows-player/src/GlassShatter.cpp) |
@@ -91,7 +93,7 @@
 - **设置 schema** · `settings.json` 声明 `version: 1`、`groups[].controls[]`。组和控件都需要稳定 `id` 与 `label`。控件声明 `type`、`default`，普通渲染参数还声明 `binding.target`。最多 16 组、64 个控件、32 KiB。`presentation: "layered"` 以 `surface: "foreground"`/`"background"` 分前景和背景，`advanced: true` 收进高级区，`visibleWhen` 可按另一控件的值显示。
 - **控件与绑定** · `slider` 写明 `min/max/step`，`toggle` 用布尔值，`select` 提供数字的 `options[].value` 与显示名 `label`。颜色由三个 0–255 的 RGB 整数组成，配色可用 `palette` 声明包内 `palettes`、`maxColors` 和默认 `preset/colors`。滑块精度、默认值、映射后的值域都要通过原生校验。`binding.mapping` 支持 `identity`、`linear`、`power`、`piecewise`。`material.uniform` 绑定实际 Effekseer 材质的统一变量和分量，涉及多变体时逐一核对。参数声明处与消费处同时阅读。 [PackSettings.cpp](../../native/windows-player/src/PackSettings.cpp) · [pack_ui.rs](../../apps/manager/src/pack_ui.rs)
 - **默认值与用户值** · 包内 `settings.json` 是模板。每款的用户参数保存在运行状态目录的 `wallpaper-settings/<id>.json`，含 `revision`。调参经 `previewPackSettings` 预览，`setPackSettings` 提交后持久化，`resetPackSettings` 恢复。修改已有控件的 ID、类型或范围时验证旧值迁移，直接改模板的默认值通常只影响新 profile 或重置。 [PackSettings.cpp](../../native/windows-player/src/PackSettings.cpp) · [pack_model.rs](../../apps/manager/src/pack_model.rs)
-- **烟火播放规则** · 一个组可声明 `presentation: "variant-playback"`。组内 `playback.selection` 指向花型选择，`randomize` 指向随机开关，`interval` 指向正整数滑块。`selection` 的 `value: 0` 表示组合，其他选项通过 `value` 选用原生花型 1–8，并以 `toggleId` 指向组内的勾选控件。`playback.order` 将本包声明的每个花型列一次，可以只选用部分花型。播放控件由组引用关联，可使用包内 ID 并省略 `binding`。内置烟火继续提供旧绑定供老播放器读取。副屏点按立即绽放，击键按设置次数计数。 [烟火参数](../../wallpapers-native/night-fireworks/settings.json)
+- **烟火播放规则** · 一个组可声明 `presentation: "variant-playback"`。组内 `playback.selection` 指向花型选择，`randomize` 指向随机开关，`interval` 指向正整数滑块。`selection` 的 `value: 0` 表示组合，其他选项通过 `value` 选用当前版花型 1–10，并以 `toggleId` 指向组内的勾选控件。`playback.order` 将本包声明的每个花型列一次，可以只选用部分花型。播放控件由组引用关联，可使用包内 ID 并省略 `binding`。副屏点按立即绽放，击键按设置次数计数。[烟火参数](../../wallpapers-native/night-fireworks/settings.json)
 - **自制粒子花型** · 从 Effekseer 导出兼容 1.80.8 的 CPU 效果文件，随包附上相对路径引用的素材。清单用 `"kind": "effekseer"` 和 `"effects": ["effects/heart.efkefc", "effects/palm.efkefc"]` 声明资源。沿用 `variant-playback` 组，`value: 1` 和 `value: 2` 对应清单中的第一和第二个文件，`playback.order` 决定轮换顺序。试播从屏幕中央立即触发，正常播放按击键间隔触发，点按副屏直接播放。控件可通过 `"binding": {"target": "effect.dynamicInput", "index": 0}` 写入 Effekseer 的动态输入 0–3，再由作者的动态方程决定怎样改变粒子。未绑定的槽继续使用每个效果文件的默认值。 [粒子加载](../../native/windows-player/src/EffekseerBackend.cpp) · [试玩与击键入口](../../native/windows-player/src/main.cpp)
 
 <a id="impact-and-background"></a>
@@ -99,10 +101,12 @@
 ## 随机范围与可选背景
 
 1. **先定义单次触发。** 确定力度会影响哪些可见量，例如碎裂半径、主裂纹长度、碎片初速度和散开幅度。触发时在有效区间取样一次，把该次力度留在对应实例里。测试可用固定种子重放。上下限相等时得到固定力度。
-2. **约定两个滑块如何联动。** 单个 slider 的范围校验只覆盖自身。目前 `normalizeImpactRange` 只处理 `stillwater` 和 `glass-shatter` 的 `impactMin`、`impactMax`。拖过另一端时同步移动对端，批量提交倒序值时归整。给新包增加上下限，需要显式接入归整逻辑，并检查读取旧值、预览和提交得到一致的范围。场景从 `PackAppearance` 读取最终值。 [水波参数](../../wallpapers-native/stillwater/settings.json) · [玻璃参数](../../wallpapers-native/glass-shatter/settings.json) · [原生校验和参数应用](../../native/windows-player/src/PackSettings.cpp)
+2. **约定两个滑块如何联动。** 在 `settings.json` 顶层用 `orderedRange` 声明两个边界的控件 ID，两个滑块使用相同的取值范围。拖过另一端时同步移动对端，首次载入、恢复默认及批量提交倒序值时按从小到大归整。原生场景读取宿主提供的最终值，再按本场景的方式取样。[水波参数](../../wallpapers-native/stillwater/settings.json) · [玻璃参数](../../wallpapers-native/glass-shatter/settings.json) · [原生校验和参数应用](../../native/windows-player/src/PackSettings.cpp)
 3. **背景选择也要接到画面。** 用 `select` 的数值选项定义可保存的背景模式，在 `PackAppearance`、场景 `configure` 和着色器中依次接通。用 `visibleWhen` 显示只对特定背景有效的控件。固定击键位置、力度和时间，只改变背景做对比，再切回并重启核对保存。 [水波参数](../../wallpapers-native/stillwater/settings.json) · [水面背景实现](../../native/windows-player/materials/WaterSurface.hlsl)
 
-## 新增原生场景时检查这些入口
+## 维护宿主声明式路线时检查这些入口
+
+下表用于修改播放器已有的声明式渲染路线。制作独立原生 DLL 时，使用公开 ABI 的 `create`、`on_event`、`render`、`destroy` 和作者控件 ID，参考[原生插件制作](../../skills/action75-wallpaper-author/references/native.md)。新包无需在宿主中增加专用 ID 分支，也无需把作者参数接入 `PackAppearance`。
 
 | 入口 | 要接通的行为 | 源码 |
 | --- | --- | --- |
@@ -120,7 +124,7 @@
 
 ### 动画与 GPU 资源
 
-让动画取自单调时间或固定模拟步长，控制每帧最多补算多少步，测重载后是否追帧。保持 60 FPS 的呈现节奏，内部物理步长可以更细。预分配有界的事件池、实例和 GPU 缓冲，在加载阶段创建资源，重复使用。在渲染线程提交 D3D11 命令，避免每帧读盘、编译 shader 或 GPU 回读。优先合批局部特效，测量后再增加全屏 pass 或改变中间纹理精度。
+让动画取自单调时间或固定模拟步长，控制每帧最多补算多少步，测重载后是否追帧。保持 60 FPS 的呈现节奏，内部物理步长可以更细。预分配有界的事件池、实例和 GPU 缓冲，在加载阶段创建资源，重复使用。ABI 1 在渲染回调中使用借用的 D3D11 上下文，ABI 2 向借用的 D3D12 命令列表追加绘制，由 Worker 关闭、提交和同步。避免每帧读盘、编译 shader 或 GPU 回读。优先合批局部特效，测量后再增加全屏 pass 或改变中间纹理精度。
 
 ### 着色器怎样验证
 

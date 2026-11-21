@@ -1,9 +1,9 @@
-# Action75 产品说明
+# Product
 
 <!-- impeccable:product-schema 1 -->
 
 ## Platform
-Windows desktop, Rust/egui manager and C++/D3D11 player.
+Windows desktop, Rust/egui manager and C++ player with D3D11 and D3D12 wallpaper backends.
 
 ## Users
 Action75 keyboard owners using its 1920×720 display in extended mode.

@@ -713,11 +713,16 @@ bool NativeRenderer::saveFrame(const std::filesystem::path &file,
     error = hrError("Read back render target", hr);
     return false;
   }
+  const bool saved=saveRgbaFrame(file,width_,height_,mapped.RowPitch,static_cast<BYTE*>(mapped.pData),error);
+  context_->Unmap(readback.Get(),0);
+  return saved;
+}
+bool saveRgbaFrame(const std::filesystem::path &file,unsigned width,unsigned height,UINT rowPitch,BYTE *pixels,std::string &error) {
   ComPtr<IWICImagingFactory> factory;
   ComPtr<IWICStream> stream;
   ComPtr<IWICBitmapEncoder> encoder;
   ComPtr<IWICBitmapFrameEncode> frame;
-  hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+  HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                         IID_PPV_ARGS(&factory));
   if (SUCCEEDED(hr))
     hr = factory->CreateStream(&stream);
@@ -732,15 +737,15 @@ bool NativeRenderer::saveFrame(const std::filesystem::path &file,
   if (SUCCEEDED(hr))
     hr = frame->Initialize(nullptr);
   if (SUCCEEDED(hr))
-    hr = frame->SetSize(width_, height_);
+    hr = frame->SetSize(width, height);
   WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
   if (SUCCEEDED(hr))
     hr = frame->SetPixelFormat(&format);
   ComPtr<IWICBitmap> source;
   ComPtr<IWICFormatConverter> conversion;
   if (SUCCEEDED(hr))
-    hr = factory->CreateBitmapFromMemory(width_,height_,GUID_WICPixelFormat32bppRGBA,
-          mapped.RowPitch,mapped.RowPitch*height_,static_cast<BYTE*>(mapped.pData),&source);
+    hr = factory->CreateBitmapFromMemory(width,height,GUID_WICPixelFormat32bppRGBA,
+          rowPitch,rowPitch*height,pixels,&source);
   if (SUCCEEDED(hr))
     hr = factory->CreateFormatConverter(&conversion);
   if (SUCCEEDED(hr))
@@ -751,7 +756,6 @@ bool NativeRenderer::saveFrame(const std::filesystem::path &file,
     hr = frame->Commit();
   if (SUCCEEDED(hr))
     hr = encoder->Commit();
-  context_->Unmap(readback.Get(), 0);
   if (FAILED(hr)) {
     error = hrError("Save PNG", hr);
     return false;

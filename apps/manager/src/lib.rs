@@ -1,13 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use std::{
     collections::BTreeMap,
     fs,
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
     sync::mpsc,
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -21,6 +18,7 @@ pub mod graphics_adapters;
 pub mod pack_model;
 pub mod pipe_client;
 mod player_control;
+mod player_start;
 pub mod runtime_identity;
 pub mod software_update;
 pub mod startup;
@@ -256,30 +254,7 @@ where
     }
 }
 pub fn start_player(root: &Path) -> Result<(), String> {
-    let root = std::path::absolute(root).map_err(|error| error.to_string())?;
-    let root = root.as_path();
-    match command(root, json!({"action":"status"})) {
-        Ok(_) => return Ok(()),
-        Err(error) if error.contains("（5）") => return Err(error),
-        Err(_) => {}
-    }
-    let mut c = Command::new(player(root));
-    c.arg("--root")
-        .arg(root)
-        .current_dir(root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    c.creation_flags(0x08000000);
-    c.spawn().map_err(|e| format!("无法启动播放器：{e}"))?;
-    for _ in 0..25 {
-        thread::sleep(Duration::from_millis(100));
-        if command(root, json!({"action":"status"})).is_ok() {
-            return Ok(());
-        }
-    }
-    Err("播放器没有就绪，请检查副屏和运行目录".into())
+    player_start::start(root)
 }
 
 pub enum Job {
@@ -288,15 +263,12 @@ pub enum Job {
         request: Value,
     },
     FlushAndQuit {
-        id: String,
-        values: Map<String, Value>,
+        write: pack_model::FinalWrite,
         done: mpsc::Sender<Result<(), String>>,
     },
-    PrepareRestart {
-        id: String,
-        values: Map<String, Value>,
-    },
+    PrepareRestart(pack_model::FinalWrite),
     Full,
+    ReadDevices,
     RefreshDevices,
     PreviewPack {
         id: String,
@@ -325,6 +297,7 @@ pub enum Job {
         id: String,
         selection: u64,
     },
+    RecoverPack(String),
     WritePack {
         id: String,
         selection: u64,
@@ -389,6 +362,10 @@ pub enum Event {
         selection: u64,
         bundle: pack_model::Bundle,
     },
+    PackRecovered {
+        id: String,
+        result: Result<(pack_model::Bundle, bool), String>,
+    },
     PackSaved {
         id: String,
         selection: u64,
@@ -415,6 +392,9 @@ pub enum Event {
     GraphicsAdapters(Result<graphics_adapters::GraphicsAdapters, String>),
     GpuPreferenceSaved(Result<storage::GpuPreference, String>),
     RestartPrepared(Result<(), String>),
+    RequestFailed(String),
+    SetupFinished(Result<(), String>),
+    MigrationFinished(Result<(), String>),
     Error(String),
 }
 pub fn worker(
@@ -425,18 +405,52 @@ pub fn worker(
     let (reply, events) = mpsc::channel();
     thread::spawn(move || {
         let mut preview = PackPreview::default();
-        while let Ok(job) = rx.recv() {
+        let mut catalog = None::<mpsc::Receiver<LoadedCatalog>>;
+        loop {
+            if let Some(load) = &catalog {
+                let ready = match load.try_recv() {
+                    Ok(loaded) => Some(loaded),
+                    Err(mpsc::TryRecvError::Empty) => None,
+                    Err(mpsc::TryRecvError::Disconnected) => Some(LoadedCatalog {
+                        player_pid: None,
+                        packs: local_packs(&root),
+                        error: Some("壁纸目录读取任务已退出".into()),
+                    }),
+                };
+                if let Some(loaded) = ready {
+                    catalog = None;
+                    // Take status on the command queue after the scan so an
+                    // earlier catalog request cannot undo a newer selection.
+                    let event =
+                        full_with_catalog(&root, |request| command(&root, request), Some(loaded));
+                    let _ = reply.send(event.unwrap_or_else(Event::Error));
+                    repaint.request_repaint();
+                }
+            }
+            let job = if catalog.is_some() {
+                match rx.recv_timeout(Duration::from_millis(20)) {
+                    Ok(job) => job,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            } else {
+                let Ok(job) = rx.recv() else { break };
+                job
+            };
+            if matches!(&job, Job::Start | Job::Setup { .. } | Job::Migrate(_)) {
+                catalog = None;
+            }
             let event = match job {
-                Job::FlushAndQuit { id, values, done } => {
+                Job::FlushAndQuit { write, done } => {
                     let result = preview
-                        .finish(&root, &id, values)
+                        .finish(&root, write)
                         .inspect_err(|error| storage::log(&root, "ERROR", error));
                     let _ = done.send(result);
                     break;
                 }
-                Job::PrepareRestart { id, values } => Ok(Event::RestartPrepared(
+                Job::PrepareRestart(write) => Ok(Event::RestartPrepared(
                     preview
-                        .save(&root, &id, values)
+                        .save(&root, write)
                         .and_then(|_| game_compat::stop_player(&root))
                         .inspect_err(|error| storage::log(&root, "ERROR", error)),
                 )),
@@ -459,12 +473,15 @@ pub fn worker(
                     Ok(status) => Event::Status(status),
                     Err(error) => Event::ConnectionFailed(error),
                 }),
-                Job::Request(v) => command(&root, v).and_then(|v| {
+                Job::Request(v) => Ok(match command(&root, v).and_then(|v| {
                     if v.is_object() && v.get("running").is_some() {
-                        Ok(Event::Status(v))
+                        Ok(v)
                     } else {
-                        command(&root, json!({"action":"status"})).map(Event::Status)
+                        command(&root, json!({"action":"status"}))
                     }
+                }).inspect_err(|error| storage::log(&root, "ERROR", error)) {
+                    Ok(status) => Event::Status(status),
+                    Err(error) => Event::RequestFailed(error),
                 }),
                 Job::Settings {
                     generation,
@@ -473,27 +490,30 @@ pub fn worker(
                     Ok(status) => Event::SettingsAck { generation, status },
                     Err(error) => Event::SettingsFailed { generation, error },
                 }),
-                Job::SelectPack { id, selection } => Ok(
-                    match command(&root, json!({"action":"selectPack","id":id})).and_then(
-                        |status| {
+                Job::SelectPack { id, selection } => {
+                    Ok(match player_control::select_pack(&root, &id) {
+                        Ok((status, bundle)) => {
                             preview.pack = None;
-                            load_pack(&root, &id).map(|bundle| (status, bundle))
-                        },
-                    ) {
-                        Ok((status, bundle)) => Event::PackSelected {
-                            id,
-                            selection,
-                            status,
-                            bundle,
-                        },
-                        Err(error) => Event::PackFailed {
-                            id,
-                            selection,
-                            edit: None,
-                            error,
-                        },
-                    },
-                ),
+                            Event::PackSelected {
+                                id,
+                                selection,
+                                status,
+                                bundle,
+                            }
+                        }
+                        Err(failure) => {
+                            if let Some(status) = failure.observed {
+                                let _ = reply.send(Event::Status(status));
+                            }
+                            Event::PackFailed {
+                                id,
+                                selection,
+                                edit: None,
+                                error: failure.error,
+                            }
+                        }
+                    })
+                }
                 Job::LoadPack { id, selection } => Ok(
                     match load_pack(&root, &id).inspect(|_| preview.settled(&id)) {
                         Ok(bundle) => Event::PackLoaded {
@@ -509,6 +529,13 @@ pub fn worker(
                         },
                     },
                 ),
+                Job::RecoverPack(id) => {
+                    let result = recover_profile_with(&id, |request| command(&root, request));
+                    if result.is_ok() {
+                        preview.settled(&id);
+                    }
+                    Ok(Event::PackRecovered { id, result })
+                }
                 Job::WritePack {
                     id,
                     selection,
@@ -556,8 +583,26 @@ pub fn worker(
                         },
                     },
                 ),
-                Job::Start => start_player(&root).and_then(|_| full(&root)),
-                Job::Full => full(&root),
+                Job::Start | Job::Full => {
+                    if matches!(job, Job::Start)
+                        && let Err(error) = start_player(&root)
+                    {
+                        full_with(&root, |_| Err(error.clone()))
+                    } else {
+                        if catalog.is_none() {
+                            let (completed, pending) = mpsc::channel();
+                            let root = root.clone();
+                            thread::spawn(move || {
+                                let _ = completed.send(load_catalog(&root));
+                            });
+                            catalog = Some(pending);
+                        }
+                        continue;
+                    }
+                }
+                Job::ReadDevices => Ok(Event::DevicesRefreshed(read_devices_with(|request| {
+                    command(&root, request)
+                }))),
                 Job::RefreshDevices => Ok(refresh_devices_with(|request| command(&root, request))),
                 Job::PreviewPack {
                     id,
@@ -575,24 +620,33 @@ pub fn worker(
                     monitor,
                     monitor_identity,
                     device,
-                } => (|| {
-                    start_player(&root)?;
-                    configure_first_run(
-                        &monitor,
-                        monitor_identity.as_deref(),
-                        &device,
-                        |request| command(&root, request),
-                    )?;
-                    let mut preferences = storage::Preferences::load(&root);
-                    preferences.setup_complete = true;
-                    preferences.save(&root)?;
-                    storage::log(&root, "INFO", "首次设置完成");
+                } => {
+                    let result = (|| {
+                        let mut preferences = storage::Preferences::load_checked(&root)?;
+                        start_player(&root)?;
+                        configure_first_run(
+                            &monitor,
+                            monitor_identity.as_deref(),
+                            &device,
+                            |request| command(&root, request),
+                        )?;
+                        preferences.setup_complete = true;
+                        preferences.save(&root)?;
+                        storage::log(&root, "INFO", "首次设置完成");
+                        Ok::<(), String>(())
+                    })().inspect_err(|error| storage::log(&root, "ERROR", error));
+                    let _ = reply.send(Event::SetupFinished(result));
+                    repaint.request_repaint();
+                    // Setup canceled any pending scan; complete its replacement
+                    // even when setup failed, without acknowledging another job.
                     full(&root)
-                })(),
+                },
                 Job::SaveInterface(interface) => {
-                    let mut preferences = storage::Preferences::load(&root);
-                    preferences.interface = interface;
-                    match preferences.save(&root) {
+                    let saved = storage::Preferences::load_checked(&root).and_then(|mut preferences| {
+                        preferences.interface = interface;
+                        preferences.save(&root)
+                    });
+                    match saved {
                         Ok(()) => continue,
                         Err(error) => Ok(Event::InterfaceSaveFailed(error)),
                     }
@@ -603,39 +657,27 @@ pub fn worker(
                         .map_err(|error| error.to_string()),
                 )),
                 Job::SaveGpuPreference(gpu) => {
-                    let mut preferences = storage::Preferences::load(&root);
-                    preferences.gpu_preference = gpu;
                     Ok(Event::GpuPreferenceSaved(
-                        preferences.save(&root).map(|_| gpu),
+                        storage::Preferences::load_checked(&root).and_then(|mut preferences| {
+                            preferences.gpu_preference = gpu;
+                            preferences.save(&root).map(|_| gpu)
+                        }),
                     ))
                 }
-                Job::Migrate(next) => (|| {
-                    let mut preferences = storage::Preferences::load(&root);
-                    let old_wallpapers = preferences.wallpapers(&root);
-                    preferences.wallpaper_dir = next.wallpaper_dir;
-                    preferences.log_dir = next.log_dir;
-                    let reload = old_wallpapers != preferences.wallpapers(&root);
-                    let online = command(&root, json!({"action":"status"})).is_ok();
-                    if online {
-                        command(&root, json!({"action":"suspendDiagnostics"}))?;
-                    }
-                    let result = storage::migrate(&root, &preferences, || {
-                        if online && reload {
-                            command(&root, json!({"action":"reloadDirectories"})).map(|_| ())
-                        } else {
-                            Ok(())
-                        }
-                    });
-                    if online {
-                        let _ = command(&root, json!({"action":"resumeDiagnostics"}));
-                    }
-                    result?;
+                Job::Migrate(next) => {
+                    let result = migrate_preferences_with(&root, next, |request| command(&root, request))
+                        .inspect_err(|error| storage::log(&root, "ERROR", error));
+                    let _ = reply.send(Event::MigrationFinished(result));
+                    repaint.request_repaint();
                     full(&root)
-                })(),
+                },
                 Job::Save(model) => save_calibration(&root, &model).map(Event::Saved),
             };
             if let Err(error) = &event {
                 storage::log(&root, "ERROR", error);
+            }
+            if let Ok(event) = &event {
+                preview.record_write(event);
             }
             let _ = reply.send(event.unwrap_or_else(Event::Error));
             repaint.request_repaint();
@@ -644,9 +686,289 @@ pub fn worker(
     (tx, events)
 }
 
+struct WriteReceipt {
+    id: String,
+    selection: u64,
+    edit: u64,
+    result: Result<Value, String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MigrationSession {
+    Offline,
+    Online(u32),
+}
+
+fn migration_session(
+    request: &mut impl FnMut(Value) -> Result<Value, String>,
+) -> Result<MigrationSession, String> {
+    match request(json!({"action":"status"})) {
+        Ok(status) => status["playerPid"]
+            .as_u64()
+            .and_then(|pid| u32::try_from(pid).ok())
+            .filter(|pid| *pid != 0)
+            .map(MigrationSession::Online)
+            .ok_or_else(|| "播放器未提供有效实例身份，未迁移目录".into()),
+        Err(error) if error == "播放器未启动" => Ok(MigrationSession::Offline),
+        Err(error) => Err(format!("无法确认播放器状态，目录未提交：{error}")),
+    }
+}
+
+fn migration_request(
+    request: &mut impl FnMut(Value) -> Result<Value, String>,
+    action: &str,
+    pid: u32,
+) -> Result<(), String> {
+    let status = request(json!({"action":action,"expectedPlayerPid":pid}))?;
+    if status["playerPid"].as_u64() != Some(u64::from(pid)) {
+        return Err("目录迁移期间播放器实例已变化".into());
+    }
+    Ok(())
+}
+
+// Both forward activation and rollback cross the same confirmed session seam.
+fn migrate_preferences_with(
+    root: &Path,
+    next: storage::Preferences,
+    mut request: impl FnMut(Value) -> Result<Value, String>,
+) -> Result<(), String> {
+    let mut preferences = storage::Preferences::load_checked(root)?;
+    let old_wallpapers = preferences.wallpapers(root);
+    preferences.wallpaper_dir = next.wallpaper_dir;
+    preferences.log_dir = next.log_dir;
+    let reload = old_wallpapers != preferences.wallpapers(root);
+    let session = migration_session(&mut request)?;
+    if let MigrationSession::Online(pid) = session {
+        if let Err(error) = migration_request(&mut request, "suspendDiagnostics", pid) {
+            let _ = migration_request(&mut request, "resumeDiagnostics", pid);
+            return Err(format!("无法暂停诊断日志，未迁移目录：{error}"));
+        }
+    }
+    let result = storage::migrate(root, &preferences, || {
+        if migration_session(&mut request)? != session {
+            return Err("目录迁移期间播放器实例或运行状态已变化，未清理源文件".into());
+        }
+        if reload && let MigrationSession::Online(pid) = session {
+            migration_request(&mut request, "reloadDirectories", pid)?;
+        }
+        Ok(())
+    });
+    let resumed = match session {
+        MigrationSession::Online(pid) => migration_request(&mut request, "resumeDiagnostics", pid),
+        MigrationSession::Offline => Ok(()),
+    };
+    match (result, resumed) {
+        (Err(error), Err(resume)) => Err(format!("{error}；恢复诊断日志失败：{resume}")),
+        (Err(error), _) => Err(error),
+        (_, Err(resume)) => Err(format!("目录已迁移，恢复诊断日志失败：{resume}")),
+        _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod migration_transaction_tests {
+    use super::*;
+
+    fn fixture() -> (PathBuf, storage::Preferences) {
+        let root = std::env::temp_dir().join(format!(
+            "action75-migration-session-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("wallpapers-native/a")).unwrap();
+        fs::write(root.join("wallpapers-native/a/manifest.json"), b"{}").unwrap();
+        fs::write(root.join("wallpapers-native/a/asset"), b"original").unwrap();
+        storage::Preferences::default().save(&root).unwrap();
+        let next = storage::Preferences {
+            wallpaper_dir: root.join("new-packs").display().to_string(),
+            log_dir: root.join("logs").display().to_string(),
+            ..Default::default()
+        };
+        (root, next)
+    }
+
+    #[test]
+    fn migration_unknown_ipc_or_invalid_identity_never_creates_destinations() {
+        for response in [
+            Err("播放器权限不匹配（5）".into()),
+            Err("读取超时".into()),
+            Err("运行目录不同".into()),
+            Ok(json!({"playerPid":0})),
+            Ok(json!({})),
+        ] {
+            let (root, next) = fixture();
+            let before = fs::read(root.join("data/app-settings.json")).unwrap();
+            let mut calls = 0;
+            let result = migrate_preferences_with(&root, next, |request| {
+                calls += 1;
+                assert_eq!(request["action"], "status");
+                response.clone()
+            });
+            assert!(result.is_err());
+            assert_eq!(calls, 1);
+            assert!(!root.join("new-packs").exists());
+            assert!(root.join("wallpapers-native/a/asset").exists());
+            assert_eq!(
+                fs::read(root.join("data/app-settings.json")).unwrap(),
+                before
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn migration_known_offline_is_reconfirmed_before_commit() {
+        let (root, next) = fixture();
+        let mut calls = 0;
+        migrate_preferences_with(&root, next, |request| {
+            calls += 1;
+            assert_eq!(request["action"], "status");
+            Err("播放器未启动".into())
+        })
+        .unwrap();
+        assert_eq!(calls, 2);
+        assert_eq!(
+            fs::read(root.join("new-packs/a/asset")).unwrap(),
+            b"original"
+        );
+        assert!(!root.join("wallpapers-native/a/asset").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn migration_online_commands_keep_the_confirmed_player_identity() {
+        let (root, next) = fixture();
+        let mut actions = Vec::new();
+        migrate_preferences_with(&root, next, |request| {
+            let action = request["action"].as_str().unwrap().to_owned();
+            if action != "status" {
+                assert_eq!(request["expectedPlayerPid"], 42);
+            }
+            actions.push(action);
+            Ok(json!({"playerPid":42}))
+        })
+        .unwrap();
+        assert_eq!(
+            actions,
+            [
+                "status",
+                "suspendDiagnostics",
+                "status",
+                "reloadDirectories",
+                "resumeDiagnostics"
+            ]
+        );
+        assert!(!root.join("wallpapers-native/a/asset").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn migration_session_change_or_unknown_midflight_preserves_sources_and_copies() {
+        for initially_online in [false, true] {
+            for unknown in [false, true] {
+                let (root, next) = fixture();
+                let mut queries = 0;
+                let result = migrate_preferences_with(&root, next, |request| {
+                    if request["action"] == "status" {
+                        queries += 1;
+                        if queries == 1 {
+                            return if initially_online {
+                                Ok(json!({"playerPid":42}))
+                            } else {
+                                Err("播放器未启动".into())
+                            };
+                        }
+                        return if unknown {
+                            Err("读取超时".into())
+                        } else {
+                            Ok(json!({"playerPid":43}))
+                        };
+                    }
+                    assert_ne!(request["action"], "reloadDirectories");
+                    assert_eq!(request["expectedPlayerPid"], 42);
+                    Ok(json!({"playerPid":42}))
+                });
+                assert!(result.is_err());
+                for prefix in ["wallpapers-native", "new-packs"] {
+                    assert_eq!(
+                        fs::read(root.join(prefix).join("a/asset")).unwrap(),
+                        b"original"
+                    );
+                }
+                assert!(
+                    storage::Preferences::load_checked(&root)
+                        .unwrap()
+                        .wallpaper_dir
+                        .is_empty()
+                );
+                fs::remove_dir_all(root).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn migration_lost_reload_ack_reactivates_old_paths_and_resumes_logs() {
+        let (root, next) = fixture();
+        let mut loaded = Vec::new();
+        let mut resumed = false;
+        let result = migrate_preferences_with(&root, next, |request| {
+            if request["action"] != "status" {
+                assert_eq!(request["expectedPlayerPid"], 42);
+            }
+            if request["action"] == "reloadDirectories" {
+                loaded.push(
+                    storage::Preferences::load_checked(&root)
+                        .unwrap()
+                        .wallpapers(&root),
+                );
+                if loaded.len() == 1 {
+                    return Err("ACK lost after applying".into());
+                }
+            }
+            if request["action"] == "resumeDiagnostics" {
+                resumed = true;
+            }
+            Ok(json!({"playerPid":42}))
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            loaded,
+            [root.join("new-packs"), root.join("wallpapers-native")]
+        );
+        assert!(resumed);
+        assert!(root.join("wallpapers-native/a/asset").exists());
+        assert!(!root.join("new-packs/a/asset").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn migration_failed_suspend_attempts_resume_without_touching_files() {
+        let (root, next) = fixture();
+        let mut resumed = false;
+        let result = migrate_preferences_with(&root, next, |request| {
+            if request["action"] == "suspendDiagnostics" {
+                return Err("suspend ACK lost".into());
+            }
+            if request["action"] == "resumeDiagnostics" {
+                resumed = true;
+            }
+            Ok(json!({"playerPid":42}))
+        });
+        assert!(result.is_err());
+        assert!(resumed);
+        assert!(!root.join("new-packs").exists());
+        assert!(root.join("wallpapers-native/a/asset").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 #[derive(Default)]
 struct PackPreview {
     pack: Option<String>,
+    last_write: Option<WriteReceipt>,
 }
 
 impl PackPreview {
@@ -681,16 +1003,62 @@ impl PackPreview {
         Ok(())
     }
 
-    fn save(&mut self, root: &Path, id: &str, values: Map<String, Value>) -> Result<(), String> {
-        if values.is_empty() {
-            Ok(())
+    fn record_write(&mut self, event: &Event) {
+        let (id, selection, edit, result) = match event {
+            Event::PackSaved {
+                id,
+                selection,
+                edit,
+                bundle,
+            } => (id, *selection, *edit, Ok(bundle.revision.clone())),
+            Event::PackFailed {
+                id,
+                selection,
+                edit: Some(edit),
+                error,
+            } => (id, *selection, *edit, Err(error.clone())),
+            _ => return,
+        };
+        self.last_write = Some(WriteReceipt {
+            id: id.clone(),
+            selection,
+            edit,
+            result,
+        });
+    }
+
+    fn final_revision(&self, write: &pack_model::FinalWrite) -> Result<Option<Value>, String> {
+        if let Some((selection, edit)) = write.after {
+            let receipt = self
+                .last_write
+                .as_ref()
+                .filter(|receipt| {
+                    receipt.id == write.id && receipt.selection == selection && receipt.edit == edit
+                })
+                .ok_or("上一笔壁纸参数保存未确认")?;
+            receipt.result.clone().map(Some)
         } else {
-            pack_request(root, "setPackSettings", id, Some(values), None).map(|_| self.settled(id))
+            Ok(write.revision.clone())
         }
     }
 
-    fn finish(&mut self, root: &Path, id: &str, values: Map<String, Value>) -> Result<(), String> {
-        let saved = self.save(root, id, values);
+    fn save(&mut self, root: &Path, write: pack_model::FinalWrite) -> Result<(), String> {
+        let revision = self.final_revision(&write)?;
+        if !write.values.is_empty() {
+            pack_request(
+                root,
+                "setPackSettings",
+                &write.id,
+                Some(write.values),
+                revision,
+            )?;
+            self.settled(&write.id);
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self, root: &Path, write: pack_model::FinalWrite) -> Result<(), String> {
+        let saved = self.save(root, write);
         let restored = self.restore(root);
         saved.and(restored)
     }
@@ -700,6 +1068,40 @@ fn load_pack(root: &Path, id: &str) -> Result<pack_model::Bundle, String> {
     serde_json::from_value(command(root, json!({"action":"getPackSettings","id":id}))?)
         .map_err(|e| format!("壁纸配置格式错误：{e}"))
 }
+
+pub fn damaged_profile_error(error: &str) -> bool {
+    [
+        "Invalid wallpaper settings profile",
+        "Invalid wallpaper profile revision",
+        "Wallpaper settings profile exceeds 64 KiB",
+        "Wallpaper settings nesting exceeds 24 levels",
+        "[json.exception.parse_error.",
+        "[json.exception.type_error.",
+        "[json.exception.out_of_range.",
+    ]
+    .iter()
+    .any(|prefix| error.starts_with(prefix))
+}
+
+fn recover_profile_with(
+    id: &str,
+    mut request: impl FnMut(Value) -> Result<Value, String>,
+) -> Result<(pack_model::Bundle, bool), String> {
+    let (reply, recovered) = match request(json!({"action":"getPackSettings","id":id})) {
+        Ok(bundle) => (bundle, false),
+        Err(error) if damaged_profile_error(&error) => (
+            request(json!({"action":"resetPackSettings","id":id}))?,
+            true,
+        ),
+        Err(error) => return Err(error),
+    };
+    let bundle: pack_model::Bundle = serde_json::from_value(reply).map_err(|e| e.to_string())?;
+    if bundle.pack_id != id {
+        return Err("播放器返回了其他壁纸的参数".into());
+    }
+    Ok((bundle, recovered))
+}
+
 fn pack_request(
     root: &Path,
     action: &str,
@@ -829,12 +1231,20 @@ fn player_catalog(
     // A competing refresh invalidates the continuation cursor. Retry from
     // zero once so the caller always receives a complete catalog.
     const STALE: &str = "Wallpaper catalog changed during pagination";
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut refresh = None;
     for _ in 0..2 {
         let mut packs = Vec::new();
         let mut revision = None;
         loop {
             let offset = packs.len();
             let mut command = json!({"action":"listPacks","offset":offset});
+            if offset == 0 {
+                command["asyncRefresh"] = json!(true);
+                if let Some(ticket) = refresh {
+                    command["catalogRefreshRevision"] = json!(ticket);
+                }
+            }
             if let Some(revision) = revision {
                 command["catalogRevision"] = json!(revision);
             }
@@ -844,9 +1254,25 @@ fn player_catalog(
                 Err(error) if offset > 0 && error == STALE => break,
                 Err(error) => return Err(error),
             };
+            if let Some(pending) = reply.get("pendingCatalogRevision") {
+                let ticket = pending.as_u64().filter(|ticket| *ticket > 0);
+                if offset != 0 || ticket.is_none() || refresh.is_some() && refresh != ticket {
+                    return Err("壁纸目录刷新版本无效".into());
+                }
+                refresh = ticket;
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err("壁纸目录刷新超时".into());
+                }
+                thread::sleep(remaining.min(Duration::from_millis(40)));
+                continue;
+            }
             let page: CatalogPage = serde_json::from_value(reply)
                 .map_err(|error| format!("壁纸列表响应格式错误，{error}"))?;
-            if page.catalog_revision == 0 || revision.is_some_and(|r| r != page.catalog_revision) {
+            if page.catalog_revision == 0
+                || refresh.is_some_and(|ticket| page.catalog_revision < ticket)
+                || revision.is_some_and(|r| r != page.catalog_revision)
+            {
                 return Err("壁纸列表分页版本无效".into());
             }
             packs.extend(page.packs);
@@ -899,18 +1325,73 @@ fn refresh_devices_with(request: impl FnOnce(Value) -> Result<Value, String>) ->
     Event::DevicesRefreshed(result)
 }
 
+fn read_devices_with(
+    mut request: impl FnMut(Value) -> Result<Value, String>,
+) -> Result<(Vec<Value>, Vec<Value>), String> {
+    let mut read = |action| {
+        serde_json::from_value(request(json!({"action":action}))?)
+            .map_err(|_| "播放器返回的显示器或键盘列表无效".to_string())
+    };
+    Ok((read("listMonitors")?, read("listDevices")?))
+}
+
 fn full(root: &Path) -> Result<Event, String> {
     full_with(root, |request| command(root, request))
 }
 fn full_with<F: FnMut(Value) -> Result<Value, String>>(
     root: &Path,
+    request: F,
+) -> Result<Event, String> {
+    full_with_catalog(root, request, None)
+}
+
+struct LoadedCatalog {
+    player_pid: Option<u64>,
+    packs: Vec<Value>,
+    error: Option<String>,
+}
+
+fn load_catalog(root: &Path) -> LoadedCatalog {
+    let mut request = |request| command(root, request);
+    let status = request(json!({"action":"status"}));
+    let player_pid = status
+        .as_ref()
+        .ok()
+        .and_then(|status| status["playerPid"].as_u64());
+    let (packs, error) = if status.is_ok() {
+        match player_catalog(&mut request) {
+            Ok(packs) => (packs, None),
+            Err(error) => (local_packs(root), Some(error)),
+        }
+    } else {
+        (local_packs(root), None)
+    };
+    LoadedCatalog {
+        player_pid,
+        packs,
+        error,
+    }
+}
+
+fn full_with_catalog<F: FnMut(Value) -> Result<Value, String>>(
+    root: &Path,
     mut request: F,
+    loaded: Option<LoadedCatalog>,
 ) -> Result<Event, String> {
     let (status, connection_error) = match request(json!({"action":"status"})) {
         Ok(status) => (status, None),
         Err(error) => (json!({"running":false}), Some(error)),
     };
-    let (packs, catalog_error) = if connection_error.is_none() {
+    let (packs, catalog_error) = if let Some(loaded) = loaded {
+        if loaded.player_pid == status["playerPid"].as_u64() {
+            (loaded.packs, loaded.error)
+        } else {
+            let error = connection_error
+                .is_none()
+                .then(|| "播放器已重启，请重新刷新壁纸目录".into());
+            (local_packs(root), error)
+        }
+    } else if connection_error.is_none() {
         match player_catalog(&mut request) {
             Ok(packs) => (packs, None),
             Err(error) => (local_packs(root), Some(error)),
@@ -1286,6 +1767,124 @@ pub fn atomic_replace(source: &Path, target: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_ordinary_worker_request_is_not_an_unrelated_operation_completion() {
+        let root = tempfile::tempdir().unwrap();
+        let (jobs, events) = worker(root.path().to_owned(), eframe::egui::Context::default());
+        jobs.send(Job::Request(json!({"action":"pause"}))).unwrap();
+        assert!(matches!(events.recv_timeout(Duration::from_secs(2)).unwrap(), Event::RequestFailed(_)));
+        jobs.send(Job::Quit).unwrap();
+    }
+
+    #[test]
+    fn failed_setup_and_migration_complete_their_own_job_then_replace_the_catalog() {
+        for setup in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            fs::create_dir(root.path().join("data")).unwrap();
+            fs::write(root.path().join("data/app-settings.json"), b"broken").unwrap();
+            let (jobs, events) = worker(root.path().to_owned(), eframe::egui::Context::default());
+            let job = if setup {
+                Job::Setup { monitor: "unused".into(), monitor_identity: None, device: "unused".into() }
+            } else {
+                Job::Migrate(storage::Preferences::default())
+            };
+            jobs.send(job).unwrap();
+            match events.recv_timeout(Duration::from_secs(2)).unwrap() {
+                Event::SetupFinished(Err(_)) if setup => {},
+                Event::MigrationFinished(Err(_)) if !setup => {},
+                _ => panic!("failure must complete only the job that produced it"),
+            }
+            assert!(matches!(events.recv_timeout(Duration::from_secs(2)).unwrap(), Event::Full { .. }));
+            jobs.send(Job::Quit).unwrap();
+        }
+    }
+
+    #[test]
+    fn failed_start_still_loads_the_local_wallpaper_catalog() {
+        let root = tempfile::tempdir().unwrap();
+        let pack = root.path().join("wallpapers-native/local");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join("manifest.json"),
+            br#"{"version":1,"id":"local","name":"Local","kind":"fireworks"}"#,
+        )
+        .unwrap();
+        let (jobs, events) = worker(root.path().to_owned(), eframe::egui::Context::default());
+        jobs.send(Job::Start).unwrap();
+        let Event::Full {
+            connection_error,
+            packs,
+            status,
+            ..
+        } = events.recv_timeout(Duration::from_secs(3)).unwrap()
+        else {
+            panic!("expected the offline catalog as well as the startup error");
+        };
+        assert!(connection_error.unwrap().contains("无法启动播放器"));
+        assert_eq!(status["running"], false);
+        assert_eq!(packs[0]["id"], "local");
+    }
+
+    #[test]
+    fn queued_close_uses_the_matching_write_ack_and_never_replays_a_rejected_draft() {
+        let mut preview = PackPreview::default();
+        let write = pack_model::FinalWrite {
+            id: "a".into(),
+            values: Map::new(),
+            revision: Some(json!(20)),
+            after: Some((7, 8)),
+        };
+        assert!(preview.final_revision(&write).is_err());
+        preview.record_write(&Event::PackFailed {
+            id: "a".into(),
+            selection: 7,
+            edit: Some(8),
+            error: "stale".into(),
+        });
+        assert_eq!(preview.final_revision(&write), Err("stale".into()));
+        preview.record_write(&Event::PackSaved {
+            id: "a".into(),
+            selection: 7,
+            edit: 8,
+            bundle: pack_model::Bundle {
+                pack_id: "a".into(),
+                schema: Value::Null,
+                values: Map::new(),
+                revision: json!(21),
+            },
+        });
+        assert_eq!(preview.final_revision(&write), Ok(Some(json!(21))));
+    }
+
+    #[test]
+    fn recovery_rechecks_the_profile_before_sending_a_revisionless_reset() {
+        let response = json!({"packId":"a","schema":null,"values":{},"revision":1});
+        for (error, must_reset) in [
+            (None, false),
+            (Some("Invalid wallpaper profile revision"), true),
+            (Some("播放器未启动"), false),
+        ] {
+            let mut requests = Vec::new();
+            let result = recover_profile_with("a", |request| {
+                requests.push(request.clone());
+                if request["action"] == "getPackSettings"
+                    && let Some(error) = error
+                {
+                    return Err(error.into());
+                }
+                Ok(response.clone())
+            });
+            assert_eq!(requests[0], json!({"action":"getPackSettings","id":"a"}));
+            if must_reset {
+                assert_eq!(requests[1], json!({"action":"resetPackSettings","id":"a"}));
+                assert!(result.unwrap().1);
+            } else {
+                assert_eq!(requests.len(), 1);
+                assert_eq!(result.is_err(), error.is_some());
+            }
+        }
+    }
     #[test]
     fn gallery_loads_local_packs_when_player_denies_connection() {
         let f = CalibrationFixture::new();
@@ -1513,6 +2112,37 @@ mod tests {
         });
         assert!(result.is_err());
         assert_eq!(calls, 1);
+    }
+    #[test]
+    fn catalog_waits_for_one_refresh_ticket_and_reuses_it_after_stale_pages() {
+        let mut calls = 0;
+        let packs = player_catalog(&mut |request| {
+            calls += 1;
+            match calls {
+                1 => {
+                    assert_eq!(
+                        request,
+                        json!({"action":"listPacks","offset":0,"asyncRefresh":true})
+                    );
+                    Ok(json!({"pendingCatalogRevision": 13}))
+                }
+                2 => {
+                    assert_eq!(request["catalogRefreshRevision"], 13);
+                    Ok(json!({"packs":[{"id":"old"}],"catalogRevision":13,"nextOffset":1}))
+                }
+                3 => {
+                    assert_eq!(request["catalogRevision"], 13);
+                    Err("Wallpaper catalog changed during pagination".into())
+                }
+                4 => {
+                    assert_eq!(request["catalogRefreshRevision"], 13);
+                    Ok(json!({"packs":[{"id":"new"}],"catalogRevision":14,"nextOffset":null}))
+                }
+                _ => panic!("Unexpected request {request}"),
+            }
+        })
+        .unwrap();
+        assert_eq!(packs, [json!({"id":"new"})]);
     }
     struct CalibrationFixture {
         root: PathBuf,

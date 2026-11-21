@@ -5,18 +5,17 @@ import json
 from pathlib import Path
 import runpy
 import shutil
-import subprocess
 import tempfile
 import time
 import uuid
 
 import psutil
-import win32pdh
 
 ROOT = Path(__file__).resolve().parents[1]
 # Use the same per-PID and adapter-LUID accounting as the original black-hole comparison.
 common = runpy.run_path(str(ROOT / "examples/native-wallpapers/black-hole/benchmark.py"))
 Counters, call, keys = common["Counters"], common["call"], common["KEYS"]
+player_session = common["player_session"]
 
 
 def digest(file):
@@ -36,13 +35,8 @@ def trial(executable, package, output, native):
             shutil.copy2(ROOT / name, dst)
         (root / "data").mkdir()
         (root / "data/app-settings.json").write_text('{"gpuPreference":"integrated"}')
-        pipe = "Migration-" + uuid.uuid4().hex
-        proc = subprocess.Popen([executable, "--root", root, "--state-dir", state, "--pipe", pipe,
-                                 "--headless-test", "--headless-hardware", "--perf-stats"],
-                                creationflags=subprocess.CREATE_NO_WINDOW)
-        pipe = "\\\\.\\pipe\\" + pipe
-        counters = Counters()
-        try:
+        name = "Migration-" + uuid.uuid4().hex
+        with player_session(executable, root, state, name) as (proc, pipe), Counters() as counters:
             status = call(pipe, "selectPack", id=manifest["id"])
             assert status["headless"] and status["playerPid"] == proc.pid and not status["error"], status
             assert (status["outputWidth"], status["outputHeight"]) == (1920, 720)
@@ -51,10 +45,15 @@ def trial(executable, package, output, native):
             luid = int(adapter.replace(":", ""), 16) if isinstance(adapter, str) else adapter
             processes = [psutil.Process(proc.pid)]
             if native:
-                processes.append(psutil.Process(status["nativeWorkerPid"]))
+                worker = psutil.Process(status["nativeWorkerPid"])
+                if worker.ppid() != proc.pid:
+                    raise RuntimeError("Rendering worker does not belong to the benchmark player")
+                processes.append(worker)
             call(pipe, "show")
             record = dict(pack=manifest["id"], adapter=status["gpuAdapter"], luid=adapter,
-                          playerSha256=digest(executable), phases={})
+                          playerSha256=digest(executable), hostPid=proc.pid,
+                          workerPid=status["nativeWorkerPid"] if native else None,
+                          gpuEngineScope="Windows GPU Engine counters filtered by PID and adapter LUID", phases={})
             if native:
                 record["dllSha256"] = digest(package / manifest["entry"])
             time.sleep(1.5)
@@ -73,7 +72,7 @@ def trial(executable, package, output, native):
                     samples.append(dict(at=time.perf_counter()-start, gpu=sum(sum(p["engines"].values())
                         for p in readings.values()), workingMiB=sum(p["workingSetMiB"] for p in readings.values()),
                         privateMiB=sum(p.memory_info().private for p in processes)/2**20,
-                        sharedMiB=sum(p["sharedMiB"] for p in readings.values())))
+                        sharedMiB=sum(p["sharedMiB"] for p in readings.values()), byProcess=readings))
                 end = call(pipe, "status")
                 frames = end["framesRendered"] - start_frame
                 assert end["packId"] == manifest["id"] and not end["error"] and (not rate or frames > 0), end
@@ -87,16 +86,6 @@ def trial(executable, package, output, native):
                     gpuEngineMsPerFrame=engine_ms/frames if frames else None, samples=samples)
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(json.dumps(record, indent=2), encoding="utf-8")
-        finally:
-            win32pdh.CloseQuery(counters.query)
-            if proc.poll() is None:
-                try:
-                    call(pipe, "stop", expectedPlayerPid=proc.pid, expectedRuntimeRoot=str(root))
-                    proc.wait(timeout=6)
-                finally:
-                    if proc.poll() is None:
-                        proc.kill()
-                        proc.wait()
 
 
 def main():

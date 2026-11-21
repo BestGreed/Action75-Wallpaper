@@ -138,14 +138,16 @@ def encode_settings(settings):
     return payload
 
 
-def native_check(validator, payload):
+def native_check(validator, payload, kind=None):
     with tempfile.TemporaryDirectory(prefix="action75-schema-") as scratch:
         path = Path(scratch) / "settings.json"
         path.write_bytes(payload)
         path = path.resolve(strict=True)
+        command = [str(validator.resolve(strict=True)), "--check-settings"]
+        if kind:
+            command.extend(("--kind", kind))
         result = subprocess.run(
-            [str(validator.resolve(strict=True)), "--check-settings", str(path)],
-            capture_output=True, encoding="utf-8", errors="replace",
+            [*command, str(path)], capture_output=True, encoding="utf-8", errors="replace",
         )
     require(result.returncode == 0, result.stderr.strip() or "native settings check failed")
     require(
@@ -173,7 +175,10 @@ def main():
     parser.add_argument("--compare", type=Path, help="require exact JSON values and array order")
     parser.add_argument("--native-check", type=Path, metavar="EXE",
                         help="also validate with action75_pack_settings_tests")
+    parser.add_argument("--kind", help="manifest kind used by --native-check, for example native")
     args = parser.parse_args()
+    if args.kind and not args.native_check:
+        parser.error("--kind requires --native-check")
     try:
         expander = Expander()
         settings = expander.expand(args.source)
@@ -183,7 +188,7 @@ def main():
             require(json.dumps(settings, sort_keys=True) == json.dumps(expected, sort_keys=True),
                     f"expanded settings differ from {args.compare}")
         if args.native_check:
-            native_check(args.native_check, payload)
+            native_check(args.native_check, payload, args.kind)
         if args.output:
             require(args.output.resolve() not in expander.sources, "the output would overwrite a recipe source")
             write_output(args.output, payload)

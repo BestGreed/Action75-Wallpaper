@@ -1,10 +1,10 @@
-param([string]$Compiler, [string]$Manager, [string]$Player, [string]$OutputDirectory)
+param([string]$Compiler, [string]$BuildReceipt, [string]$OutputDirectory, [string]$Wallpapers)
 
 $ErrorActionPreference = 'Stop'
 $arguments = @()
 if ($Compiler) { $arguments += @('--compiler', $Compiler) }
-if ($Manager) { $arguments += @('--manager', $Manager) }
-if ($Player) { $arguments += @('--player', $Player) }
+if ($BuildReceipt) { $arguments += @('--receipt', $BuildReceipt) }
+if ($Wallpapers) { $arguments += @('--wallpapers', $Wallpapers) }
 if ($OutputDirectory) { $arguments += @('--output-dir', $OutputDirectory) }
 
 & python (Join-Path $PSScriptRoot 'release_payload.py') @arguments

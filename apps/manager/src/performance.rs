@@ -69,6 +69,10 @@ impl PlayerProcesses {
         self.player_pid
     }
 
+    pub fn has_worker(self) -> bool {
+        self.worker_pid != 0
+    }
+
     fn contains(self, pid: u32) -> bool {
         pid != 0 && (pid == self.player_pid || pid == self.worker_pid)
     }
@@ -127,6 +131,7 @@ pub struct GpuReadings {
 
 pub struct Sample {
     pub at: Instant,
+    pub processes: PlayerProcesses,
     pub cpu: Option<f32>,
     pub memory: Option<PhysicalMemory>,
     pub player: Option<PlayerLoad>,
@@ -231,11 +236,25 @@ impl Sampler {
             .unwrap_or_default();
         Sample {
             at,
+            processes,
             cpu,
             memory: physical_memory(),
-            player: player.map(|load| load.with_worker(worker)),
+            player: combined_process_load(processes, player, worker),
             gpu,
         }
+    }
+}
+
+fn combined_process_load(
+    processes: PlayerProcesses,
+    player: Option<PlayerLoad>,
+    worker: Option<PlayerLoad>,
+) -> Option<PlayerLoad> {
+    if processes.has_worker() {
+        // A missing configured worker is not a player-only reading or zero load.
+        Some(player?.with_worker(Some(worker?)))
+    } else {
+        player
     }
 }
 
@@ -249,15 +268,16 @@ fn sample_process(
         *previous = None;
         return None;
     }
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok();
-    let time = handle.and_then(|process| ProcessTime::read(process, pid, at));
+    let Ok(handle) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else {
+        *previous = None;
+        return None;
+    };
+    let time = ProcessTime::read(handle, pid, at);
     let cpu = time
         .zip(*previous)
         .and_then(|(current, previous)| current.usage_since(previous, processors));
-    let working_set = handle.and_then(diagnostics::working_set_bytes);
-    if let Some(handle) = handle {
-        let _ = unsafe { CloseHandle(handle) };
-    }
+    let working_set = diagnostics::working_set_bytes(handle);
+    let _ = unsafe { CloseHandle(handle) };
     *previous = time;
     Some(PlayerLoad { cpu, working_set })
 }
@@ -531,6 +551,49 @@ mod tests {
         let player_only = player.with_worker(None);
         assert_eq!(player_only.cpu, player.cpu);
         assert_eq!(player_only.working_set, player.working_set);
+    }
+
+    #[test]
+    fn missing_process_is_unavailable_and_cannot_become_a_partial_total() {
+        let at = Instant::now();
+        let mut previous = Some(ProcessTime {
+            pid: u32::MAX,
+            created: 1,
+            ticks: 1,
+            at,
+        });
+        assert!(sample_process(u32::MAX, at, &mut previous, 1).is_none());
+        assert!(previous.is_none());
+        let player = PlayerLoad {
+            cpu: Some(10.),
+            working_set: Some(60 << 20),
+        };
+        assert!(combined_process_load(PlayerProcesses::new(1, 2), Some(player), None).is_none());
+        assert!(combined_process_load(PlayerProcesses::new(1, 2), None, Some(player)).is_none());
+        let alone = combined_process_load(PlayerProcesses::new(1, 0), Some(player), None).unwrap();
+        assert_eq!(alone.working_set, Some(60 << 20));
+        let combined =
+            combined_process_load(PlayerProcesses::new(1, 2), Some(player), Some(player)).unwrap();
+        assert_eq!(combined.working_set, Some(120 << 20));
+        assert_eq!(combined.cpu, Some(20.));
+    }
+
+    #[test]
+    fn live_process_uses_the_original_working_set_counter_and_cpu_warmup() {
+        let mut previous = None;
+        let pid = std::process::id();
+        let first = sample_process(pid, Instant::now(), &mut previous, 1).unwrap();
+        assert!(first.working_set.is_some_and(|bytes| bytes > 0));
+        assert!(first.cpu.is_none());
+        assert!(previous.is_some());
+        std::thread::sleep(Duration::from_millis(10));
+        let next = sample_process(pid, Instant::now(), &mut previous, 1).unwrap();
+        assert!(
+            next.cpu
+                .is_some_and(|value| value.is_finite() && (0.0..=100.).contains(&value))
+        );
+        assert!(sample_process(0, Instant::now(), &mut previous, 1).is_none());
+        assert!(previous.is_none());
     }
 
     #[test]

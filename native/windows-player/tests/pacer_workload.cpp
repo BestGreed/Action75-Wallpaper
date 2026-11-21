@@ -96,6 +96,14 @@ void edges() {
     check(!pacer.plan(now,true,false,false).due,"static second draw");
     pacer.rendered(now,60,true);
     check(!pacer.plan(now+1ms,true,false,true).due,"active due too early");
+    const auto normal = pacer.plan(now, true, false, true);
+    check(pacer.plan(now, true, false, true, 1ms).remaining == normal.remaining,
+          "a short plugin interval bypassed the cap");
+    check(pacer.plan(now, true, true, true, 1ms).remaining == normal.remaining,
+          "a dirty frame bypassed the cap for a short plugin interval");
+    check(pacer.plan(now, true, false, true, 33ms).remaining == 33ms,
+          "a long plugin interval did not slow the cadence");
+    check(!pacer.plan(now+33ms,false,false,true,33ms).due,"interval woke an unavailable output");
     check(pacer.plan(now+1ms,true,true,true).due,"active dirty not immediate");
     pacer.rendered(now+1ms,60,false);
     check(!pacer.plan(now+2ms,true,false,false).timed,"finished animation retains timer");

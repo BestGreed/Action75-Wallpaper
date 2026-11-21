@@ -5,6 +5,7 @@
   "kind": "native",
   "settings": "settings.json",
   "entry": "wallpaper.dll",
-  "abi": 1,
-  "preview": "preview.png"
+  "abi": 2,
+  "preview": "preview.png",
+  "renderer": "d3d12"
 }

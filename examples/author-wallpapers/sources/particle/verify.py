@@ -28,6 +28,14 @@ def check(player, preview):
                 shutil.copytree(PACK, target)
                 single = dict(manifest, effect=asset, effects=[asset])
                 (target/"manifest.json").write_text(json.dumps(single,ensure_ascii=False),encoding="utf-8")
+                settings_path = target / single["settings"]
+                settings = json.loads(settings_path.read_text(encoding="utf-8"))
+                # The complete pack exercises the playback rules. Each single-file
+                # trial uses the standard Effekseer path with one effect.
+                settings["groups"] = [
+                    group for group in settings["groups"] if group.get("presentation") != "variant-playback"
+                ]
+                settings_path.write_text(json.dumps(settings, ensure_ascii=False), encoding="utf-8")
             frame = EVIDENCE / ((Path(asset).stem if asset else "pack-trial")+".png")
             proc = subprocess.run([sys.executable, preview, "--player", player, "--pack", target, "--frame", frame],
                                   check=True, stdout=subprocess.PIPE, env=env)

@@ -1,4 +1,3 @@
-# C++ sources use two-space indentation and retain include order.
 BasedOnStyle: LLVM
 IndentWidth: 2
 ColumnLimit: 100

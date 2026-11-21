@@ -10,7 +10,8 @@
 #include "IpcServer.h"
 #include "KeycapEffect.h"
 #include "MonitorSelection.h"
-#include "NativeRenderer.h"
+#include "Dx12Output.h"
+#include "Dx12PresentCounters.h"
 #include "Action75Wallpaper.h"
 #include "NativePluginSession.h"
 #include "PackSettings.h"
@@ -32,13 +33,15 @@
 #include <dbt.h>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <psapi.h>
 #include <shellapi.h>
 #include <sstream>
 #include <string_view>
-#include <unordered_set>
+#include <thread>
+#include <utility>
 #include <vector>
 #include <windows.h>
 #include <windowsx.h>
@@ -187,15 +190,17 @@ static fs::path defaultRoot() {
       return dir;
   throw std::runtime_error("Project root not found; use --root");
 }
+enum class TestWindow { None, Native, Shared };
 struct Options {
   fs::path root, stateDir;
   std::wstring pipe, rootEndpoint;
   std::string command;
   bool selfTest = false, headless = false, probe = false, hardwareHeadless = false,
-       perfStats = false;
+       perfStats = false, dx12PresentStats = false;
   bool preferVolumeAtlas = false, backdropCopy = true;
-  bool importTrial = false;
+  bool importTrial = false, integratedTrial = false;
   bool explicitPipe = false;
+  TestWindow testWindow = TestWindow::None;
 };
 static Options options() {
   Options o;
@@ -223,10 +228,23 @@ static Options options() {
       o.headless = true;
     else if (arg == L"--headless-hardware")
       o.hardwareHeadless = true;
+    else if (arg == L"--headless-window") {
+      const auto route = value();
+      if (route == L"native")
+        o.testWindow = TestWindow::Native;
+      else if (route == L"shared")
+        o.testWindow = TestWindow::Shared;
+      else
+        throw std::runtime_error("Unknown diagnostic DX12 output route");
+    }
     else if (arg == L"--perf-stats")
       o.perfStats = true;
+    else if (arg == L"--dx12-present-stats")
+      o.dx12PresentStats = true;
     else if (arg == L"--probe")
       o.probe = true;
+    else if (arg == L"--integrated-gpu")
+      o.integratedTrial = true;
     else if (arg == L"--import-trial")
       o.importTrial = true;
     else if (arg == L"--volume-atlas")
@@ -237,6 +255,16 @@ static Options options() {
       throw std::runtime_error("Unknown command-line option");
   }
   LocalFree(argv);
+  if (o.testWindow != TestWindow::None) {
+    wchar_t desktop[128]{};
+    if (!o.headless || !o.hardwareHeadless || o.importTrial ||
+        !GetUserObjectInformationW(GetThreadDesktop(GetCurrentThreadId()), UOI_NAME,
+                                   desktop, sizeof(desktop), nullptr) ||
+        std::wstring_view(desktop).find(L"Action75MemQA-") != 0)
+      throw std::runtime_error("Window tests require an isolated Action75MemQA desktop");
+  }
+  if (o.integratedTrial && !o.importTrial)
+    throw std::runtime_error("--integrated-gpu applies only to --import-trial");
   if (o.importTrial) {
     if (o.root.empty())
       throw std::runtime_error("Wallpaper import trial requires a staging directory");
@@ -354,9 +382,12 @@ static void writeImportedPlayback(const fs::path &stateDir, const std::string &i
             {{"version", 1}, {"lastSuccessfulRevision", playback.lastSuccessful},
              {"attemptedRevision", playback.attempted}});
 }
+using CatalogScan = std::shared_future<std::shared_ptr<WallpaperCatalogSnapshot>>;
+
 struct CommandCall {
   const json *request;
   json response;
+  CatalogScan *legacyCatalogWait = nullptr;
 };
 
 static double clockSeconds(std::chrono::steady_clock::time_point time) noexcept {
@@ -371,14 +402,26 @@ struct Scene {
   std::unique_ptr<WaterSurface> water;
   std::unique_ptr<FireworksScene> fireworks;
   std::unique_ptr<GlassShatter> glass;
+  std::shared_ptr<Dx12CompositionSurface> compositionSurface;
   std::unique_ptr<NativePluginSession> plugin;
   int32_t pluginDelay = -1;
 
-  bool load(const Pack &pack, NativeRenderer &renderer, const Options &options,
+  bool load(const Pack &pack, PlayerOutput &renderer, const Options &options,
             const json &settings, std::string &error) {
     auto *device = renderer.device();
     if (pack.kind == "native") {
       plugin = std::make_unique<NativePluginSession>();
+      if (auto *output = renderer.dx12()) {
+        if (output->composes()) {
+          compositionSurface = output->makeCompositionSurface(error);
+          return compositionSurface &&
+                 plugin->startComposition(output->compositionAdapter(), compositionSurface->handle(),
+                                          pack.resourceDirectory, pack.nativeModule, renderer.width(),
+                                          renderer.height(), settings.dump(), error);
+        }
+        return plugin->start12(output->device(),pack.resourceDirectory,pack.nativeModule,renderer.width(),
+                               renderer.height(),settings.dump(),error);
+      }
       return plugin->start(device, pack.resourceDirectory, pack.nativeModule, renderer.width(),
                            renderer.height(), settings.dump(), error);
     }
@@ -434,7 +477,22 @@ struct Scene {
       keycaps->configure(appearance);
   }
 
-  bool draw(NativeRenderer &renderer, double now, bool paused, std::string &error) {
+  bool draw(PlayerOutput &renderer, double now, bool paused, std::string &error) {
+    if (auto *output=renderer.dx12()) {
+      if (!plugin) return false;
+      if (compositionSurface) {
+        HRESULT presented = S_OK;
+        if (!output->showComposition(compositionSurface, error) ||
+            !plugin->renderComposition(now, pluginDelay, output->validating, presented, error))
+          return false;
+        if (!output->validating)
+          output->recordCompositionPresent(presented);
+        return true;
+      }
+      return plugin->render12(now,pluginDelay,[output](auto *surface,auto *fence,UINT64 value,std::string &failure) {
+        return output->copyFrame(surface,fence,value,failure);
+      },error);
+    }
     if (plugin)
       return plugin->render(renderer.outputTexture(), now, pluginDelay, error);
     renderer.beginFrame(water || fireworks || glass);
@@ -475,7 +533,7 @@ public:
 private:
   json status() const;
   json listMonitors(const std::vector<Monitor> &displays) const;
-  json listDevices() const;
+  json listDevices(bool refresh = false);
   json listPacks(const json &request);
   json catalogEntry(const Pack &pack) const;
   json listPalettes() const;
@@ -490,19 +548,32 @@ private:
   }
   void chooseMonitor(bool persistBinding, const std::vector<Monitor> &displays);
   bool offscreenOnly() const { return options_.headless && !testMonitors_; }
+  bool usesOutputWindow() const { return !options_.headless || options_.testWindow != TestWindow::None; }
+  bool gpuDeviceLost() const {
+    return renderer_.deviceLost() || (scene_.plugin && scene_.plugin->compositionDeviceLost());
+  }
+  bool outputReady() const {
+    return hasMonitor_ && !graphicsSuspended_ && !outputRetryAt_ && renderer_.hasRenderTarget();
+  }
   int handleKey(const KeyEvent &event);
-  bool resizeOutput(unsigned width, unsigned height);
+  bool resizeOutput(unsigned width, unsigned height, std::string &error);
   bool selectPack(const std::string &id, std::string &error);
   bool selectCandidate(const Pack &pack, std::string &error);
   bool restoreSelection(const std::string &id, std::string &error);
   json protectedImportRevisions(const std::string &id) const;
   bool activatePack(const Pack *found, std::string &error, bool restoringDevice = false);
+  bool activateOnCurrentOutput(const Pack *found,std::string &error,bool restoringDevice);
+  bool initializeOutput(bool use12, unsigned width, unsigned height, bool temporary,
+                        std::string &error, bool allowComposition = true);
+  const Pack *selectedPack() const;
   bool importUpdatePending(const Pack &pack) const;
   void updateVisibility();
   void refreshDisplayGuard();
   void stopEffects();
   void applyAppearance();
   void refreshPacks();
+  void publishCatalog(WallpaperCatalogSnapshot &snapshot);
+  void startCatalogScan();
   const Pack &requirePack(const std::string &id) const;
   void applyProfile(const PackSettingsCandidate &profile, const PackAppearance &appearance);
   void updateProfile(PackSettingsCandidate &profile, const PackAppearance &appearance,
@@ -511,6 +582,8 @@ private:
   bool pluginPointerEnabled() const;
   void resetPluginPointer(bool cancel = true);
   void pluginFailed();
+  void fallBackAfterWallpaperFailure();
+  void retryMissingWallpaper(FramePacer::Time now);
   bool canClickScene() const;
   std::array<float, 2> pointerPosition(POINT client) const;
   bool validateUniforms(const std::vector<int> &effects, const PackAppearance &appearance,
@@ -543,13 +616,22 @@ private:
   std::string legacyPackId_;
   HWND window_ = nullptr;
   GpuPreference gpuPreference_ = GpuPreference::Discrete;
-  NativeRenderer renderer_;
+  PlayerOutput renderer_;
+  unsigned idleWidth_=1920,idleHeight_=720;
   EffekseerBackend effects_;
   Scene scene_;
   std::string pluginFallback_;
+  std::string preservedPackId_;
+  fs::path activeNativeModule_;
+  bool activeNativeUsesD3D12_ = false;
+  struct MissingWallpaper {
+    fs::path module;
+    FramePacer::Time retryAt;
+    std::chrono::seconds delay{1};
+  };
+  std::optional<MissingWallpaper> missingWallpaper_;
   bool pluginRecoveryPending_ = false;
-  bool pluginCaptured_ = false, pluginPaused_ = false;
-  FramePacer::Time pluginLastDraw_{};
+  bool pluginPointerDown_ = false, pluginPaused_ = false;
   bool effekseerReady_ = false;
   std::unique_ptr<RawKeyboard> keyboard_;
   IpcServer server_;
@@ -573,9 +655,10 @@ private:
   bool runtimeControls_ = false;
   uint64_t framesRendered_ = 0;
   uint64_t effectsEvicted_ = 0;
+  Dx12PresentCounters dx12PresentCounters_;
   FramePacer pacer_;
   FrameLatencyGuard swapWait_;
-  std::optional<FramePacer::Time> deviceRetryAt_, monitorSuspendAt_;
+  std::optional<FramePacer::Time> deviceRetryAt_, monitorSuspendAt_, outputRetryAt_;
   bool graphicsSuspended_ = false, ignoreSwapWait_ = false;
   std::unique_ptr<PerfStats> perf_;
   bool highResolutionWait_ = false;
@@ -589,10 +672,12 @@ private:
   std::vector<EffectRgb> effectPaletteColors_ = defaultCustomPalette();
   std::string packId_, monitorDevice_, error_;
   std::optional<std::vector<Monitor>> testMonitors_;
+  bool testResizeFailure_ = false;
   std::string storedMonitorDevice_, monitorError_;
   DisplayIdentity monitorIdentity_;
   std::vector<Pack> packs_;
   std::uint64_t catalogRevision_ = 0;
+  CatalogScan catalogScan_;
   std::chrono::steady_clock::time_point lastFrame_ = std::chrono::steady_clock::now();
   std::chrono::steady_clock::time_point lastInput_ = std::chrono::steady_clock::now();
 };
@@ -609,18 +694,23 @@ json Player::status() const {
   k.HighPart = kernel.dwHighDateTime;
   u.LowPart = user.dwLowDateTime;
   u.HighPart = user.dwHighDateTime;
-  return {
+  json result = {
       {"running", true},
       {"exitShortcutRegistered", exitShortcut_},
       {"playerPid", GetCurrentProcessId()},
       {"nativeWorkerPid", scene_.plugin ? scene_.plugin->workerPid() : 0},
+      {"nativeWorkerAbi", scene_.plugin ? scene_.plugin->renderAbi() : 0},
+      {"hostD3D11Device", renderer_.device() != nullptr},
+      {"hostD3D12Device", renderer_.dx12() && renderer_.dx12()->device()},
+      {"dx12Presentation", !renderer_.dx12() ? "none" : renderer_.dx12()->composes() ?
+                               "worker-composition" : "shared-copy"},
       {"runtimeRoot", utf8(options_.root.wstring())},
       {"inputElevated", processElevated()},
       {"playerStateDirectory", utf8(options_.stateDir.wstring())},
       {"playerExplicitPipe", options_.explicitPipe ? utf8(options_.pipe) : ""},
       {"headlessHardware", options_.hardwareHeadless},
       {"presentPending", renderer_.presentPending()},
-      {"gpuRecovering", deviceRetryAt_.has_value()},
+      {"gpuRecovering", deviceRetryAt_.has_value() || outputRetryAt_.has_value()},
       {"graphicsSuspended", graphicsSuspended_},
       {"presentsCompleted", renderer_.presentsCompleted()},
       {"presentsBusy", renderer_.presentsBusy()},
@@ -666,6 +756,7 @@ json Player::status() const {
       {"calibratedKeys", mapping_.keys.size()},
       {"monitorDevice", monitorDevice_},
       {"monitorConnected", hasMonitor_},
+      {"outputReady", outputReady()},
       {"monitorError", monitorError_.empty() ? json(nullptr) : json(monitorError_)},
       {"exclusiveDisplay", exclusiveDisplay_},
       {"gpuPreference", gpuPreference_ == GpuPreference::Integrated ? "integrated" : "discrete"},
@@ -686,7 +777,7 @@ json Player::status() const {
       {"activeParticles",
        scene_.fireworks ? scene_.fireworks->particleCount()
        : scene_.procedural ? scene_.procedural->particleCount() : effects_.ActiveParticleCount()},
-      {"renderer", scene_.plugin ? "D3D11/NativePlugin"
+      {"renderer", !renderer_.hasRenderTarget() ? "none" : renderer_.dx12() ? (scene_.plugin ? "D3D12/NativePlugin" : "D3D12") : scene_.plugin ? "D3D11/NativePlugin"
                    : scene_.water ? "D3D11/WaterSurface"
                    : scene_.fireworks ? "D3D11/Fireworks+HDR"
                    : scene_.glass ? "D3D11/GlassShatter"
@@ -707,6 +798,19 @@ json Player::status() const {
       {"error", error_.empty() ? json(nullptr) : json(error_)},
       {"headless", options_.headless},
       {"nativePaintballReady", false}};
+  if (options_.dx12PresentStats) {
+    const auto &counters = dx12PresentCounters_;
+    result["dx12PresentStats"] = {{"drawCalls", counters.drawCalls},
+                                  {"presentResults", counters.presentResults},
+                                  {"submitted", counters.submitted},
+                                  {"busy", counters.busy},
+                                  {"occluded", counters.occluded},
+                                  {"otherResults", counters.otherResults},
+                                  {"retries", counters.retries},
+                                  {"retriesWithDraw", counters.retriesWithDraw},
+                                  {"idleRetriesWithDraw", counters.idleRetriesWithDraw}};
+  }
+  return result;
 }
 json Player::listMonitors(const std::vector<Monitor> &displays) const {
   json list = json::array();
@@ -716,6 +820,7 @@ json Player::listMonitors(const std::vector<Monitor> &displays) const {
     std::string id = utf8(m.device);
     list.push_back({{"device", id},
                     {"monitorIdentity", utf8(m.identity.path)},
+                    {"monitorSerial", utf8(m.identity.serial)},
                     {"label", std::string(m.primary ? "主屏"
                                                     : (width == 1920 && height == 720 ? "键盘屏候选"
                                                                                       : "显示器")) +
@@ -729,9 +834,15 @@ json Player::listMonitors(const std::vector<Monitor> &displays) const {
   }
   return list;
 }
-json Player::listDevices() const {
+json Player::listDevices(bool refresh) {
+  const auto devices = refresh && keyboard_ ? keyboard_->refreshDevices()
+                                             : RawKeyboard::enumerate(mapping_.deviceGroup);
+  if (!devices)
+    throw std::runtime_error("无法读取键盘设备，请重试刷新。");
   json list = json::array();
-  for (const auto &d : RawKeyboard::enumerate(mapping_.deviceGroup)) {
+  for (const auto &d : *devices) {
+    if (d.path.empty())
+      continue;
     std::string path = utf8(d.path);
     std::string folded = path;
     std::transform(folded.begin(), folded.end(), folded.begin(),
@@ -772,19 +883,31 @@ json Player::catalogEntry(const Pack &p) const {
 }
 json Player::listPacks(const json &request) {
   json list = json::array();
-  if (!request.contains("offset")) {
-    refreshPacks();
-    for (const auto &pack : packs_)
-      list.push_back(catalogEntry(pack));
-    return list;
-  }
-
-  const auto &cursor = request.at("offset");
+  const bool paginated = request.contains("offset");
+  const auto cursor = paginated ? request.at("offset") : json(0);
   if (!cursor.is_number_integer() || cursor < 0)
     throw std::runtime_error("Invalid wallpaper catalog offset");
   const auto offset = cursor.get<std::uint64_t>();
   if (offset == 0) {
-    refreshPacks();
+    if (!request.contains("catalogRefreshRevision")) {
+      if (!catalogScan_.valid())
+        startCatalogScan();
+      return {{"pendingCatalogRevision", catalogRevision_ + 1}};
+    }
+    const auto &refresh = request.at("catalogRefreshRevision");
+    if (!refresh.is_number_integer() || refresh <= 0)
+      throw std::runtime_error("Invalid wallpaper catalog refresh revision");
+    const auto revision = refresh.get<std::uint64_t>();
+    if (revision > catalogRevision_) {
+      if (revision != catalogRevision_ + 1 || !catalogScan_.valid())
+        throw std::runtime_error("Unknown wallpaper catalog refresh");
+      if (catalogScan_.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+        return {{"pendingCatalogRevision", revision}};
+      // Drop the pending ticket even when the scan threw. The last published
+      // list remains valid and a later request can start a new scan.
+      auto finished = std::exchange(catalogScan_, {});
+      publishCatalog(*finished.get());
+    }
   } else if (!request.contains("catalogRevision") ||
              !request.at("catalogRevision").is_number_integer() ||
              request.at("catalogRevision") != catalogRevision_) {
@@ -792,6 +915,11 @@ json Player::listPacks(const json &request) {
   }
   if (offset > packs_.size())
     throw std::runtime_error("Invalid wallpaper catalog offset");
+  if (!paginated) {
+    for (const auto &pack : packs_)
+      list.push_back(catalogEntry(pack));
+    return list;
+  }
 
   // Budget serialized UTF-8 bytes, including JSON escapes. Leave room for
   // the page cursor, envelope and newline under the 64 KiB transport limit.
@@ -835,7 +963,7 @@ json Player::listPalettes() const {
 void Player::saveSettings() {
   writeJson(options_.stateDir / L"native-player.json", {{"version", 1},
                                                         {"fps", fps_},
-                                                        {"packId", packId_},
+                                                        {"packId", preservedPackId_.empty() ? packId_ : preservedPackId_},
                                                         {"monitorDevice", storedMonitorDevice_},
                                                         {"monitorTargetPath", utf8(monitorIdentity_.path)},
                                                         {"monitorTargetSerial", utf8(monitorIdentity_.serial)},
@@ -845,39 +973,48 @@ void Player::saveSettings() {
                                                         {"exclusiveDisplay", exclusiveDisplay_}});
 }
 void Player::refreshPacks() {
-  auto discovered = packs(options_.root);
-  if (activeImportedPack_ && std::none_of(discovered.begin(), discovered.end(), [&](const Pack &pack) {
-        return samePackId(pack.id, activeImportedPack_->id);
-      })) {
-    const auto directories = wallpaperDirectories(options_.root);
-    const auto parent = activeImportedPack_->directory.parent_path();
-    const auto stillInLibrary = std::any_of(directories.begin(), directories.end(), [&](const fs::path &dir) {
-      std::error_code ec;
-      return fs::equivalent(parent, dir, ec);
-    });
-    if (stillInLibrary) {
-      const ImportedRevision revision{activeImportedPack_->id, activeImportedPack_->importedRevision};
-      auto recovered = packs(options_.root, &revision);
-      if (!recovered.empty())
-        discovered.push_back(std::move(recovered.front()));
-    }
+  auto snapshot = scanWallpaperCatalog(options_.root, options_.stateDir, activeImportedPack_,
+                                       settings_.catalogSchemas());
+  // A synchronous reload has newer directory contents than any scan it supersedes.
+  catalogScan_ = {};
+  publishCatalog(snapshot);
+}
+void Player::startCatalogScan() {
+  std::packaged_task<std::shared_ptr<WallpaperCatalogSnapshot>()> task(
+      [root = options_.root, state = options_.stateDir, active = activeImportedPack_,
+       schemas = settings_.catalogSchemas()] {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+        return std::make_shared<WallpaperCatalogSnapshot>(scanWallpaperCatalog(root, state, active, schemas));
+      });
+  auto future = task.get_future().share();
+  // The task holds only value copies and can finish without the player or its window.
+  std::thread(std::move(task)).detach();
+  catalogScan_ = std::move(future);
+}
+void Player::publishCatalog(WallpaperCatalogSnapshot &snapshot) {
+  auto &listed = snapshot.entries;
+  std::string rejected;
+  const auto alias = std::find_if(listed.begin(), listed.end(), [&](const Pack &pack) {
+    return pack.id != packId_ && samePackId(pack.id, packId_);
+  });
+  if (alias != listed.end()) {
+    rejected = alias->id;
+    listed.erase(alias);
   }
-  std::unordered_set<std::string> retained;
-  for (const auto &pack : discovered) retained.insert(pack.id);
-  if (!packId_.empty()) retained.insert(packId_);
-  settings_.retainPacks(retained);
-  std::vector<Pack> accepted;
-  for (auto &pack : discovered) {
-    try {
-      // Keep the controls bound to the loaded version until the user selects the update.
-      const auto &loaded = importUpdatePending(pack) ? *activeImportedPack_ : pack;
-      settings_.registerPack(pack.id, loaded.directory, loaded.settings, loaded.kind);
-      accepted.push_back(std::move(pack));
-    } catch (const std::exception &) { /* A conflicting extension must not block
-                                          other wallpapers. */
-    }
-  }
-  packs_ = std::move(accepted);
+  const auto active = std::find_if(listed.begin(), listed.end(), [&](const Pack &pack) {
+    return pack.id == packId_;
+  });
+  const bool keepActive = active == listed.end() || importUpdatePending(*active);
+  // A retained revision discovered before a wallpaper switch must not be listed
+  // as the active recovery option for the newly selected wallpaper.
+  if (active == listed.end() && snapshot.retainedActive && activeImportedPack_ &&
+      snapshot.retainedActive->id == activeImportedPack_->id &&
+      snapshot.retainedActive->directory == activeImportedPack_->directory &&
+      snapshot.retainedActive->importedRevision == activeImportedPack_->importedRevision)
+    listed.push_back(std::move(*snapshot.retainedActive));
+  settings_.adoptCatalog(snapshot.settings, snapshot.unchangedSchemas,
+                         keepActive ? packId_ : std::string(), rejected);
+  packs_.swap(listed);
   ++catalogRevision_;
 }
 bool Player::importUpdatePending(const Pack &pack) const {
@@ -971,9 +1108,18 @@ void Player::applyProfile(const PackSettingsCandidate &profile, const PackAppear
   applyAppearance();
   dirty_ = true;
 }
-bool Player::resizeOutput(unsigned width, unsigned height) {
-  if (!renderer_.resize(width, height, error_))
+bool Player::resizeOutput(unsigned width, unsigned height, std::string &error) {
+  if (std::exchange(testResizeFailure_, false)) {
+    error = "Diagnostic output resize failed";
     return false;
+  }
+  if (!renderer_.device() && !renderer_.dx12()) {
+    error = "Graphics output is unavailable";
+    return false;
+  }
+  if (!renderer_.resize(width, height, error))
+    return false;
+  dx12PresentCounters_.discardPending();
   effects_.Resize(width, height);
   if (scene_.plugin) {
     try {
@@ -1021,6 +1167,7 @@ void Player::chooseMonitor(bool persistBinding, const std::vector<Monitor> &list
                         : "无法确认键盘屏，请重新连接或选择显示器。";
   }
   if (!hasMonitor_ || offscreenOnly()) {
+    outputRetryAt_.reset();
     if (!offscreenOnly()) {
       deviceRetryAt_.reset();
       if (!graphicsSuspended_ && !monitorSuspendAt_)
@@ -1030,34 +1177,49 @@ void Player::chooseMonitor(bool persistBinding, const std::vector<Monitor> &list
     updateVisibility();
     return;
   }
-  if (monitorSuspendAt_ && (pluginRecoveryPending_ || renderer_.deviceLost()))
+  if (monitorSuspendAt_ && (pluginRecoveryPending_ || gpuDeviceLost()))
     graphicsSuspended_ = true;
   monitorSuspendAt_.reset();
   RECT r = chosen->bounds;
   unsigned width = r.right - r.left, height = r.bottom - r.top;
-  if (!graphicsSuspended_ && renderer_.device() &&
-      (!renderer_.hasRenderTarget() || renderer_.width() != width || renderer_.height() != height)) {
-    hasMonitor_ = resizeOutput(width, height);
+  const auto retryOutput = [&](const std::string &error) {
+    const bool alreadyRetrying = outputRetryAt_.has_value();
+    outputRetryAt_ = FramePacer::Clock::now() +
+                     std::chrono::milliseconds(alreadyRetrying ? 1000 : 250);
+    monitorError_ = "无法在键盘屏上建立输出，正在重试。";
+    if (!alreadyRetrying) {
+      diagnostics_.write("WARN", error);
+      stopEffects();
+    }
+    updateVisibility();
+  };
+  if (usesOutputWindow() && !sameOutput &&
+      !SetWindowPos(window_, nullptr, r.left, r.top, width, height, SWP_NOACTIVATE | SWP_NOZORDER)) {
+    retryOutput("Place keyboard screen window failed: " + std::to_string(GetLastError()));
+    return;
   }
-  if (hasMonitor_ && !options_.headless && !sameOutput && !SetWindowPos(window_, nullptr, r.left, r.top, width, height,
-                                  SWP_NOACTIVATE | SWP_NOZORDER)) {
-    hasMonitor_ = false;
+  std::string resizeError;
+  if (!graphicsSuspended_ && (renderer_.device() || renderer_.dx12()) &&
+      (outputRetryAt_ || !renderer_.hasRenderTarget() ||
+       renderer_.width() != width || renderer_.height() != height) &&
+      !resizeOutput(width, height, resizeError)) {
+    retryOutput(resizeError);
+    return;
   }
-  if (!hasMonitor_) {
-    monitorDevice_.clear();
-    monitorError_ = "无法在键盘屏上建立输出，请重新选择显示器。";
-    stopEffects();
-  } else if (graphicsSuspended_ && !deviceRetryAt_) {
+  outputRetryAt_.reset();
+  if (graphicsSuspended_ && !deviceRetryAt_ && !packId_.empty()) {
     // Rebuild on the window thread before dispatching queued keyboard input.
     deviceRetryAt_ = FramePacer::Clock::now();
     recoverGraphics();
     return;
   }
+  if (packId_.empty())
+    graphicsSuspended_ = false;
   dirty_ = true;
   updateVisibility();
 }
 void Player::updateVisibility() {
-  const bool suspended = paused_ || !visible_ || (!hasMonitor_ && !offscreenOnly());
+  const bool suspended = paused_ || !visible_ || (!outputReady() && !offscreenOnly());
   renderer_.setBackgroundPaused(suspended);
   if (scene_.plugin && suspended != pluginPaused_) {
     pluginPaused_ = suspended;
@@ -1065,8 +1227,13 @@ void Player::updateVisibility() {
   }
   if (!pluginPointerEnabled())
     resetPluginPointer();
+  if (window_ && options_.testWindow != TestWindow::None) {
+    const bool showing = visible_ && outputReady() && !packId_.empty();
+    if (showing != (IsWindowVisible(window_) != FALSE))
+      ShowWindow(window_, showing ? SW_SHOWNOACTIVATE : SW_HIDE);
+  }
   if (window_ && !options_.headless) {
-    const bool showing = visible_ && hasMonitor_ && !graphicsSuspended_ && !packId_.empty();
+    const bool showing = visible_ && outputReady() && !packId_.empty();
     const auto style = GetWindowLongPtrW(window_, GWL_EXSTYLE);
     const bool pointerInteraction = pluginPointerEnabled() || canClickScene();
     const auto pointerStyle = pointerInteraction ? style & ~WS_EX_TRANSPARENT
@@ -1098,7 +1265,7 @@ void Player::refreshDisplayGuard() {
   // suspends it.
   displayGuard_.configure(window_, wide(monitorDevice_), monitorIdentity_,
                           exclusiveDisplay_ && visible_ && !packId_.empty(),
-                          temporaryPauseOwner_ != nullptr || (graphicsSuspended_ && hasMonitor_));
+                          temporaryPauseOwner_ != nullptr || (hasMonitor_ && !outputReady()));
 }
 void Player::stopEffects() {
   resetPluginPointer(false);
@@ -1158,16 +1325,16 @@ void Player::applyAppearance() {
 bool Player::selectPack(const std::string &id, std::string &error) {
   if (id.empty()) {
     stopEffects();
-    pluginRecoveryPending_ = false;
-    scene_ = {};
-    effects_.Shutdown();
-    effekseerReady_ = false;
-    renderer_.clearBackground();
-    effectId_ = -1;
-    effectIds_.clear();
-    effectPlayback_.reset();
+    if (renderer_.hasRenderTarget()) {
+      idleWidth_ = renderer_.width();
+      idleHeight_ = renderer_.height();
+    }
+    releaseGraphics();
+    deviceRetryAt_.reset();
     runtimeControls_ = false;
     packId_.clear();
+    activeNativeModule_.clear();
+    activeNativeUsesD3D12_ = false;
     activeProfile_.reset();
     activeImportedPack_.reset();
     activeAppearance_ = PackAppearance{};
@@ -1215,7 +1382,7 @@ bool Player::selectCandidate(const Pack &pack, std::string &error) {
   const bool temporaryGraphics = graphicsSuspended_;
   bool activated = false;
   try {
-    if (!temporaryGraphics || renderer_.initialize(nullptr, 1920, 720, true, error, true, gpuPreference_))
+    if (!temporaryGraphics || initializeOutput(pack.usesD3D12,1920,720,true,error))
       activated = activatePack(&pack, error);
   } catch (const std::exception &failure) {
     error = failure.what();
@@ -1279,7 +1446,8 @@ bool Player::restoreSelection(const std::string &id, std::string &error) {
 json Player::protectedImportRevisions(const std::string &id) const {
   json revisions = json::array();
   const auto keep = [&](const std::string &revision) {
-    if (!revision.empty() && std::find(revisions.begin(), revisions.end(), revision) == revisions.end())
+    if (!revision.empty() &&
+        std::find(revisions.begin(), revisions.end(), revision) == revisions.end())
       revisions.push_back(revision);
   };
   keep(readImportedPlayback(options_.stateDir, id).lastSuccessful);
@@ -1290,8 +1458,90 @@ json Player::protectedImportRevisions(const std::string &id) const {
       keep(pack.importedRevision);
   return revisions;
 }
+const Pack *Player::selectedPack() const {
+  if (activeImportedPack_)
+    return &*activeImportedPack_;
+  auto found = std::find_if(packs_.begin(), packs_.end(),
+                            [&](const Pack &pack) { return pack.id == packId_; });
+  return found == packs_.end() ? nullptr : &*found;
+}
+bool Player::initializeOutput(bool use12, unsigned width, unsigned height, bool temporary,
+                              std::string &error, bool allowComposition) {
+  const bool offscreen = temporary || !usesOutputWindow() || options_.importTrial;
+  const bool hardware = temporary || options_.hardwareHeadless || (options_.importTrial && use12);
+  if (!renderer_.initialize(window_, width, height, offscreen, error, hardware, gpuPreference_,
+                            use12, allowComposition && options_.testWindow != TestWindow::Shared))
+    return false;
+  diagnostics_.write("INFO", std::string(renderer_.dx12() ? "D3D12 adapter " : "D3D11 adapter ") +
+                                utf8(renderer_.adapterName()));
+  renderer_.allowBackdropCopy(options_.backdropCopy);
+  if (options_.perfStats && options_.headless && !use12) {
+    auto stats = std::make_unique<PerfStats>();
+    if (stats->initialize(renderer_.device()))
+      perf_ = std::move(stats);
+  }
+  return true;
+}
 bool Player::activatePack(const Pack *found, std::string &error, bool restoringDevice) {
-  if (renderer_.deviceLost()) {
+  const auto activate = [&] {
+    if (activateOnCurrentOutput(found, error, restoringDevice))
+      return true;
+    const auto *output = renderer_.dx12();
+    if (!output || !output->composes() || scene_.plugin || gpuDeviceLost())
+      return false;
+    // The worker or driver may decline composition. Before a scene has been
+    // accepted, use the same D3D12 pack on the existing shared-copy route.
+    const auto w = renderer_.width(), h = renderer_.height();
+    diagnostics_.write("WARN", "D3D12 composition unavailable: " + error);
+    error.clear();
+    return initializeOutput(true, w, h, graphicsSuspended_, error, false) &&
+           activateOnCurrentOutput(found, error, restoringDevice);
+  };
+  if (!renderer_.hasRenderTarget() && !renderer_.device() && !renderer_.dx12() && packId_.empty()) {
+    unsigned w = idleWidth_, h = idleHeight_;
+    RECT rect{};
+    if (usesOutputWindow() && GetClientRect(window_, &rect) && rect.right > 0 && rect.bottom > 0) {
+      w = static_cast<unsigned>(rect.right);
+      h = static_cast<unsigned>(rect.bottom);
+    }
+    if (!initializeOutput(found->usesD3D12, w, h, graphicsSuspended_, error))
+      return false;
+    if (activate())
+      return true;
+    releaseGraphics();
+    return false;
+  }
+  const bool previous12 = renderer_.dx12() != nullptr;
+  if (found->usesD3D12 == previous12)
+    return activate();
+  if (gpuDeviceLost() || !renderer_.hasRenderTarget() ||
+      (deviceRetryAt_ && !restoringDevice && !graphicsSuspended_)) {
+    error = "Graphics output is unavailable";
+    return false;
+  }
+  const auto w = renderer_.width(), h = renderer_.height();
+  const auto *previous = selectedPack();
+  // DXGI permits only one flip chain per HWND. Restore the last accepted pack
+  // and profile if replacement device creation or first-frame validation fails.
+  releaseGraphics();
+  try {
+    if (initializeOutput(found->usesD3D12, w, h, graphicsSuspended_, error) &&
+        activate())
+      return true;
+  } catch (const std::exception &failure) {
+    error = failure.what();
+  }
+  releaseGraphics();
+  std::string rollback;
+  if (!initializeOutput(previous12, w, h, graphicsSuspended_, rollback) ||
+      (previous && activeProfile_ && !activateOnCurrentOutput(previous, rollback, true))) {
+    error += ". Could not restore previous output: " + rollback;
+    scheduleDeviceRecovery(error);
+  }
+  return false;
+}
+bool Player::activateOnCurrentOutput(const Pack *found, std::string &error, bool restoringDevice) {
+  if (gpuDeviceLost()) {
     error = "Graphics device was lost";
     scheduleDeviceRecovery(error);
     return false;
@@ -1375,12 +1625,12 @@ bool Player::activatePack(const Pack *found, std::string &error, bool restoringD
   }
   auto oldBackground = renderer_.takeBackground();
   const auto prepareFirstFrame = [&] {
-    const bool backgroundLoaded =
+    const bool backgroundLoaded = renderer_.dx12() || (
         !found->canvasEffect.empty()
             ? renderer_.loadCanvasBackground(found->canvasEffect, error)
             : found->background.empty() ||
                   renderer_.loadBackground(found->background, error,
-                                           candidate.sprite ? 4194304u : 33554432u);
+                                           candidate.sprite ? 4194304u : 33554432u));
     if (!backgroundLoaded)
       return false;
     candidate.configure(appearance);
@@ -1411,7 +1661,7 @@ bool Player::activatePack(const Pack *found, std::string &error, bool restoringD
   if (!ready) {
     renderer_.restoreBackground(std::move(oldBackground));
     discardCandidates();
-    if (renderer_.deviceLost())
+    if (gpuDeviceLost())
       scheduleDeviceRecovery(error);
     return false;
   }
@@ -1432,6 +1682,9 @@ bool Player::activatePack(const Pack *found, std::string &error, bool restoringD
   if (candidate.plugin && packId_ != id)
     pluginFallback_ = packId_;
   scene_ = std::move(candidate);
+  dx12PresentCounters_.discardPending();
+  activeNativeModule_ = found->nativeModule;
+  activeNativeUsesD3D12_ = found->usesD3D12;
   pluginPaused_ = false;
   runtimeControls_ = found->runtimeControls;
   if (effekseerReady_)
@@ -1449,7 +1702,7 @@ bool Player::activatePack(const Pack *found, std::string &error, bool restoringD
   return true;
 }
 int Player::handleKey(const KeyEvent &event) {
-  if (paused_ || !visible_ || !hasMonitor_ || graphicsSuspended_)
+  if (paused_ || !visible_ || !outputReady())
     return -1;
   if (event.down)
     return trigger(event.x, event.y, event.code);
@@ -1575,7 +1828,8 @@ json Player::dispatch(const json &request) {
                                                 : "Player directory changed");
     json result;
     if (action != "status" && action != "perfRead" && action != "perfReset" &&
-        action != "getPackSettings" && action != "previewPackSettings" && action != "testTrigger")
+        action != "getPackSettings" && action != "previewPackSettings" && action != "listMonitors" &&
+        action != "listPacks" && action != "testTrigger")
       diagnostics_.write("INFO", action);
     if (action == "suspendDiagnostics") {
       diagnostics_.suspend(true);
@@ -1603,9 +1857,13 @@ json Player::dispatch(const json &request) {
       // Exercise monitor selection and its timer with a real offscreen device.
       // The optional key is delivered before the main loop can retry recovery.
       const auto name = wide(request.at("device").get<std::string>());
+      const auto width = request.value("width", 1920L), height = request.value("height", 720L);
+      if (width < 1 || width > 4096 || height < 1 || height > 2160)
+        throw std::runtime_error("Invalid diagnostic monitor size");
+      testResizeFailure_ = request.value("failResizeOnce", false);
       testMonitors_.emplace();
       if (!name.empty()) {
-        const RECT bounds{0, 0, 1920, 720};
+        const RECT bounds{0, 0, width, height};
         testMonitors_->push_back({name, bounds, bounds, false, {name, L"test-keyboard"}});
       }
       chooseMonitor(true);
@@ -1620,8 +1878,9 @@ json Player::dispatch(const json &request) {
       const int width = request.at("width").get<int>(), height = request.at("height").get<int>();
       if (width < 1 || height < 1 || width > 4096 || height > 2160)
         throw std::runtime_error("Invalid diagnostic output size");
-      if (!resizeOutput(width, height))
-        throw std::runtime_error(error_);
+      std::string error;
+      if (!resizeOutput(width, height, error))
+        throw std::runtime_error(error);
       dirty_ = true;
       result = status();
     } else if (action == "testFrame" && options_.headless) {
@@ -1637,7 +1896,7 @@ json Player::dispatch(const json &request) {
     } else if (action == "refreshDevices") {
       const auto displays = monitors();
       chooseMonitor(true, displays);
-      result = {{"monitors", listMonitors(displays)}, {"devices", listDevices()}};
+      result = {{"monitors", listMonitors(displays)}, {"devices", listDevices(true)}};
     } else if (action == "listMonitors")
       result = listMonitors(monitors());
     else if (action == "listDevices")
@@ -1688,6 +1947,8 @@ json Player::dispatch(const json &request) {
       std::string error;
       if (!selectPack(request.at("id").get<std::string>(), error))
         throw std::runtime_error(error);
+      preservedPackId_.clear();
+      missingWallpaper_.reset();
       error_.clear();
       try {
         saveSettings();
@@ -1749,10 +2010,13 @@ json Player::dispatch(const json &request) {
         else
           throw std::runtime_error("Unknown global setting: " + key);
       }
-      if (requireConnectedKeyboard &&
-          (!changes.contains("deviceGroup") ||
-           !connectedKeyboardGroup(group, RawKeyboard::enumerate(""))))
-        throw std::runtime_error("所选键盘已断开，请连接后刷新设备，或选择其他键盘。");
+      if (requireConnectedKeyboard) {
+        const auto devices = RawKeyboard::enumerate("");
+        if (!devices)
+          throw std::runtime_error("无法读取键盘设备，请重试刷新。");
+        if (!changes.contains("deviceGroup") || !connectedKeyboardGroup(group, *devices))
+          throw std::runtime_error("所选键盘已断开，请连接后刷新设备，或选择其他键盘。");
+      }
       std::optional<PackSettingsCandidate> profile;
       PackAppearance appearance;
       if (!legacy.empty()) {
@@ -1879,8 +2143,8 @@ json Player::dispatch(const json &request) {
                       [](const auto &input) { return input.has_value(); }))
         result["effectDynamicInputs"] = effects_.GetDynamicInputs(handle);
     } else if (action == "stop") {
-      SetTimer(window_, CloseTimer, 100, nullptr);
       result = {{"stopping", true}};
+      server_.stopAfterReply();
     } else
       throw std::runtime_error("Unknown player action");
     return {{"ok", true}, {"result", result}};
@@ -1928,22 +2192,63 @@ void Player::openManager(const wchar_t *argument) {
   ShellExecuteExW(&info);
 }
 void Player::resetPluginPointer(bool cancel) {
-  if (!pluginCaptured_)
+  if (!pluginPointerDown_)
     return;
-  pluginCaptured_ = false;
+  pluginPointerDown_ = false;
+  TRACKMOUSEEVENT tracking{sizeof(tracking), TME_LEAVE | TME_CANCEL, window_, 0};
+  TrackMouseEvent(&tracking);
   if (GetCapture() == window_)
     ReleaseCapture();
   if (cancel && scene_.plugin)
     sendPluginEvent(A75_INPUT_RESET);
 }
 bool Player::pluginPointerEnabled() const {
-  return scene_.plugin && !options_.headless && visible_ && hasMonitor_ && !graphicsSuspended_ && !paused_;
+  return scene_.plugin && !options_.headless && visible_ && outputReady() && !paused_;
 }
 void Player::pluginFailed() {
+  const bool deviceLost = gpuDeviceLost();
   scene_.plugin.reset();
   resetPluginPointer();
   diagnostics_.write("WARN", error_);
-  pluginRecoveryPending_ = !options_.importTrial;
+  if (deviceLost) scheduleDeviceRecovery(error_);
+  else pluginRecoveryPending_ = !options_.importTrial;
+}
+void Player::fallBackAfterWallpaperFailure() {
+  if (preservedPackId_.empty())
+    preservedPackId_ = packId_;
+  pluginRecoveryPending_ = false;
+  const auto fallback = std::exchange(pluginFallback_, {});
+  std::string ignored;
+  bool restored = false;
+  try {
+    restored = !fallback.empty() && fallback != packId_ && selectPack(fallback, ignored);
+  } catch (const std::exception &failure) {
+    diagnostics_.write("WARN", failure.what());
+  }
+  if (!restored)
+    selectPack({}, ignored);
+  pluginFallback_.clear();
+}
+void Player::retryMissingWallpaper(FramePacer::Time now) {
+  auto &missing = *missingWallpaper_;
+  std::error_code ec;
+  if (!fs::is_regular_file(missing.module, ec)) {
+    missing.delay = std::min(missing.delay * 2, std::chrono::seconds(8));
+    missing.retryAt = now + missing.delay;
+    return;
+  }
+  missingWallpaper_.reset();
+  std::string error;
+  try {
+    refreshPacks();
+    if (restoreSelection(preservedPackId_, error))
+      preservedPackId_.clear();
+  } catch (const std::exception &failure) {
+    error = failure.what();
+  }
+  error_ = std::move(error);
+  if (!error_.empty())
+    diagnostics_.write("WARN", error_);
 }
 bool Player::sendPluginEvent(uint32_t type, float x, float y, const char *code, const char *values) {
   const A75Event event{sizeof(A75Event), type, renderer_.width(), renderer_.height(),
@@ -1970,13 +2275,13 @@ bool Player::sendPluginEvent(uint32_t type, float x, float y, const char *code, 
   }
   // Continuous animations already have a paced deadline. Input wakes a
   // dormant scene without inserting an extra frame between scheduled frames.
-  if (scene_.pluginDelay != 0)
+  if (scene_.pluginDelay < 0)
     dirty_ = true;
   return true;
 }
 bool Player::canClickScene() const {
   return (scene_.water || scene_.fireworks || effectPlayback_) && !options_.headless && visible_ &&
-         hasMonitor_ && !graphicsSuspended_ && !paused_;
+         outputReady() && !paused_;
 }
 std::array<float, 2> Player::pointerPosition(POINT client) const {
   return {static_cast<float>(client.x) / static_cast<float>(renderer_.width()),
@@ -2029,6 +2334,9 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
   case CommandMessage: {
     auto *call = reinterpret_cast<CommandCall *>(l);
     call->response = dispatch(*call->request);
+    if (call->legacyCatalogWait && call->response.value("ok", false) &&
+        call->response.at("result").contains("pendingCatalogRevision"))
+      *call->legacyCatalogWait = catalogScan_;
     return 1;
   }
   case WM_DISPLAYCHANGE:
@@ -2045,7 +2353,7 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
   case WM_MOUSEACTIVATE:
     return MA_NOACTIVATE;
   case WM_NCHITTEST: {
-    if (pluginCaptured_)
+    if (pluginPointerDown_)
       return HTCLIENT;
     if (pluginPointerEnabled()) {
       POINT client{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
@@ -2062,11 +2370,17 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
   }
   case WM_LBUTTONDOWN:
     if (pluginPointerEnabled()) {
+      if (pluginPointerDown_)
+        return 0;
       const auto pos = pointerPosition({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+      pluginPointerDown_ = true;
       if (sendPluginEvent(A75_POINTER_DOWN, pos[0], pos[1])) {
         SetCapture(h);
-        pluginCaptured_ = GetCapture() == h;
+        TRACKMOUSEEVENT tracking{sizeof(tracking), TME_LEAVE, h, 0};
+        if (GetCapture() == h && TrackMouseEvent(&tracking))
+          return 0;
       }
+      resetPluginPointer();
       return 0;
     }
     if (canClickScene()) {
@@ -2078,24 +2392,30 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
   case WM_MOUSEMOVE:
     if (pluginPointerEnabled()) {
       const auto pos = pointerPosition({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+      if (pluginPointerDown_ && (!(w & MK_LBUTTON) || pos[0] < 0 || pos[0] >= 1 ||
+                                 pos[1] < 0 || pos[1] >= 1)) {
+        resetPluginPointer();
+        return 0;
+      }
       sendPluginEvent(A75_POINTER_MOVE, pos[0], pos[1]);
       return 0;
     }
     break;
   case WM_LBUTTONUP:
-    if (pluginPointerEnabled()) {
-      const auto pos = pointerPosition({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
-      sendPluginEvent(A75_POINTER_UP, pos[0], pos[1]);
-      resetPluginPointer(false);
+    if (pluginPointerDown_) {
+      if (pluginPointerEnabled()) {
+        const auto pos = pointerPosition({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+        resetPluginPointer(false);
+        sendPluginEvent(A75_POINTER_UP, pos[0], pos[1]);
+      } else {
+        resetPluginPointer();
+      }
       return 0;
     }
     break;
+  case WM_MOUSELEAVE:
   case WM_CAPTURECHANGED:
-    if (pluginCaptured_) {
-      pluginCaptured_ = false;
-      if (scene_.plugin)
-        sendPluginEvent(A75_INPUT_RESET);
-    }
+    resetPluginPointer();
     return 0;
   case WM_CANCELMODE:
     resetPluginPointer();
@@ -2207,9 +2527,9 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
   return DefWindowProcW(h, m, w, l);
 }
 bool Player::hasMotion() const {
-  return visible_ && (hasMonitor_ || offscreenOnly()) &&
+  return visible_ && (outputReady() || offscreenOnly()) &&
          (renderer_.presentPending() ||
-          (!paused_ && ((scene_.plugin && scene_.pluginDelay == 0) || (scene_.water && scene_.water->hasMotion()) ||
+          (!paused_ && ((scene_.plugin && scene_.pluginDelay >= 0) || (scene_.water && scene_.water->hasMotion()) ||
                         (scene_.fireworks && scene_.fireworks->count()) ||
                         (scene_.glass && scene_.glass->count()) ||
                         (scene_.procedural && scene_.procedural->count()) || scene_.field ||
@@ -2227,6 +2547,7 @@ void Player::scheduleDeviceRecovery(const std::string &error) {
 }
 
 void Player::releaseGraphics() {
+  dx12PresentCounters_.discardPending();
   resetPluginPointer(false);
   scene_ = {};
   pluginRecoveryPending_ = false;
@@ -2274,10 +2595,12 @@ void Player::recoverGraphics() {
 }
 
 bool Player::restoreDevice(std::string &error) {
+  if (packId_.empty())
+    return true;
   const bool reconnecting = graphicsSuspended_;
   unsigned width = renderer_.width(), height = renderer_.height();
   RECT client{};
-  if (!options_.headless && GetClientRect(window_, &client) &&
+  if (usesOutputWindow() && GetClientRect(window_, &client) &&
       client.right > client.left && client.bottom > client.top) {
     width = static_cast<unsigned>(client.right - client.left);
     height = static_cast<unsigned>(client.bottom - client.top);
@@ -2289,15 +2612,17 @@ bool Player::restoreDevice(std::string &error) {
 
   releaseGraphics();
 
-  if (!renderer_.initialize(window_, width, height, options_.headless, error,
-                            options_.headless && options_.hardwareHeadless, gpuPreference_))
-    return false;
-  renderer_.allowBackdropCopy(options_.backdropCopy);
-  if (options_.perfStats && options_.headless) {
-    auto stats = std::make_unique<PerfStats>();
-    if (stats->initialize(renderer_.device()))
-      perf_ = std::move(stats);
+  std::error_code fileError;
+  const bool missingModule = !activeNativeModule_.empty() &&
+                             !fs::is_regular_file(activeNativeModule_, fileError);
+  auto *selected = selectedPack();
+  if (!selected && !activeNativeModule_.empty() && !missingModule) {
+    refreshPacks();
+    selected = selectedPack();
   }
+  const bool use12 = selected ? selected->usesD3D12 : activeNativeUsesD3D12_;
+  if (!initializeOutput(use12, width, height, false, error))
+    return false;
   if (!reconnecting)
     chooseMonitor();
   if (!renderer_.hasRenderTarget()) {
@@ -2306,19 +2631,23 @@ bool Player::restoreDevice(std::string &error) {
   }
 
   if (!packId_.empty()) {
-    const auto found = std::find_if(packs_.begin(), packs_.end(),
-                                   [&](const Pack &pack) { return pack.id == packId_; });
-    const Pack *active = activeImportedPack_ ? &*activeImportedPack_
-                                            : (found == packs_.end() ? nullptr : &*found);
-    if (!active)
+    const Pack *active = selectedPack();
+    if (missingModule)
+      error = "The active wallpaper DLL is unavailable";
+    else if (!active)
       error = "The active wallpaper is no longer available";
-    if (!active || !activatePack(active, error, true)) {
-      if (reconnecting || renderer_.deviceLost())
+    if (!active || missingModule || !activatePack(active, error, true)) {
+      if (gpuDeviceLost())
         return false;
-      // The adapter is usable. Allow the user to select a wallpaper even if the
-      // previous assets cannot be opened, and keep the saved selection on disk.
-      std::string ignored;
-      selectPack({}, ignored);
+      if (missingModule && (preservedPackId_.empty() || preservedPackId_ == packId_))
+        missingWallpaper_ = MissingWallpaper{activeNativeModule_,
+                                            FramePacer::Clock::now() + std::chrono::seconds(1)};
+      // Recover a previous wallpaper or release graphics while retrying a missing DLL.
+      graphicsSuspended_ = false;
+      deviceRetryAt_.reset();
+      fallBackAfterWallpaperFailure();
+      if (!packId_.empty() && (!renderer_.hasRenderTarget() || gpuDeviceLost()))
+        return false;
     }
   }
   lastFrame_ = FramePacer::Clock::now();
@@ -2332,6 +2661,11 @@ bool Player::restoreDevice(std::string &error) {
 
 void Player::render() {
   const bool phaseReset = dirty_;
+  const auto *output12 = options_.dx12PresentStats ? renderer_.dx12() : nullptr;
+  const bool countDraw = output12 && output12->hasWindowPresentation() && scene_.plugin;
+  const bool idleDraw = countDraw && !phaseReset && scene_.pluginDelay < 0;
+  if (countDraw)
+    ++dx12PresentCounters_.drawCalls;
   auto now = std::chrono::steady_clock::now();
   float elapsed = std::chrono::duration<float>(now - lastFrame_).count();
   lastFrame_ = now;
@@ -2339,11 +2673,8 @@ void Player::render() {
   if (perf_)
     perf_->begin(renderer_.context());
   bool drew = scene_.draw(renderer_, clockSeconds(now), paused_, error_);
-  if (scene_.plugin) {
-    pluginLastDraw_ = now;
-    if (!drew)
-      pluginFailed();
-  }
+  if (scene_.plugin && !drew)
+    pluginFailed();
   const auto backgroundError = renderer_.backgroundError();
   if (drew && !backgroundError.empty())
     error_ = backgroundError;
@@ -2355,7 +2686,9 @@ void Player::render() {
       error_ = effects_.LastError();
   }
   const bool submitted = drew && renderer_.present(error_);
-  if (!submitted && renderer_.deviceLost()) {
+  if (countDraw && drew)
+    dx12PresentCounters_.recordPresent(renderer_.lastPresentResult(), true, idleDraw);
+  if (!submitted && gpuDeviceLost()) {
     scheduleDeviceRecovery(error_);
   } else if (drew && !submitted) {
     paused_ = true;
@@ -2371,7 +2704,7 @@ void Player::render() {
   pacer_.rendered(now, renderFps(), hasMotion(), phaseReset);
 }
 
-static void checkImportImages(const fs::path &directory) {
+static void checkImportImages(const fs::path &directory, const fs::path &coverToDecode) {
   Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
   if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                               IID_PPV_ARGS(factory.GetAddressOf()))))
@@ -2394,12 +2727,27 @@ static void checkImportImages(const fs::path &directory) {
         FAILED(decoder->GetFrame(0, &frame)) || FAILED(frame->GetSize(&width, &height)))
       throw std::runtime_error("无法解码图片：" + name);
     GUID format{};
-    const auto &expected = extension == L".png" ? GUID_ContainerFormatPng : GUID_ContainerFormatJpeg;
+    const auto &expected =
+        extension == L".png" ? GUID_ContainerFormatPng : GUID_ContainerFormatJpeg;
     if (FAILED(decoder->GetContainerFormat(&format)) || !IsEqualGUID(format, expected))
       throw std::runtime_error("图片内容与扩展名不符：" + name);
     pixels += std::uint64_t(width) * height;
     if (width == 0 || height == 0 || width > 4096 || height > 4096 || pixels > 16 * 1024 * 1024)
       throw std::runtime_error("图片尺寸或像素总量超出导入上限：" + name);
+    if (!coverToDecode.empty() && fs::equivalent(entry.path(), coverToDecode)) {
+      // Decode the cover without allocating a graphics device inside the trial job.
+      Microsoft::WRL::ComPtr<IWICFormatConverter> rgba;
+      if (FAILED(factory->CreateFormatConverter(&rgba)) ||
+          FAILED(rgba->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA,
+                                  WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom)))
+        throw std::runtime_error("Cannot decode wallpaper cover");
+      std::vector<BYTE> strip(width * 4 * std::min(height, 32u));
+      for (UINT y = 0; y < height; y += 32) {
+        WICRect bounds{0, INT(y), INT(width), INT(std::min(32u, height - y))};
+        if (FAILED(rgba->CopyPixels(&bounds, width * 4, UINT(strip.size()), strip.data())))
+          throw std::runtime_error("Cannot decode wallpaper cover pixels");
+      }
+    }
   }
 }
 
@@ -2410,15 +2758,16 @@ json Player::trialWallpaper() {
   const auto &pack = packs_.front();
   if (!pack.importTrialAllowed)
     throw std::runtime_error("目前可试播图集、兼容的 CPU 粒子包、烟火和原生插件壁纸");
-  checkImportImages(pack.directory);
-  if (!renderer_.initialize(nullptr, 1920, 720, true, error_))
-    throw std::runtime_error(error_);
-  // Decode the gallery cover under the same job limits as the wallpaper assets.
   const auto manifest = readJson(pack.directory / L"manifest.json");
-  auto preview = manifest.contains("preview")
-                     ? packAsset(pack.directory, manifest.at("preview").get<std::string>())
-                     : pack.directory / L"preview.png";
-  if (fs::is_regular_file(preview) && !renderer_.loadBackground(preview, error_))
+  const auto preview = manifest.contains("preview")
+                           ? packAsset(pack.directory, manifest.at("preview").get<std::string>())
+                           : pack.directory / L"preview.png";
+  const bool hasCover = fs::is_regular_file(preview);
+  checkImportImages(pack.directory, pack.usesD3D12 && hasCover ? preview : fs::path{});
+  gpuPreference_ = options_.integratedTrial ? GpuPreference::Integrated : GpuPreference::Discrete;
+  if (!initializeOutput(pack.usesD3D12, 1920, 720, false, error_))
+    throw std::runtime_error(error_);
+  if (!pack.usesD3D12 && hasCover && !renderer_.loadBackground(preview, error_))
     throw std::runtime_error(error_);
   if (!selectPack(pack.id, error_))
     throw std::runtime_error(error_);
@@ -2434,11 +2783,16 @@ json Player::trialWallpaper() {
     if (!error_.empty())
       throw std::runtime_error(error_);
   }
-  // Mapping the readback waits for submitted D3D11 work to complete.
+  // Both output paths wait for GPU completion before encoding the trial PNG.
   if (!renderer_.saveFrame(options_.root / L"trial-frame.png", error_))
     throw std::runtime_error(error_);
   json report = {{"ok", true}, {"framesRendered", framesRendered_}, {"triggered", handle >= 0},
-                 {"playerPid", GetCurrentProcessId()}};
+                 {"playerPid", GetCurrentProcessId()}, {"renderer", renderer_.dx12() ? "D3D12" : "D3D11"},
+                 {"gpuAdapter", utf8(renderer_.adapterName())},
+                 {"hostD3D11Device", renderer_.device() != nullptr},
+                 {"hostD3D12Device", renderer_.dx12() && renderer_.dx12()->device()},
+                 {"nativeWorkerPid", scene_.plugin ? scene_.plugin->workerPid() : 0},
+                 {"nativeWorkerAbi", scene_.plugin ? scene_.plugin->renderAbi() : 0}};
   if (scene_.fireworks && handle >= 0) {
     report["fireworkShape"] = scene_.fireworks->lastShape();
     report["fireworkPalette"] = scene_.fireworks->lastPalette();
@@ -2513,16 +2867,6 @@ int Player::run() {
   if (!options_.headless)
     SetPropW(window_, L"NonRudeHWND", reinterpret_cast<HANDLE>(TRUE));
   gpuPreference_ = requestedGpu(options_.root);
-  if (!renderer_.initialize(window_, 1920, 720, options_.headless, error_,
-                            options_.headless && options_.hardwareHeadless, gpuPreference_))
-    throw std::runtime_error(error_);
-  diagnostics_.write("INFO", "D3D11 adapter " + utf8(renderer_.adapterName()));
-  renderer_.allowBackdropCopy(options_.backdropCopy);
-  if (options_.perfStats && options_.headless) {
-    perf_ = std::make_unique<PerfStats>();
-    if (!perf_->initialize(renderer_.device()))
-      throw std::runtime_error("GPU timing queries unavailable");
-  }
   const std::string requested = std::move(packId_);
   packId_.clear();
   chooseMonitor();
@@ -2533,6 +2877,8 @@ int Player::run() {
       } catch (const std::exception &exception) {
         error_ = exception.what();
       }
+    } else {
+      preservedPackId_ = requested;
     }
   }
   if (!options_.headless) {
@@ -2556,11 +2902,26 @@ int Player::run() {
   SetPropW(window_, (options_.rootEndpoint + L"-PlayerWindow").c_str(), reinterpret_cast<HANDLE>(1));
   claimExitShortcut(window_);
   if (!server_.start(options_.pipe, [this](const json &request) {
-        CommandCall call{&request, {}};
-        if (!IsWindow(window_) ||
-            !SendMessageW(window_, CommandMessage, 0, reinterpret_cast<LPARAM>(&call)))
-          return json{{"ok", false}, {"error", "Player is stopping"}};
-        return call.response;
+        const auto onPlayerThread = [this](const json &query, CatalogScan *wait = nullptr) {
+          CommandCall call{&query, {}, wait};
+          if (!IsWindow(window_) ||
+              !SendMessageW(window_, CommandMessage, 0, reinterpret_cast<LPARAM>(&call)))
+            return json{{"ok", false}, {"error", "Player is stopping"}};
+          return std::move(call.response);
+        };
+        const bool legacyList = request.value("action", std::string()) == "listPacks" &&
+                                !request.value("asyncRefresh", false);
+        CatalogScan pending;
+        auto response = onPlayerThread(request, legacyList ? &pending : nullptr);
+        if (!pending.valid())
+          return response;
+        // Preserve the original replies for older clients. Their blocking wait
+        // must stay on the IPC thread while raw input and rendering continue.
+        if (pending.wait_for(std::chrono::seconds(5)) != std::future_status::ready)
+          return json{{"ok", false}, {"error", "Wallpaper catalog refresh timed out"}};
+        auto poll = request;
+        poll["catalogRefreshRevision"] = response.at("result").at("pendingCatalogRevision");
+        return onPlayerThread(poll);
       }))
     throw std::runtime_error("Cannot start local control pipe");
   struct OneShotTimer {
@@ -2615,20 +2976,18 @@ int Player::run() {
     }
     if (!running)
       break;
+    if (WaitForSingleObject(server_.stoppingHandle(), 0) == WAIT_OBJECT_0) {
+      DestroyWindow(window_);
+      break;
+    }
     if (scene_.plugin && !scene_.plugin->active()) {
       error_ = "Wallpaper worker exited";
       pluginFailed();
     }
     if (pluginRecoveryPending_ && !monitorSuspendAt_) {
-      pluginRecoveryPending_ = false;
-      const std::string failedId = packId_, reason = error_, fallback = pluginFallback_;
-      std::string ignored;
-      if (fallback == failedId || !selectPack(fallback, ignored))
-        selectPack({}, ignored);
-      pluginFallback_.clear();
-      try { saveSettings(); }
-      catch (const std::exception &failure) { diagnostics_.write("WARN", failure.what()); }
-      error_ = failedId + ": " + reason;
+      const auto failure = packId_ + ": " + error_;
+      fallBackAfterWallpaperFailure();
+      error_ = failure;
       continue;
     }
     if (temporaryPauseOwner_ && WaitForSingleObject(temporaryPauseOwner_, 0) == WAIT_OBJECT_0) {
@@ -2650,29 +3009,40 @@ int Player::run() {
     const auto removed = renderer_.deviceRemovedEvent();
     if (!deviceRetryAt_ && !monitorSuspendAt_ &&
         ((removed && WaitForSingleObject(removed, 0) == WAIT_OBJECT_0) ||
-         (!renderer_.hasRenderTarget() && renderer_.deviceLost())))
+         (!renderer_.hasRenderTarget() && gpuDeviceLost())))
       scheduleDeviceRecovery("Graphics device was lost");
     if (deviceRetryAt_ && now >= *deviceRetryAt_) {
       recoverGraphics();
       continue;
     }
+    if (!deviceRetryAt_ && outputRetryAt_ && now >= *outputRetryAt_) {
+      chooseMonitor(true);
+      continue;
+    }
+    const bool canRetryWallpaper = missingWallpaper_ && !deviceRetryAt_ &&
+                                   hasMonitor_ && !graphicsSuspended_ && !outputRetryAt_;
+    if (canRetryWallpaper && now >= missingWallpaper_->retryAt) {
+      retryMissingWallpaper(now);
+      continue;
+    }
     pacer_.setRate(renderFps());
+    const auto requestedInterval = scene_.plugin && !pluginPaused_ && scene_.pluginDelay > 0 &&
+                                   !renderer_.presentPending()
+        ? std::chrono::milliseconds(scene_.pluginDelay) : std::chrono::milliseconds(0);
     auto plan = deviceRetryAt_
         ? FramePacer::Plan{false, true, *deviceRetryAt_ - now}
         : pacer_.plan(now, renderer_.hasRenderTarget() &&
-                               (offscreenOnly() || (visible_ && hasMonitor_ && !graphicsSuspended_)),
-                      dirty_, hasMotion());
-    if (!plan.due && monitorSuspendAt_) {
-      const auto remaining = *monitorSuspendAt_ - now;
-      if (!plan.timed || remaining < plan.remaining)
-        plan = {false, true, remaining};
-    }
-    if (!deviceRetryAt_ && scene_.plugin && !pluginPaused_ && scene_.pluginDelay > 0 && !plan.due) {
-      const auto remaining = pluginLastDraw_ + std::chrono::milliseconds(scene_.pluginDelay) - now;
-      if (remaining <= FramePacer::Duration::zero())
-        plan.due = true;
-      else if (!plan.timed || remaining < plan.remaining)
-        plan = {false, true, remaining};
+                               (offscreenOnly() || (visible_ && outputReady())),
+                      dirty_, hasMotion(), requestedInterval);
+    const auto wallpaperRetryAt = canRetryWallpaper
+        ? std::optional{missingWallpaper_->retryAt} : std::nullopt;
+    for (const auto &retry : {monitorSuspendAt_, deviceRetryAt_ ? std::nullopt : outputRetryAt_,
+                             wallpaperRetryAt}) {
+      if (retry && !plan.due) {
+        const auto remaining = *retry - now;
+        if (!plan.timed || remaining < plan.remaining)
+          plan = {false, true, remaining};
+      }
     }
     if (plan.due) {
       if (!ignoreSwapWait_ && renderer_.frameReady()) {
@@ -2680,8 +3050,8 @@ int Player::run() {
         if (immediate == WAIT_TIMEOUT) {
           const auto timeout = swapWait_.waitMilliseconds(FramePacer::Clock::now());
           if (timeout) {
-            HANDLE waits[3] = {renderer_.frameReady()};
-            DWORD count = 1;
+            HANDLE waits[4] = {renderer_.frameReady(), server_.stoppingHandle()};
+            DWORD count = 2;
             if (temporaryPauseOwner_)
               waits[count++] = temporaryPauseOwner_;
             if (removed)
@@ -2716,8 +3086,8 @@ int Player::run() {
       continue;
     }
     swapWait_.cancelPending();
-    DWORD timeout = INFINITE, count = 0, timerIndex = MAXDWORD;
-    HANDLE waits[4]{};
+    DWORD timeout = INFINITE, count = 1, timerIndex = MAXDWORD;
+    HANDLE waits[5] = {server_.stoppingHandle()};
     if (scene_.plugin && scene_.plugin->exitHandle())
       waits[count++] = scene_.plugin->exitHandle();
     if (temporaryPauseOwner_)
@@ -2852,7 +3222,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                   {"calibratedKeys", config.keys.size()},
                   {"devices", json::array()},
                   {"monitors", json::array()}};
-      for (const auto &d : RawKeyboard::enumerate(config.deviceGroup))
+      const auto devices = RawKeyboard::enumerate(config.deviceGroup);
+      if (!devices)
+        throw std::runtime_error("Cannot enumerate keyboard devices");
+      for (const auto &d : *devices)
         out["devices"].push_back({{"id", utf8(d.path)}, {"selected", d.selected}});
       for (const auto &m : monitors())
         out["monitors"].push_back({{"device", utf8(m.device)},

@@ -9,6 +9,7 @@
 namespace action75::worker {
 using Microsoft::WRL::ComPtr;
 enum class Operation : unsigned { Initialize, Event, Render, HitTest, Exit };
+inline constexpr DWORD FrameCompletionTimeoutMs = 1500;
 // Fixed-size mailbox. No address in this mapping is ever dereferenced by the host.
 struct Mailbox {
   Operation operation;
@@ -23,6 +24,11 @@ struct Mailbox {
   int32_t delay;
   LONG status;
   char diagnostic[192];
+  uint32_t abi;
+  uint64_t waitValue, signalValue;
+  uint32_t composition, waitForFrame;
+  HRESULT presentResult;
+  LONG compositionDeviceRemoved;
 };
 class Handle {
 public:

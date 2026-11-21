@@ -1,0 +1,790 @@
+{
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "playback",
+      "label": "播放花型",
+      "presentation": "variant-playback",
+      "playback": {
+        "selection": "shape",
+        "randomize": "shuffle",
+        "interval": "keyInterval",
+        "order": [
+          1,
+          4,
+          8,
+          2,
+          7,
+          3,
+          5,
+          6,
+          9,
+          10
+        ]
+      },
+      "controls": [
+        {
+          "id": "shape",
+          "label": "花型",
+          "type": "select",
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "组合轮换"
+            },
+            {
+              "value": 1,
+              "label": "锦冠垂柳",
+              "toggleId": "useWillow"
+            },
+            {
+              "value": 2,
+              "label": "三重芯变色菊",
+              "toggleId": "useChrys"
+            },
+            {
+              "value": 3,
+              "label": "双色牡丹",
+              "toggleId": "usePeony"
+            },
+            {
+              "value": 4,
+              "label": "蓝银棕榈",
+              "toggleId": "usePalm"
+            },
+            {
+              "value": 5,
+              "label": "万华镜",
+              "toggleId": "useKaleidoscope"
+            },
+            {
+              "value": 6,
+              "label": "千轮菊",
+              "toggleId": "useBouquet"
+            },
+            {
+              "value": 7,
+              "label": "土星环",
+              "toggleId": "useSaturn"
+            },
+            {
+              "value": 8,
+              "label": "心形",
+              "toggleId": "useHeart"
+            },
+            {
+              "value": 9,
+              "label": "金丝风车",
+              "toggleId": "usePinwheel"
+            },
+            {
+              "value": 10,
+              "label": "星瓣大丽花",
+              "toggleId": "useDahlia"
+            }
+          ],
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.shape"
+          }
+        },
+        {
+          "id": "shuffle",
+          "label": "随机抽取花型",
+          "type": "toggle",
+          "default": false,
+          "advanced": true,
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "shape",
+            "equals": 0
+          },
+          "binding": {
+            "target": "fireworks.shuffle"
+          }
+        },
+        {
+          "id": "useWillow",
+          "label": "轮换 · 锦冠垂柳",
+          "type": "toggle",
+          "default": true,
+          "advanced": true,
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "shape",
+            "equals": 0
+          },
+          "binding": {
+            "target": "fireworks.willow"
+          }
+        },
+        {
+          "id": "useChrys",
+          "label": "轮换 · 三重芯变色菊",
+          "type": "toggle",
+          "default": true,
+          "advanced": true,
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "shape",
+            "equals": 0
+          },
+          "binding": {
+            "target": "fireworks.chrys"
+          }
+        },
+        {
+          "id": "usePeony",
+          "label": "轮换 · 双色牡丹",
+          "type": "toggle",
+          "default": true,
+          "advanced": true,
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "shape",
+            "equals": 0
+          },
+          "binding": {
+            "target": "fireworks.peony"
+          }
+        },
+        {
+          "id": "usePalm",
+          "label": "轮换 · 蓝银棕榈",
+          "type": "toggle",
+          "default": true,
+          "advanced": true,
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "shape",
+            "equals": 0
+          },
+          "binding": {
+            "target": "fireworks.palm"
+          }
+        },
+        {
+          "id": "useKaleidoscope",
+          "label": "轮换 · 万华镜",
+          "type": "toggle",
+          "default": false,
+          "advanced": true,
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "shape",
+            "equals": 0
+          },
+          "binding": {
+            "target": "fireworks.kaleidoscope"
+          }
+        },
+        {
+          "id": "useBouquet",
+          "label": "轮换 · 千轮菊",
+          "type": "toggle",
+          "default": false,
+          "advanced": true,
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "shape",
+            "equals": 0
+          },
+          "binding": {
+            "target": "fireworks.bouquet"
+          }
+        },
+        {
+          "id": "useSaturn",
+          "label": "轮换 · 土星环",
+          "type": "toggle",
+          "default": false,
+          "advanced": true,
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "shape",
+            "equals": 0
+          },
+          "binding": {
+            "target": "fireworks.saturn"
+          }
+        },
+        {
+          "id": "useHeart",
+          "label": "轮换 · 心形",
+          "type": "toggle",
+          "default": true,
+          "advanced": true,
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "shape",
+            "equals": 0
+          },
+          "binding": {
+            "target": "fireworks.heart"
+          }
+        },
+        {
+          "id": "keyInterval",
+          "label": "击键触发间隔",
+          "type": "slider",
+          "default": 1,
+          "min": 1,
+          "max": 1000000,
+          "step": 1,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.keyInterval"
+          }
+        },
+        {
+          "id": "usePinwheel",
+          "type": "toggle",
+          "label": "轮换 · 金丝风车",
+          "default": true
+        },
+        {
+          "id": "useDahlia",
+          "type": "toggle",
+          "label": "轮换 · 星瓣大丽花",
+          "default": true
+        }
+      ],
+      "entity": "烟花"
+    },
+    {
+      "id": "bursts",
+      "label": "烟花",
+      "controls": [
+        {
+          "id": "randomPalette",
+          "label": "随机轮换配色",
+          "type": "toggle",
+          "default": false,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.randomPalette"
+          },
+          "appearance": "color",
+          "advanced": false
+        },
+        {
+          "id": "colors",
+          "label": "配色",
+          "type": "palette",
+          "default": {
+            "preset": "original",
+            "colors": [
+              [
+                255,
+                190,
+                103
+              ],
+              [
+                89,
+                208,
+                229
+              ],
+              [
+                223,
+                109,
+                210
+              ]
+            ]
+          },
+          "maxColors": 7,
+          "allowSingleHue": true,
+          "palettes": [
+            {
+              "id": "original",
+              "name": "各花型原色",
+              "source": true,
+              "colors": [
+                [
+                  255,
+                  190,
+                  103
+                ],
+                [
+                  89,
+                  208,
+                  229
+                ],
+                [
+                  223,
+                  109,
+                  210
+                ]
+              ]
+            },
+            {
+              "id": "champagne",
+              "name": "香槟金",
+              "colors": [
+                [
+                  255,
+                  185,
+                  76
+                ],
+                [
+                  255,
+                  222,
+                  159
+                ],
+                [
+                  255,
+                  246,
+                  217
+                ]
+              ]
+            },
+            {
+              "id": "ice-jade",
+              "name": "青绿 × 冰蓝",
+              "colors": [
+                [
+                  73,
+                  242,
+                  168
+                ],
+                [
+                  75,
+                  177,
+                  255
+                ],
+                [
+                  199,
+                  242,
+                  255
+                ]
+              ]
+            },
+            {
+              "id": "rose-lilac",
+              "name": "玫红 × 藕紫",
+              "colors": [
+                [
+                  255,
+                  79,
+                  155
+                ],
+                [
+                  161,
+                  116,
+                  255
+                ],
+                [
+                  255,
+                  183,
+                  207
+                ]
+              ]
+            },
+            {
+              "id": "embers",
+              "name": "朱红 × 琥珀",
+              "colors": [
+                [
+                  255,
+                  69,
+                  73
+                ],
+                [
+                  255,
+                  150,
+                  70
+                ],
+                [
+                  255,
+                  216,
+                  134
+                ]
+              ]
+            },
+            {
+              "id": "silver",
+              "name": "月白 × 靛蓝",
+              "colors": [
+                [
+                  208,
+                  232,
+                  255
+                ],
+                [
+                  94,
+                  133,
+                  255
+                ],
+                [
+                  245,
+                  248,
+                  255
+                ]
+              ]
+            }
+          ],
+          "surface": "foreground",
+          "visibleWhen": {
+            "id": "randomPalette",
+            "equals": false
+          },
+          "binding": {
+            "target": "effectPalette"
+          },
+          "appearance": "color",
+          "advanced": false
+        },
+        {
+          "id": "brightness",
+          "label": "烟花亮度",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 2.5,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "effectBrightness"
+          },
+          "appearance": "brightness",
+          "advanced": false
+        },
+        {
+          "id": "size",
+          "label": "绽放范围",
+          "type": "slider",
+          "default": 3.5,
+          "min": 0.5,
+          "max": 6,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.spread"
+          }
+        },
+        {
+          "id": "speed",
+          "label": "播放速度",
+          "type": "slider",
+          "default": 1,
+          "min": 0.55,
+          "max": 1.8,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "foreground",
+          "binding": {
+            "target": "effect.speed"
+          }
+        },
+        {
+          "id": "quality",
+          "label": "细节档位",
+          "type": "select",
+          "default": 1,
+          "options": [
+            {
+              "value": 0,
+              "label": "省电"
+            },
+            {
+              "value": 1,
+              "label": "标准"
+            },
+            {
+              "value": 2,
+              "label": "高细节"
+            }
+          ],
+          "advanced": true,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.quality"
+          }
+        },
+        {
+          "id": "density",
+          "label": "火星密度",
+          "type": "slider",
+          "default": 0.82,
+          "min": 0.25,
+          "max": 1,
+          "step": 0.01,
+          "unit": "×",
+          "advanced": true,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.density"
+          }
+        },
+        {
+          "id": "trail",
+          "label": "拖尾长度",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 1.6,
+          "step": 0.05,
+          "unit": "×",
+          "advanced": true,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.trail"
+          }
+        },
+        {
+          "id": "gravity",
+          "label": "下坠幅度",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "advanced": true,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.gravity"
+          }
+        },
+        {
+          "id": "lifetime",
+          "label": "燃烧时长",
+          "type": "slider",
+          "default": 1,
+          "min": 0.55,
+          "max": 1.5,
+          "step": 0.05,
+          "unit": "×",
+          "advanced": true,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.lifetime"
+          }
+        },
+        {
+          "id": "shimmer",
+          "label": "火星闪烁",
+          "type": "slider",
+          "default": 0.85,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "advanced": true,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.shimmer"
+          }
+        },
+        {
+          "id": "embers",
+          "label": "碎余烬",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 1.5,
+          "step": 0.05,
+          "unit": "×",
+          "advanced": true,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.embers"
+          }
+        },
+        {
+          "id": "bloom",
+          "label": "辉光",
+          "type": "slider",
+          "default": 0.82,
+          "min": 0,
+          "max": 1.5,
+          "step": 0.01,
+          "unit": "×",
+          "advanced": true,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.bloom"
+          }
+        },
+        {
+          "id": "smoke",
+          "label": "亮起的烟雾",
+          "type": "slider",
+          "default": 0.55,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "advanced": true,
+          "surface": "foreground",
+          "binding": {
+            "target": "fireworks.smoke"
+          }
+        },
+        {
+          "id": "effectHue",
+          "label": "色相",
+          "type": "slider",
+          "surface": "foreground",
+          "appearance": "hue",
+          "advanced": false,
+          "binding": {
+            "target": "effectHue"
+          },
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "effectSaturation",
+          "label": "饱和度",
+          "type": "slider",
+          "surface": "foreground",
+          "appearance": "saturation",
+          "advanced": false,
+          "binding": {
+            "target": "effectSaturation"
+          },
+          "default": 1,
+          "min": 0,
+          "max": 2.5,
+          "step": 0.05,
+          "unit": "×"
+        }
+      ],
+      "entity": "烟花"
+    },
+    {
+      "id": "night",
+      "label": "夜景",
+      "controls": [
+        {
+          "id": "backgroundBrightness",
+          "label": "夜景亮度",
+          "type": "slider",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "unit": "×",
+          "surface": "background",
+          "binding": {
+            "target": "background.brightness"
+          },
+          "appearance": "brightness",
+          "advanced": false
+        },
+        {
+          "id": "backgroundTint",
+          "label": "夜景色调",
+          "type": "color",
+          "default": [
+            235,
+            243,
+            255
+          ],
+          "surface": "background",
+          "binding": {
+            "target": "background.color"
+          },
+          "appearance": "color",
+          "advanced": false
+        },
+        {
+          "id": "reflection",
+          "label": "水面倒影",
+          "type": "slider",
+          "default": 0.56,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "advanced": true,
+          "surface": "background",
+          "binding": {
+            "target": "fireworks.reflection"
+          }
+        },
+        {
+          "id": "horizon",
+          "label": "水线位置",
+          "type": "slider",
+          "default": 87,
+          "min": 69,
+          "max": 96,
+          "step": 1,
+          "unit": "%",
+          "advanced": true,
+          "surface": "background",
+          "binding": {
+            "target": "fireworks.horizon",
+            "mapping": {
+              "type": "linear",
+              "inputMin": 69,
+              "inputMax": 96,
+              "outputMin": 0.69,
+              "outputMax": 0.96
+            }
+          }
+        },
+        {
+          "id": "backgroundStyle",
+          "label": "背景样式",
+          "type": "select",
+          "surface": "background",
+          "appearance": "style",
+          "advanced": false,
+          "binding": {
+            "target": "background.style"
+          },
+          "default": 0,
+          "options": [
+            {
+              "value": 0,
+              "label": "暮色山湖"
+            },
+            {
+              "value": 1,
+              "label": "纯色"
+            }
+          ]
+        },
+        {
+          "id": "backgroundHue",
+          "label": "色相",
+          "type": "slider",
+          "surface": "background",
+          "appearance": "hue",
+          "advanced": false,
+          "binding": {
+            "target": "background.hue"
+          },
+          "default": 0,
+          "min": 0,
+          "max": 360,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "backgroundSaturation",
+          "label": "饱和度",
+          "type": "slider",
+          "surface": "background",
+          "appearance": "saturation",
+          "advanced": false,
+          "binding": {
+            "target": "background.saturation"
+          },
+          "default": 1,
+          "min": 0,
+          "max": 2.5,
+          "step": 0.05,
+          "unit": "×"
+        }
+      ],
+      "entity": "夜景与水面"
+    }
+  ]
+}

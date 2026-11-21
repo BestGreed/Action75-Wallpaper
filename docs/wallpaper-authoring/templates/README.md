@@ -4,7 +4,7 @@
 
 ## 生成一份参数文件
 
-在仓库根目录执行。示例沿用图集面板，修改亮度单位、大小范围、动画时长映射和背景色。
+在仓库根目录执行。示例为可直接导入的 `spriteBurst` 作者包生成参数。它沿用通用图集面板，修改亮度单位、大小范围、动画时长映射和背景色。
 
 ```powershell
 $templates = 'docs/wallpaper-authoring/templates'
@@ -35,36 +35,36 @@ python "$templates/expand.py" "$templates/amber-atlas.json" -o 'artifacts/amber-
 }
 ```
 
-`foreground-color` 管理特效配色和饱和度，`image-background` 管理背景亮度、饱和度、色相和颜色。条件背景可组合 `background-choice` 和 `conditional-brightness`、`conditional-speed`、`conditional-tint`。把各控件的 `visibleWhen.id` 和 `equals` 对齐到对应的选择器和档位，再使用该后端已有的绑定。场景按实际绑定切换背景，`visibleWhen` 控制面板显隐。[模板库](library.json) · [黑洞示例](builtins.json)
+`library.json` 提供图集和 Effekseer 作者可组合的参数。上例的 `foreground-color` 管理特效配色和饱和度，`image-background` 管理背景亮度、饱和度、色相和颜色。图集或粒子作品通过 `binding.target` 指定播放器应调的属性。[通用作者模板](library.json)
 
-力度上下限可以组合 `impact-min`、`impact-max`，再覆盖范围和后端绑定。水波和碎光玻璃现有的上下限联动按壁纸 ID 处理，两者的场景各自取样。其他场景使用这对控件时，需在其原生逻辑中接入联动与取样。[上下限与背景实现](../implementation.md#impact-and-background)
+`native-library.json` 收录当前内置原生包共享的参数。条件背景用 `visibleWhen.id` 和 `equals` 对应模式选项。力度上下限可组合 `impact-min` 和 `impact-max`，再用顶层 `orderedRange` 声明联动顺序。宿主把校验后的控件值交给 DLL，背景渲染和力度取样由 DLL 实现。[原生模板](native-library.json) · [上下限与背景实现](../implementation.md#impact-and-background)
 
 ## 14 款内置壁纸的配方
 
-`builtins.json#/<壁纸ID>` 中每项都能直接展开。可从用途相近的配方起步，也可在自己的配方中引用完整的现有 `settings.json`。表中的后端和资源来自各包的清单。
+`builtins.json#/<壁纸ID>` 中每项都能展开为当前对应包的设置。14 款内置壁纸均以 `kind: native`、`abi: 1` 发布。原生作者可复用面板和控件 ID，并在自己的 DLL 中读取这些值。
 
-| 壁纸 ID | 后端 | 可复用参数 | 该壁纸的资源或算法 |
-| --- | --- | --- | --- |
-| `afterimage` 余像 | `spriteBurst` | `atlas` 基础面板 | 按键动画图集与底图，默认加色 |
-| `carrier` 载波 | `spriteBurst` | `atlas`，覆盖亮度、大小、时长和配色 | 载波图集与加色混合 |
-| `folio` 朱砂拓印 | `spriteBurst` | `atlas`，覆盖强度、大小、时长和配色 | 纸面图集与正片叠底 |
-| `tidal-glass` 潮汐玻璃 | `spriteBurst` | `atlas`，覆盖默认值、时长范围和配色 | 图集呈现的玻璃光斑 |
-| `meridian` 日蚀经线 | `proceduralBurst` | 图集的四个基础组，加轨道组 | 程序化轨道，消费 `field.arc*` |
-| `gilded-synapse` 鎏金脉络 | `field` | `field` 基础面板 | 场主题 1 和布局资源 |
-| `harmonic-textile` 声纹织物 | `field` | `field`，覆盖配色、曝光、余辉等默认值 | 场主题 3 和布局资源 |
-| `silk-nebula` 潮汐绢墨 | `field` | `field`，覆盖配色、曝光、余辉等默认值 | 场主题 0 和布局资源 |
-| `paintball-native` 水彩喷溅 | `effekseer` | 前景亮度、大小、配色和图片背景 | 效果与画布材质，中心大小和颜料停留、淡出使用材质 uniform |
-| `black-hole` 黑洞 | `blackHole` | 背景选择器及三套条件亮度、速度与色调 | 吸积盘、透镜和按键恒星 |
-| `glass-shatter` 碎光玻璃 | `glassShatter` | 力度范围 0–3.2、背景选择和亮度 | 裂纹、折射和碎片 |
-| `stillwater` 水波 | `waterSurface` | 力度范围 0–2.4、背景选择、亮度和底色 | 波场传播、消散与水面光纹 |
-| `keycap-glow` 键影 | `keycap` | 共用的性能与待机组 | 键帽轮廓、光效节奏与布局参数 |
-| `night-fireworks` 烟火 | `fireworks` | 引用完整配置，包括 `variant-playback` | 花型、拖尾、夜景和触发节奏 |
+| 壁纸 ID | 可复用参数 | DLL 内的资源或算法 |
+| --- | --- | --- |
+| `afterimage` 余像 | 原生 `atlas` 基础面板 | 按键动画图集与底图，默认加色 |
+| `carrier` 载波 | `atlas`，覆盖亮度、大小、时长和配色 | 载波图集与加色混合 |
+| `folio` 朱砂拓印 | `atlas`，覆盖强度、大小、时长和配色 | 纸面图集与正片叠底 |
+| `tidal-glass` 潮汐玻璃 | `atlas`，覆盖默认值、时长范围和配色 | 图集呈现的玻璃光斑 |
+| `meridian` 日蚀经线 | 图集的四个基础组，加轨道组 | 程序化轨道 |
+| `gilded-synapse` 鎏金脉络 | 原生 `field` 基础面板 | 场主题 1 和布局资源 |
+| `harmonic-textile` 声纹织物 | `field`，覆盖配色、曝光和余辉 | 场主题 3 和布局资源 |
+| `silk-nebula` 潮汐绢墨 | `field`，覆盖配色、曝光和余辉 | 场主题 0 和布局资源 |
+| `paintball-native` 水彩喷溅 | 前景亮度、大小、配色和图片背景 | Effekseer 效果与画布材质 |
+| `black-hole` 黑洞 | 背景选择器及三套条件亮度、速度与色调 | 吸积盘、透镜和按键恒星 |
+| `glass-shatter` 碎光玻璃 | `orderedRange`、背景选择和亮度 | 裂纹、折射和碎片 |
+| `stillwater` 水波 | `orderedRange`、背景选择、亮度和底色 | 波场传播、消散与水面光纹 |
+| `keycap-glow` 键影 | 共用的性能与待机组 | 键帽轮廓、光效节奏与布局参数 |
+| `night-fireworks` 烟火 | 引用完整配置，包括 `variant-playback` | 花型、拖尾、夜景和触发节奏 |
 
-例如烟火整份引用会原样展开 `playback`、花型顺序和控制项的关联。也可以用 `$overrides` 调整已存在的 `keyInterval` 默认值。原生校验器负责检查花型、勾选项和间隔的关联及值域。[14 款配方](builtins.json) · [烟火参数](../../../wallpapers-native/night-fireworks/settings.json) · [原生解析](../../../native/windows-player/src/PackSettings.cpp)
+烟火整份引用会原样展开 `playback`、花型顺序和控制项的关联。可用 `$overrides` 调整 `keyInterval` 默认值，并用对应 DLL 试播确认响应。[14 款配方](builtins.json) · [烟火参数](../../../wallpapers-native/night-fireworks/settings.json)
 
 ## 校验与对照
 
-展开工具会检查引用、循环、覆盖目标和输出结构。原生校验可复用现有测试程序，检查 schema、绑定、值域、花型协议并计算默认值，全程使用临时状态目录。
+展开工具检查引用、循环、覆盖目标和输出结构。用 `--kind` 传入清单的 `kind`，让校验器按相同的宿主规则解析。例如 `native` 允许省略 `binding`，检查作者声明的控件和值。图集、Effekseer 和烟火的渲染绑定及播放声明会交给播放器现有解析器校验。校验全程使用临时状态目录。
 
 ```powershell
 $templates = 'docs/wallpaper-authoring/templates'
@@ -73,12 +73,18 @@ cmake -S native/windows-player -B $build -G 'Visual Studio 17 2022' -A x64 "-DAC
 cmake --build $build --config Release --target action75_pack_settings_tests
 $checker = Join-Path $build 'Release/action75_pack_settings_tests.exe'
 
-python "$templates/expand.py" "$templates/builtins.json#/carrier" --compare 'wallpapers-native/carrier/settings.json' --native-check $checker
-python "$templates/expand.py" "$templates/builtins.json#/harmonic-textile" --compare 'wallpapers-native/harmonic-textile/settings.json' --native-check $checker
-python "$templates/expand.py" "$templates/builtins.json#/night-fireworks" --compare 'wallpapers-native/night-fireworks/settings.json' --native-check $checker
+python "$templates/expand.py" "$templates/builtins.json#/carrier" --compare 'wallpapers-native/carrier/settings.json' --native-check $checker --kind native
+python "$templates/expand.py" "$templates/builtins.json#/night-fireworks" --compare 'wallpapers-native/night-fireworks/settings.json' --native-check $checker --kind native
+python "$templates/expand.py" "$templates/amber-atlas.json" --native-check $checker --kind spriteBurst
 ```
 
-`--compare` 核对 JSON 值和数组顺序。加 `-o <路径>` 可保存文件。`--native-check` 也可用于普通的 `settings.json`。跑全量回归时，将校验器路径传给测试脚本。
+`--compare` 核对 JSON 值和数组顺序。加 `-o <路径>` 可保存文件。已有普通的 `settings.json` 时，也可直接执行下面的校验命令。需要 `--kind` 时，请先按上面的命令重建校验器。
+
+```powershell
+& $checker --check-settings --kind native 'examples/native-wallpapers/tidal-signal/pack/settings.json'
+```
+
+跑全量回归时，将校验器路径传给测试脚本。
 
 ```powershell
 $env:ACTION75_SCHEMA_CHECKER = $checker

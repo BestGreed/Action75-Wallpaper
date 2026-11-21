@@ -137,8 +137,19 @@ with (run / "player.log").open("wb") as log:
         assert entry["supported"] and entry["schemaAvailable"], entry
         active = call("selectPack", id=pack_id)
         assert active["packId"] == pack_id, active
+        call("testFrame")
+        frame = state / "test-frame.png"
+        idle_image = frame.read_bytes()
         trigger = call("testTrigger", code="KeyA")
         assert trigger["acceptedTriggers"] == 1, trigger
+        deadline = time.monotonic() + 1
+        while True:
+            call("testFrame")
+            if frame.read_bytes() != idle_image:
+                break
+            if time.monotonic() >= deadline:
+                raise AssertionError("The key did not change the frame")
+            time.sleep(0.03)
 
         profile = state / "wallpaper-settings" / f"{pack_id}.json"
         before = profile.read_bytes()
@@ -150,7 +161,7 @@ with (run / "player.log").open("wb") as log:
         assert call("status")["packId"] == pack_id
 
         summary = {"pack": pack_id, "renderer": active["renderer"], "trigger": trigger,
-                   "previewAndSave": True, "failedSelectionPreservedPack": True}
+                   "visibleKeyFeedback": True, "previewAndSave": True, "failedSelectionPreservedPack": True}
         (run / "result.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         print(run / "result.json")
         call("stop")
@@ -162,14 +173,14 @@ with (run / "player.log").open("wb") as log:
 '@ | python - 'wallpapers-native/amber-ripple'
 ```
 
-用于别的作品时，把目录、可触发键和参数值换成该包的实际值。像黑洞静默区那样会拒绝触发的场景，先指定区外键测正向路径，再用位置明确的探针验证区内行为。`--state-dir` 隔离播放器状态和各壁纸参数，`--root` 还决定校准、壁纸目录配置、日志等路径。两者和管道都用隔离值。
+用于别的作品时，把目录、可触发键和参数值换成该包的实际值。背景自身运动时，在键位附近对照同一时刻的无输入帧。像黑洞静默区那样会抑制特效的场景，分别在阴影内外读回画面。`--state-dir` 隔离播放器状态和各壁纸参数，`--root` 还决定校准、壁纸目录配置、日志等路径。两者和管道都用隔离值。
 
 ## 查看真实画面
 
 - 用适合当前后端的离屏探针画出指定时刻并导出 PNG。T0 留一张待机画面，另抓首次可见、峰值和淡出。需要短片时，按固定时间步进导出连续帧，编码成 60 FPS MP4。保留原始画幅，另看 480×180 缩略图。
 - 想给示例图集出图，可参考 `SpriteBurstProbe.cpp`。先以 1920×720 初始化离屏 `NativeRenderer`、加载背景与图集，再按清单参数和配置设置 `SpriteBurst`。待机时在 `beginFrame` 后直接保存。激活时调用 `push` 注入归一化位置，在给定时刻依次调用 `beginFrame`、`draw` 和 `saveFrame`。这样能用固定输入对比图集的节奏、叠加和范围。 [图集探针](../../native/windows-player/tests/SpriteBurstProbe.cpp) · [原生渲染器](../../native/windows-player/include/NativeRenderer.h)
 - 现有的黑洞与水面测试目标可以直接出图，两者都接收「包目录、输出目录」。`action75_black_hole_scene_tests.exe` 产出 `idle.png`、`interactive.png` 和 `half-horizon.png`，`action75_water_surface_tests.exe` 产出 `idle.png`、`touch.png` 和 `ripples.png`。默认路径为 `native/windows-player/build/Release/`。普通 `--headless-test` 用来测协议和状态。`--self-test` 走 Effekseer 的诊断样例。 [黑洞探针](../../native/windows-player/tests/black_hole_scene_tests.cpp) · [水面探针](../../native/windows-player/tests/water_surface_tests.cpp)
-- 「碎光玻璃」使用 `action75_glass_shatter_tests.exe <包目录> <输出目录> --sequence`。输出待机、三种背景及 `frames` 里的连续帧。将 `--sequence` 换成 `--core-sizes` 可在同一点、同一力度下输出三档中心大小，用 `bare-cracks.png` 对照外围主裂纹。通过 `testTrigger` 可读取该次请求的最后一次 `impactStrength`，测随机区间时每条请求发一个键。 [玻璃探针](../../native/windows-player/tests/glass_shatter_tests.cpp) · [离屏触发入口](../../native/windows-player/src/main.cpp)
+- 「碎光玻璃」使用 `action75_glass_shatter_tests.exe <包目录> <输出目录> --sequence`。输出待机、三种背景及 `frames` 里的连续帧。将 `--sequence` 换成 `--core-sizes` 可在同一点、同一力度下输出三档中心大小，用 `bare-cracks.png` 对照外围主裂纹。随机力度区间由场景探针直接读取样本验证。 [玻璃探针](../../native/windows-player/tests/glass_shatter_tests.cpp)
 - 检查控制台时，用 `app/data/app-settings.json` 的 `setupComplete: true` 启用壁纸库。要取在线画面，保持隔离播放器运行，将它的管道名写入 `app/data/player-pipe.txt`。然后以 `Action75Manager.exe --root "<app绝对路径>" --screenshot "<输出PNG>" --exit-after-screenshot` 取图。管理器会打开自己的窗口，注意安排在实机查看阶段。 [管理器启动入口](../../apps/manager/src/main.rs) · [安装验证脚本](../../tools/verify-release.py)
 
 ## 交付前验收
@@ -184,11 +195,13 @@ with (run / "player.log").open("wb") as log:
 
 ### 如何测性能
 
-硬件离屏运行增加 `--headless-hardware --perf-stats`。用 `perfReset` 在预热后开始，用 `perfRead` 取 `gpuMs`、`cpuSubmitMs`、`frameIntervalMs` 的样本和 P95。记录实际适配器、1920×720、平均 FPS、负载和时长、工作集和显存。活动帧约有 **16.67 ms** 的时间预算。安静场景根据效果是否仍有真实运动活动判读，静止后可休眠。拿同设备、同配置、同触发序列做前后对照。
+硬件离屏运行增加 `--headless-hardware`。D3D11 可再加 `--perf-stats`，用 `perfReset` 开始，用 `perfRead` 读取播放器自身的 D3D11 GPU 时间戳、CPU 提交时间和帧间隔。D3D12 使用帧计数和操作系统的 GPU 引擎计数器。在原生作品中，按 `playerPid`、`nativeWorkerPid` 及 `gpuAdapterLuid` 分别记录两个进程的 GPU 引擎和内存样本。共享显存按进程相加可能重复记账。记录分辨率、平均帧率、负载和时长。以相同设备、配置和触发序列作前后对照。
 
-可用 `tools/verify-release.py` 的管道调用作参照，按每秒约 40 次触发建立短测，再加同键、多键和最高常用强度。挑有效触发点，硬件和软件渲染的结果分别记录。单独记录从选择到可见首帧的时间。帧率有余量但仍像卡顿时，逐帧看起势、相邻图集帧差和淡出的变化。实屏响应、游戏共存和长跑稳定性各有对应测试，离屏数据只覆盖该次负载。 [性能采样字段](../../native/windows-player/include/PerfStats.h) · [安装验证脚本](../../tools/verify-release.py)
+发行验证用 `playerD3D11Perf` 标注宿主时间戳，按角色记录各自工作集。黑洞基准给出两个进程按适配器筛选的 GPU 引擎样本。用每秒约 40 次的输入建立短测，再加同键、多键和参数极值。静止场景用像素回读和空闲帧差同时验收。 [安装验证脚本](../../tools/verify-release.py) · [逐进程基准](../../examples/native-wallpapers/black-hole/benchmark.py)
 
-`testTrigger` 的 `count` 会在同一次请求中重复同一个物理键码。测试「烟火」的击键间隔时，逐键发送不同键码，并用 `acceptedTriggers` 确认当次是否绽放。测持续打字时，按时间分布重复发送。测多键时交替发送 `KeyA`、`KeyW`、`Space` 等已映射的键码。需要精确的同帧画面时，在场景探针里对多个坐标注入同一时刻的触发。压力循环使用持久运行的播放器和直接管道调用，复用发布脚本的调用方式。示例里的 `--command` 适合少量命令，每次会多启动一个短时进程。
+`testTrigger` 的 `count` 在一次请求中重复同一个物理键码。原生包的 `acceptedTriggers` 统计事件送达次数。状态里的 `activeEffects` 和 `activeParticles` 只覆盖宿主管理的效果。测试原生「烟火」的击键间隔时，逐键发送并与待机画面比对。连续打字压力测试按时间分布输入，使用持久管道避免每键启动一个 `--command` 子进程。
+
+`python -B tools/verify-wallpaper-behavior.py --player <播放器路径> --output <证据目录>` 用隔离播放器复验磁流体暂停、三款场壁纸休眠和原生烟火的每三键一次规则。需要 Pillow。结果 JSON 同时记录烟火的送达次数与各次像素差。 [离屏回归](../../tools/verify-wallpaper-behavior.py)
 
 ### 力度与背景如何验收
 
