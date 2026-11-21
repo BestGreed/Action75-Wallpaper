@@ -16,7 +16,7 @@ V vs(uint vertex:SV_VertexID,I input){
 float3 toSrgb(float3 c){return lerp(c*12.92,1.055*pow(max(c,0),1/2.4)-.055,step(.0031308,c));}
 float filteredLine(float distance,float width){float aa=max(fwidth(distance),1/display.z);float filtered=sqrt(width*width+aa*aa*.25);return exp(-distance*distance/(filtered*filtered))*width/filtered;}
 float4 ps(V v):SV_TARGET{
- float t=v.center.z,alpha=0,energy=1;float3 color=v.color.rgb;
+ float t=v.center.z,alpha=0,energy=1,opacity=1;float3 color=v.color.rgb;
  if(look.z<.5){
   float kernel=pow(saturate(1-dot(v.local,v.local)),2);
   float end=.70+.3*v.data.x,start=.28+.24*v.data.y;
@@ -43,10 +43,17 @@ float4 ps(V v):SV_TARGET{
    head=mul(float2x2(.8253356,.5646425,-.5646425,.8253356),head);
   }
   float core=exp(-dot(v.local,v.local)*800)*exp(-t*18)*.2;
-  energy=(arcEnergy+glow+core)*smoothstep(0,.028,t)*(1-smoothstep(.35,1,t));
-  alpha=saturate(energy*v.data.w);color*=look.x;
+  float total=arcEnergy+glow+core;
+  energy=total*smoothstep(0,.028,t)*(1-smoothstep(.35,1,t));
+  alpha=saturate(energy*v.data.w);
+  if (look.y!=1 || look.w!=1 || display.w!=1) {
+    float weighted=arcEnergy*look.y+glow*look.w+core*display.w;
+    opacity=weighted/max(total,1e-20);
+  }
+  color*=look.x;
  }
  float peak=max(color.r,max(color.g,color.b));color/=1+peak*.32;
  color=toSrgb(color);
- return float4(color*alpha,look.z<.5?alpha:0);
+ float3 light=saturate(color*alpha)*opacity;
+ return float4(light,saturate(max(light.r,max(light.g,light.b))));
 }

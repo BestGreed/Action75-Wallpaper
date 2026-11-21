@@ -54,7 +54,8 @@ struct PackAppearance {
   float idleDelay=3;
   EffectRgb keycapOutlineColor{62,140,166};
   float brightness=1, scale=1, intensity=1, saturation=1, hue=0, speed=1, spriteDuration=0;
-  unsigned backgroundStyle=0;
+  unsigned backgroundStyle=0, backgroundFit=0;
+  float backgroundZoom=1,backgroundPanX=0,backgroundPanY=0;
   float backgroundBrightness=1,backgroundSaturation=1,backgroundHue=0;
   EffectRgb backgroundColor{255,255,255};
   EffectRgb color{255,255,255};

@@ -20,6 +20,8 @@ NativeRenderer::BackgroundSnapshot& NativeRenderer::BackgroundSnapshot::operator
 NativeRenderer::BackgroundSnapshot NativeRenderer::takeBackground() noexcept {
   BackgroundSnapshot old;
   old.view=std::move(backgroundView_);old.opaque=std::move(opaqueBackdrop_);old.video=std::move(video_);
+  old.media=media_;media_=false;
+  old.fit=mediaFit_;old.zoom=mediaZoom_;old.panX=mediaPanX_;old.panY=mediaPanY_;
   old.width=backdropWidth_;old.height=backdropHeight_;old.copied=lastBackdropCopy_;
   std::copy_n(backgroundAppearance_, old.appearance.size(), old.appearance.begin());
   backdropWidth_=backdropHeight_=0;lastBackdropCopy_=false;
@@ -27,6 +29,8 @@ NativeRenderer::BackgroundSnapshot NativeRenderer::takeBackground() noexcept {
 }
 void NativeRenderer::restoreBackground(BackgroundSnapshot&& old) noexcept {
   backgroundView_=std::move(old.view);opaqueBackdrop_=std::move(old.opaque);video_=std::move(old.video);
+  media_=old.media;
+  setMediaPlacement(old.fit,old.zoom,old.panX,old.panY);
   backdropWidth_=old.width;backdropHeight_=old.height;lastBackdropCopy_=old.copied;
   std::copy(old.appearance.begin(), old.appearance.end(), backgroundAppearance_);
   backgroundAppearanceDirty_ = true;
@@ -295,15 +299,16 @@ bool NativeRenderer::resize(unsigned width, unsigned height,
   return true;
 }
 bool NativeRenderer::loadBackground(const std::filesystem::path &file,
-                                    std::string &error, unsigned maxPixels) {
+                                    std::string &error, unsigned maxPixels, bool media) {
   if (!initializeBackgroundPipeline(error)) return false;
   auto extension=file.extension().wstring();
   std::transform(extension.begin(),extension.end(),extension.begin(),::towlower);
-  if(extension==L".mp4"||extension==L".m4v"||extension==L".mov"||extension==L".wmv"){
+  if(extension==L".mp4"||extension==L".m4v"||extension==L".mov"||extension==L".wmv"||extension==L".mkv"||extension==L".webm"){
     auto candidate=std::make_unique<VideoBackground>();
-    if(!candidate->Initialize(device_.Get(),context_.Get())||!candidate->Resize(width_,height_)||!candidate->Open(file)){
+    if(!candidate->Initialize(device_.Get(),context_.Get())||!candidate->Resize(width_,height_)||!candidate->Open(file,media)){
       error=candidate->LastError();return false;
     }
+    media_=media;
     video_=std::move(candidate);
     backgroundView_.Reset();
     opaqueBackdrop_.Reset();
@@ -369,6 +374,7 @@ bool NativeRenderer::loadBackground(const std::filesystem::path &file,
   for (std::size_t i=3;i<pixels.size();i+=4) {
     if (pixels[i]!=255) {opaque=false;break;}
   }
+  media_=media;
   backgroundView_=view;
   opaqueBackdrop_=opaque?texture:ComPtr<ID3D11Texture2D>{};
   backdropWidth_=width;
@@ -463,11 +469,13 @@ bool NativeRenderer::loadCanvasBackground(const std::filesystem::path &file,
     return false;
   }
   video_.reset();
+  media_=false;
   backgroundView_ = std::move(view);
   opaqueBackdrop_.Reset();
   return true;
 }
 void NativeRenderer::clearBackground() {
+  media_=false;
   video_.reset();backgroundView_.Reset();opaqueBackdrop_.Reset();
   backdropWidth_=backdropHeight_=0;
   lastBackdropCopy_=false;
@@ -497,6 +505,9 @@ void NativeRenderer::setBackgroundAppearance(float brightness,float saturation,f
   backgroundAppearanceDirty_=true;
 }
 bool NativeRenderer::isAnimated() const{return video_&&video_->IsAnimated();}
+void NativeRenderer::setMediaPlacement(unsigned fit,float zoom,float panX,float panY) {
+  mediaFit_=fit; mediaZoom_=zoom; mediaPanX_=panX; mediaPanY_=panY;
+}
 void NativeRenderer::setBackgroundPaused(bool paused){if(video_)video_->SetPaused(paused);}
 std::string NativeRenderer::backgroundError()const{return video_?video_->LastError():std::string();}
 namespace {
@@ -528,10 +539,24 @@ void NativeRenderer::beginFrame(bool opaqueScene) {
   ID3D11ShaderResourceView *nullView = nullptr;
   context_->PSSetShaderResources(0, 1, &nullView);
   ID3D11RenderTargetView *view = targetView_.Get();
+  std::array<float,4> uv{1.f,1.f,0.f,0.f};
+  const float aspect = video_ ? video_->AspectRatio() :
+      (backdropHeight_ ? float(backdropWidth_)/backdropHeight_ : 0.f);
+  if (media_ && aspect > 0.f && width_ && height_) {
+    const float ratio = float(width_) / height_ / aspect;
+    uv[0] = (mediaFit_ == 1 ? std::max(1.f,ratio) : std::min(1.f,ratio)) / mediaZoom_;
+    uv[1] = uv[0] / ratio;
+    uv[2] = (1.f-uv[0])*.5f - mediaPanX_*uv[0]*.5f;
+    uv[3] = (1.f-uv[1])*.5f - mediaPanY_*uv[1]*.5f;
+  }
+  if (!std::equal(uv.begin(),uv.end(),backgroundAppearance_+8)) {
+    std::copy(uv.begin(),uv.end(),backgroundAppearance_+8);
+    backgroundAppearanceDirty_=true;
+  }
   const bool solidBlack = backgroundAppearance_[0] == 0.0f ||
       (backgroundAppearance_[4] == 0.0f && backgroundAppearance_[5] == 0.0f && backgroundAppearance_[6] == 0.0f);
   const bool direct=!opaqueScene && !solidBlack && backgroundAppearance_[7]==0.f && allowBackdropCopy_ && backgroundAppearance_[3]==0.0f && !video_ && opaqueBackdrop_ &&
-                    backdropWidth_==width_ && backdropHeight_==height_;
+                    backdropWidth_==width_ && backdropHeight_==height_ && uv[0]==1 && uv[1]==1 && uv[2]==0 && uv[3]==0;
   if (direct) {
     context_->OMSetRenderTargets(0,nullptr,nullptr);
     context_->CopyResource(target_.Get(),opaqueBackdrop_.Get());

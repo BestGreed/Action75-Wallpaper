@@ -1,4 +1,5 @@
 #include "FireworksScene.h"
+#include "LegacyNativeSettings.h"
 #include "NativeRenderer.h"
 #include <algorithm>
 #include <chrono>
@@ -178,9 +179,10 @@ int wmain(int argc, wchar_t **argv) {
     require(SUCCEEDED(com.result), "Initialize COM");
     const fs::path pack = argv[1];
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    PackSettingsStore store(fs::temp_directory_path() / ("Action75Fireworks-" + std::to_string(stamp)));
-    store.registerPack("night-fireworks", pack, pack / "settings.json");
-    require(store.hasSchema("night-fireworks"), store.schemaError("night-fireworks"));
+    const auto scratch = fs::temp_directory_path() / ("Action75Fireworks-" + std::to_string(stamp));
+    const action75::test::LegacyNativeSettings legacy(scratch);
+    PackSettingsStore store(scratch);
+    legacy.registerPack(store, "night-fireworks", pack);
     const auto defaults = store.evaluate(store.current("night-fireworks"));
     require(defaults.scale == 3.5f && defaults.fireworks.selected == 0b1110001111 && defaults.fireworks.keyInterval == 1 &&
             defaults.sourcePalette &&

@@ -32,6 +32,7 @@ private:
 
   Gpu gpu_;
   ComPtr<ID3D12PipelineState> surface_, stamp_, step_, slopePipeline_, bake_, downsample_;
+  ComPtr<ID3D12PipelineState> translucentSurface_;
   Texture optics_, pressure_, slope_;
   std::array<Texture, 2> wave_;
   std::array<View, opticsLevels - 1> inputMip_, outputMip_;
@@ -59,6 +60,7 @@ private:
   float minStrength_ = .62f, maxStrength_ = 1.45f, crestBrightness_ = 1.35f;
   unsigned backdrop_ = 0;
   float backgroundBrightness_ = 1, backgroundSaturation_ = 1, texture_ = .50f, caustics_ = .45f;
+  float rippleOpacity_ = 1, backgroundOpacity_ = 1;
   LayerColor waterHue_, crestColor_;
   std::array<float, 3> tint_{1, 1, 1};
 };

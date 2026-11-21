@@ -80,6 +80,9 @@ public:
       const auto item = appearance.fields.find(name);
       return item == appearance.fields.end() ? defaultValue : item->second;
     };
+    orbitOpacity_ = appearance.foregroundOpacity;
+    haloOpacity_ = std::clamp(field("haloOpacity", 100) / 100.f, 0.f, 1.f);
+    coreOpacity_ = std::clamp(field("coreOpacity", 100) / 100.f, 0.f, 1.f);
     arcCount_ = std::clamp(field("arcCount", 2), 1.f, 3.f);
     arcWidth_ = field("arcWidth", 1);
     arcSweep_ = field("arcSweep", 1);
@@ -146,8 +149,8 @@ public:
       const float pad = 10.f / diameter, core = .12f * std::exp(-t * 6);
       instance.shape = {std::max(ex, core) + pad, std::max(ey, core) + pad, 0, 0};
     }
-    const Constants constants{{float(frame.width), float(frame.height), diameter, 0},
-                              {appearance_.brightness * appearance_.intensity, 0, 1, 0},
+    const Constants constants{{float(frame.width), float(frame.height), diameter, coreOpacity_},
+                              {appearance_.brightness * appearance_.intensity, orbitOpacity_, 1, haloOpacity_},
                               {1, .5f, arcCount_, arcWidth_}};
     constants_.write(&constants, sizeof(constants));
     const auto bytes = hits_.size() * sizeof(Instance);
@@ -181,6 +184,7 @@ private:
   std::vector<Hit> hits_;
   Appearance appearance_;
   unsigned serial_ = 0, random_ = 0x48db71a5;
+  float orbitOpacity_ = 1, haloOpacity_ = 1, coreOpacity_ = 1;
   float arcCount_ = 2, arcWidth_ = 1, arcSweep_ = 1, arcEccentricity_ = .56f;
   double previous_ = -1;
   bool wasPaused_ = false;

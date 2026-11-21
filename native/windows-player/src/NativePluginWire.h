@@ -8,6 +8,7 @@
 
 namespace action75::worker {
 using Microsoft::WRL::ComPtr;
+enum class CompositionMode : uint32_t { Off, Opaque, Premultiplied };
 enum class Operation : unsigned { Initialize, Event, Render, HitTest, Exit };
 inline constexpr DWORD FrameCompletionTimeoutMs = 1500;
 // Fixed-size mailbox. No address in this mapping is ever dereferenced by the host.
@@ -26,7 +27,8 @@ struct Mailbox {
   char diagnostic[192];
   uint32_t abi;
   uint64_t waitValue, signalValue;
-  uint32_t composition, waitForFrame;
+  CompositionMode composition;
+  uint32_t waitForFrame;
   HRESULT presentResult;
   LONG compositionDeviceRemoved;
 };

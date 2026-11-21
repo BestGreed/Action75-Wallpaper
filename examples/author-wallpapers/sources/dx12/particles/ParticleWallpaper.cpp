@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 #include <memory>
 #include <limits>
+#include "OpacityLayer.h"
 
 using Microsoft::WRL::ComPtr;
 namespace author_particles {
@@ -20,6 +21,7 @@ struct Instance {
     Effekseer::ManagerRef manager;
     std::vector<Effekseer::EffectRef> effects;
     std::vector<Effekseer::Handle> handles;
+    OpacityLayer opacityLayer;
     unsigned width=0,height=0;
     double last=-1,elapsed=0;
     bool paused=false;
@@ -36,6 +38,7 @@ struct Instance {
         commands.Reset();pool.Reset();renderer.Reset();graphics.Reset();
     }
     bool initialize(const A75Create12& create) {
+        opacityLayer.initialize(create.device);
         D3D12_COMMAND_QUEUE_DESC desc{};
         if(FAILED(create.device->CreateCommandQueue(&desc,IID_PPV_ARGS(&uploads)))) throw std::runtime_error("Effekseer DX12 resource-upload queue creation failed");
         graphics=EffekseerRendererDX12::CreateGraphicsDevice(create.device,uploads.Get(),1);
@@ -131,6 +134,11 @@ struct Instance {
             manager->Update(update);prune();
         }
         if(handles.empty()) return -1;
+        // Hidden foreground still simulates normally and preserves the original
+        // cadence/expiry; only the GPU draw is omitted.
+        if(program.foregroundOpacity==0) return paused?-1:100;
+        const bool isolated=program.backgroundOpacity!=1 || program.foregroundOpacity!=1;
+        if(isolated) opacityLayer.begin(frame.commands,width,height);
         pool->NewFrame();
         EffekseerRendererDX12::BeginCommandList(commands,frame.commands);
         renderer->SetCommandList(commands);
@@ -141,6 +149,7 @@ struct Instance {
         draw.ViewProjectionMatrix=renderer->GetCameraProjectionMatrix();manager->Draw(draw);
         if(!renderer->EndRendering()) throw std::runtime_error("Effekseer DX12 end rendering failed");
         renderer->SetCommandList(nullptr);EffekseerRendererDX12::EndCommandList(commands);
+        if(isolated) opacityLayer.composite(frame,clear,program.foregroundOpacity);
         return paused?-1:0;
     }
 };

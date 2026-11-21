@@ -16,6 +16,7 @@ struct BlackHoleAppearance {
   Sky sky=Sky::Nebula;
   BlackHoleSkyStyle nebula{1,.75f}, voidSky{1,.65f}, starfield{1,.8f};
   float skyBrightness=1, skyHue=0, skySaturation=1, starHue=0, starSaturation=1;
+  float skyOpacity=1, holeOpacity=1, starOpacity=1;
   EffectRgb skyTint{255,255,255}, starTint{255,255,255};
 };
 }

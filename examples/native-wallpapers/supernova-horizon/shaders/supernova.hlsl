@@ -10,6 +10,11 @@ StructuredBuffer<Burst> bursts : register(t0);
 static const uint sparksPerBurst = 36;
 static const float tau = 6.28318531;
 
+float4 emission(float3 color) {
+    color *= novaTint.w;
+    return float4(color, max(color.r, max(color.g, color.b)));
+}
+
 struct FlashVertex {
     float4 position : SV_Position;
     float2 local : TEXCOORD0;
@@ -63,7 +68,7 @@ float4 NovaPS(FlashVertex input) : SV_Target {
                  + float3(0.48, 0.27, 1.0) * (thermal + reverse)
                  + float3(0.73, 0.45, 0.94) * ejecta
                  + float3(0.28, 0.67, 1.0) * ring;
-    return float4(color * novaTint.xyz * light.z, 0.0);
+    return emission(color * novaTint.xyz * light.z);
 }
 
 struct SparkVertex {
@@ -102,5 +107,5 @@ float4 SparkPS(SparkVertex input) : SV_Target {
     float y = abs(input.local.y);
     float trail = smoothstep(-1.0, 0.76, x) * falloff(0.65, 1.0, x) * falloff(0.06, 1.0, y);
     float tip = falloff(0.03, 0.41, length(float2((x - 0.65) * 2.2, y))) * 0.44;
-    return float4(input.glow * (trail + tip), 0.0);
+    return emission(input.glow * (trail + tip));
 }

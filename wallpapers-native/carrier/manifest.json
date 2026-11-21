@@ -7,6 +7,7 @@
   "name" : "\u8f7d\u6ce2 \u00b7 Carrier",
   "preview" : "preview.png",
   "renderer" : "d3d12",
+  "desktopOpacityControl" : "backgroundOpacity",
   "settings" : "settings.json",
   "version" : 1
 }

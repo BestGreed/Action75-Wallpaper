@@ -7,5 +7,6 @@
   "entry": "wallpaper.dll",
   "abi": 2,
   "preview": "preview.png",
-  "renderer": "d3d12"
+  "renderer": "d3d12",
+  "desktopOpacityControl": "backgroundOpacity"
 }

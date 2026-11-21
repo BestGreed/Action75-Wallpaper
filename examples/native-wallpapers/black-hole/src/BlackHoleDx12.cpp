@@ -208,16 +208,17 @@ void BlackHoleDx12::createRootSignature() {
                                        IID_PPV_ARGS(&root_)), "Create black hole root signature");
 }
 
-void BlackHoleDx12::createPipelineStates() {
+void BlackHoleDx12::createPipelineStates(bool translucent) {
   using namespace black_hole_dx12;
   const auto create = [&](D3D12_SHADER_BYTECODE pixel, DXGI_FORMAT format, bool additive = false,
-                          bool secondOutput = false) {
+                          bool secondOutput = false, bool accumulateCoverage = false) {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC state{};
     state.pRootSignature = root_.Get();
     state.VS = additive ? code(StarVs) : code(ScreenVs);
     state.PS = pixel;
     state.BlendState.RenderTarget[0] = {additive, FALSE, D3D12_BLEND_ONE,
-      additive ? D3D12_BLEND_ONE : D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD, D3D12_BLEND_ZERO, D3D12_BLEND_ONE,
+      additive ? D3D12_BLEND_ONE : D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
+      accumulateCoverage ? D3D12_BLEND_ONE : D3D12_BLEND_ZERO, D3D12_BLEND_ONE,
       D3D12_BLEND_OP_ADD, D3D12_LOGIC_OP_NOOP, D3D12_COLOR_WRITE_ENABLE_ALL};
     state.SampleMask = UINT_MAX;
     state.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
@@ -239,6 +240,17 @@ void BlackHoleDx12::createPipelineStates() {
             "Create black hole pipeline state");
     return result;
   };
+
+  if (translucent) {
+    const auto format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    auto scene = create(code(TranslucentScenePs), format);
+    auto star = create(code(TranslucentStarPs), format, true, false, true);
+    auto composite = create(code(TranslucentCompositePs), DXGI_FORMAT_R8G8B8A8_UNORM);
+    translucentScene_ = std::move(scene);
+    translucentStar_ = std::move(star);
+    translucentComposite_ = std::move(composite);
+    return;
+  }
 
   scene_ = create(code(ScenePs), hdrFormat_);
   star_ = create(code(StarPs), hdrFormat_, true);
@@ -336,17 +348,21 @@ void BlackHoleDx12::bakeSky(ID3D12GraphicsCommandList *commands, ID3D12Resource 
   bindTexture(commands, 2, NullSrv);
 }
 
-void BlackHoleDx12::resize(unsigned width, unsigned height) {
-  if (width_ == width && height_ == height)
+void BlackHoleDx12::resize(unsigned width, unsigned height, DXGI_FORMAT sceneFormat) {
+  const bool resized = width_ != width || height_ != height;
+  if (resized || sceneFormat_ != sceneFormat) {
+    hdr_ = texture(device_, sceneFormat, width, height, 1, ColorTarget, ShaderRead);
+    writeRtv(hdr_.Get(), sceneFormat, HdrRtv, 0);
+    writeSrv(hdr_.Get(), sceneFormat, HdrSrv, 0, 1);
+    sceneFormat_ = sceneFormat;
+  }
+  if (!resized)
     return;
   const unsigned blurWidth = (width + 3) / 4, blurHeight = (height + 3) / 4;
-  hdr_ = texture(device_, hdrFormat_, width, height, 1, ColorTarget, ShaderRead);
   bloomA_ = texture(device_, hdrFormat_, blurWidth, blurHeight, 1, ColorTarget, ShaderRead);
   bloomB_ = texture(device_, hdrFormat_, blurWidth, blurHeight, 1, ColorTarget, ShaderRead);
-  writeRtv(hdr_.Get(), hdrFormat_, HdrRtv, 0);
   writeRtv(bloomA_.Get(), hdrFormat_, BloomARtv, 0);
   writeRtv(bloomB_.Get(), hdrFormat_, BloomBRtv, 0);
-  writeSrv(hdr_.Get(), hdrFormat_, HdrSrv, 0, 1);
   writeSrv(bloomA_.Get(), hdrFormat_, BloomASrv, 0, 1);
   writeSrv(bloomB_.Get(), hdrFormat_, BloomBSrv, 0, 1);
   width_ = width;
@@ -354,18 +370,27 @@ void BlackHoleDx12::resize(unsigned width, unsigned height) {
 }
 
 void BlackHoleDx12::draw(const A75Frame12 &frame, bool paused) {
-  resize(frame.width, frame.height);
-  const unsigned blurWidth = (width_ + 3) / 4, blurHeight = (height_ + 3) / 4;
+  const unsigned blurWidth = (frame.width + 3) / 4, blurHeight = (frame.height + 3) / 4;
   SceneConstants scene;
   std::array<StarConstants, MaxStars> stars;
-  const unsigned visibleStars = prepareFrame(width_, height_, blurWidth, blurHeight, frame.seconds,
+  const unsigned visibleStars = prepareFrame(frame.width, frame.height, blurWidth, blurHeight, frame.seconds,
                                              paused, scene, stars.data());
+  scene.opacity[3] = visibleStars ? 1.f : 0.f;
+  auto *commands = frame.commands;
+  if (scene.opacity[0] == 0 && scene.opacity[1] == 0 && !visibleStars) {
+    const float transparent[4]{};
+    commands->ClearRenderTargetView(frame.rtv, transparent, 0, nullptr);
+    return;
+  }
+  const bool translucent = scene.opacity[0] < 1 || scene.opacity[1] < 1 || scene.opacity[2] < 1;
+  if (translucent && !translucentScene_)
+    createPipelineStates(true);
+  resize(frame.width, frame.height, translucent ? DXGI_FORMAT_R16G16B16A16_FLOAT : hdrFormat_);
   // The ABI waits for the previous frame before reusing the mapped constants.
   std::memcpy(mapped_ + SceneOffset, &scene, sizeof(scene));
   if (visibleStars)
     std::memcpy(mapped_ + StarOffset, stars.data(), sizeof(StarConstants) * visibleStars);
 
-  auto *commands = frame.commands;
   ID3D12DescriptorHeap *heaps[] = {srvs_.Get()};
   commands->SetDescriptorHeaps(1, heaps);
   commands->SetGraphicsRootSignature(root_.Get());
@@ -422,9 +447,9 @@ void BlackHoleDx12::draw(const A75Frame12 &frame, bool paused) {
   }
 
   transition(commands, hdr_.Get(), ShaderRead, Target);
-  fullscreen(commands, scene_.Get(), rtv(HdrRtv), width_, height_);
+  fullscreen(commands, translucent ? translucentScene_.Get() : scene_.Get(), rtv(HdrRtv), width_, height_);
   if (visibleStars)
-    drawStars(star_.Get());
+    drawStars(translucent ? translucentStar_.Get() : star_.Get());
   transition(commands, hdr_.Get(), Target, ShaderRead);
 
   bindTexture(commands, 2, HdrSrv);
@@ -439,6 +464,6 @@ void BlackHoleDx12::draw(const A75Frame12 &frame, bool paused) {
 
   bindTexture(commands, 2, HdrSrv);
   bindTexture(commands, 3, BloomBSrv);
-  fullscreen(commands, composite_.Get(), frame.rtv, width_, height_);
+  fullscreen(commands, translucent ? translucentComposite_.Get() : composite_.Get(), frame.rtv, width_, height_);
 }
 } // namespace action75

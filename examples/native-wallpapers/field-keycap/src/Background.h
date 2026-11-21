@@ -32,7 +32,9 @@ struct Background {
     solid = values.value("backgroundStyle", 0) == 1;
     const bool graded = std::fmod(hue, 360.f) != 0 || saturation != 1 || gain != 1 ||
                         tint != Rgb{255, 255, 255};
-    edited = solid || graded;
+    const float foreground = std::clamp(values.value("foregroundOpacity", 100.f), 0.f, 100.f) / 100.f;
+    const float background = std::clamp(values.value("backgroundOpacity", 100.f), 0.f, 100.f) / 100.f;
+    edited = solid || graded || foreground < 1 || background < 1;
     gpu = {};
     gpu.solid = {solid ? 1.f : 0.f, solid ? 1.f : 0.f, solid ? 1.f : 0.f, 1.f};
     if (graded) {
@@ -58,6 +60,13 @@ struct Background {
         }
     }
     gpu.rows[1][3] = solid ? 1.f : 0.f;
+    gpu.rows[2][3] = foreground;
+    gpu.solid[3] = background;
+  }
+  ColorRow clearColor() const {
+    auto color = gpu.solid;
+    for (int i = 0; i < 3; ++i) color[i] *= color[3];
+    return color;
   }
 };
 } // namespace wallpaper

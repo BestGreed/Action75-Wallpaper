@@ -29,6 +29,22 @@
           "appearance": "brightness"
         },
         {
+          "id": "foregroundOpacity",
+          "label": "拓印不透明度",
+          "type": "slider",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "default": 100,
+          "unit": "%",
+          "surface": "foreground",
+          "appearance": "opacity",
+          "advanced": false,
+          "binding": {
+            "target": "foreground.opacity"
+          }
+        },
+        {
           "id": "size",
           "type": "slider",
           "label": "拓印范围",
@@ -287,6 +303,22 @@
           "surface": "background",
           "advanced": false,
           "appearance": "brightness"
+        },
+        {
+          "id": "backgroundOpacity",
+          "label": "背景不透明度",
+          "type": "slider",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "default": 100,
+          "unit": "%",
+          "surface": "background",
+          "appearance": "opacity",
+          "advanced": false,
+          "binding": {
+            "target": "background.opacity"
+          }
         },
         {
           "id": "backgroundSaturation",

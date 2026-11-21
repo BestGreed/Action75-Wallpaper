@@ -22,6 +22,7 @@ struct Uniform {
 struct Appearance {
   float brightness = 1, scale = 1, intensity = 1, saturation = 1, hue = 0;
   float speed = 1, duration = 0;
+  float foregroundOpacity = 1, backgroundOpacity = 1;
   bool solidBackground = false;
   float backgroundBrightness = 1, backgroundSaturation = 1, backgroundHue = 0;
   Rgb color{255, 255, 255}, backgroundColor{255, 255, 255};

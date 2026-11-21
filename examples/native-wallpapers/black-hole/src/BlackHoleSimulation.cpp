@@ -77,6 +77,8 @@ void BlackHoleSimulation::configure(const BlackHoleAppearance &profile, float st
   setCenter(updateCenter ? appearance_.center : previous);
   starSize_ = starSize;
   starBrightness_ = starBrightness;
+  if (appearance_.starOpacity == 0)
+    clear();
 }
 
 void BlackHoleSimulation::setCenter(Position point) noexcept {
@@ -150,6 +152,8 @@ bool BlackHoleSimulation::Star::expired(double now) const noexcept {
 }
 
 bool BlackHoleSimulation::covers(Position point, unsigned width, unsigned height) const noexcept {
+  if (appearance_.holeOpacity == 0)
+    return false;
   const auto position = center();
   const float x = (point[0] - position[0]) * static_cast<float>(width);
   const float y = (point[1] - position[1]) * static_cast<float>(height);
@@ -169,7 +173,7 @@ float BlackHoleSimulation::randomUnit() noexcept {
 }
 
 bool BlackHoleSimulation::push(double now, Position point, unsigned width, unsigned height) noexcept {
-  if (!width || !height || starBrightness_ <= 0 ||
+  if (!width || !height || starBrightness_ <= 0 || appearance_.starOpacity == 0 ||
       !std::all_of(point.begin(), point.end(), [](float x) { return x >= 0.f && x <= 1.f; }) ||
       covers(point, width, height))
     return false;
@@ -217,11 +221,12 @@ unsigned BlackHoleSimulation::prepareFrame(unsigned width, unsigned height, unsi
   const float skyScale = std::max(canvasWidth / SkyWidth, canvasHeight / SkyHeight);
   const float starScale = starSize_ * std::min(canvasWidth, canvasHeight) / ReferenceHeight;
   const auto position = center();
-  const float einsteinRadiusSquared = 2.92f * appearance_.lensStrength;
-  const float lensEnabled = smooth(0, .42f, appearance_.lensStrength);
+  const float lensStrength = appearance_.lensStrength * appearance_.holeOpacity;
+  const float einsteinRadiusSquared = 2.92f * lensStrength;
+  const float lensEnabled = smooth(0, .42f, lensStrength);
   scene = {canvasWidth, canvasHeight, position[0] * canvasWidth,
                        position[1] * canvasHeight, shadowPixels(width, height),
-                       appearance_.lensStrength, appearance_.diskBrightness, static_cast<float>(phase_),
+                       lensStrength, appearance_.diskBrightness * appearance_.holeOpacity, static_cast<float>(phase_),
                        SkyWidth * skyScale, SkyHeight * skyScale, appearance_.starFlare, 0,
                        1.f / static_cast<float>(bloomWidth), 1.f / static_cast<float>(bloomHeight), einsteinRadiusSquared, 0,
                        diskColors(appearance_.diskPalette),
@@ -233,7 +238,8 @@ unsigned BlackHoleSimulation::prepareFrame(unsigned width, unsigned height, unsi
                        {linearChannel(appearance_.starTint[0]), linearChannel(appearance_.starTint[1]),
                         linearChannel(appearance_.starTint[2])},
                        (appearance_.starHue != 0 || appearance_.starSaturation != 1 ||
-                        appearance_.starTint != EffectRgb{255,255,255}) ? 1.f : 0.f};
+                        appearance_.starTint != EffectRgb{255,255,255}) ? 1.f : 0.f,
+                       {appearance_.skyOpacity, appearance_.holeOpacity, appearance_.starOpacity, 0}};
   for (unsigned i=0;i<3;++i) scene.skyTint[i] *= linearChannel(appearance_.skyTint[i]);
 
   const auto end = std::remove_if(stars_.begin(), stars_.begin() + count_, [&](const Star &star) {
@@ -247,7 +253,7 @@ unsigned BlackHoleSimulation::prepareFrame(unsigned width, unsigned height, unsi
       const float x = star.point[0] * canvasWidth, y = star.point[1] * canvasHeight;
       const float dx = x - scene.centerX, dy = y - scene.centerY;
       const float distanceSquared = dx * dx + dy * dy;
-      if (distanceSquared <= scene.shadowPx * scene.shadowPx)
+      if (appearance_.holeOpacity > 0 && distanceSquared <= scene.shadowPx * scene.shadowPx)
         continue;
       const auto heat = star.emission(now);
       const float temperature = std::max(0.f, heat.weight) / SinglePressPeak;

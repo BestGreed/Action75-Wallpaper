@@ -2,7 +2,11 @@ use action75_manager::wallpaper_import::{self, Preparation, PreparedImport, Rece
 use eframe::egui;
 use std::{
     path::{Path, PathBuf},
-    sync::mpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc,
+    },
     thread,
 };
 
@@ -11,6 +15,7 @@ use crate::folder_picker;
 enum Outcome {
     Published(Receipt),
     AlreadyInstalled(Receipt),
+    Cancelled,
     Confirm(Box<PreparedImport>),
 }
 
@@ -18,17 +23,36 @@ enum Outcome {
 enum Phase {
     #[default]
     Idle,
-    Choose,
-    Choosing(mpsc::Receiver<folder_picker::Reply>),
+    Choose(folder_picker::Selection),
+    Choosing(
+        folder_picker::Selection,
+        mpsc::Receiver<folder_picker::Reply>,
+    ),
     Working(mpsc::Receiver<Result<Outcome, String>>),
     Confirm(Box<PreparedImport>),
 }
 
 #[derive(Default)]
+struct MediaProgress {
+    cancelled: AtomicBool,
+    copied: AtomicU64,
+    total: AtomicU64,
+}
+
+#[derive(Default)]
 pub struct ImportFlow {
     phase: Phase,
+    media: Option<Arc<MediaProgress>>,
     notice: Option<Result<String, String>>,
     pub reveal: Option<String>,
+}
+
+impl Drop for ImportFlow {
+    fn drop(&mut self) {
+        if let Some(progress) = &self.media {
+            progress.cancelled.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 impl ImportFlow {
@@ -37,41 +61,121 @@ impl ImportFlow {
     }
 
     pub fn button(&mut self, ui: &mut egui::Ui, enabled: bool) {
-        let button = egui::Button::new("导入壁纸").min_size(egui::vec2(0., 27.));
-        if ui
-            .add_enabled(enabled && !self.busy(), button)
-            .on_hover_text("选择包含 manifest.json 的壁纸文件夹")
-            .clicked()
-        {
-            self.phase = Phase::Choose;
-            self.notice = None;
+        let available = enabled && !self.busy();
+        let interactive = ui
+            .add_enabled(
+                available,
+                egui::Button::new(egui::RichText::new("导入").size(13.))
+                    .frame_when_inactive(false)
+                    .min_size(egui::vec2(0., 30.))
+                    .right_text(egui::Atom::custom(
+                        ui.id().with("import-chevron"),
+                        egui::vec2(8., 8.),
+                    )),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let c = egui::pos2(
+            interactive.rect.right() - ui.spacing().button_padding.x - 4.,
+            interactive.rect.center().y,
+        );
+        let stroke = ui.style().interact(&interactive).fg_stroke;
+        for dx in [-3., 3.] {
+            ui.painter()
+                .line_segment([c + egui::vec2(dx, -1.5), c + egui::vec2(0., 1.5)], stroke);
+        }
+        if available {
+            let frame = egui::Frame::popup(ui.style())
+                .inner_margin(6)
+                .corner_radius(8);
+            egui::Popup::menu(&interactive).frame(frame).show(|ui| {
+                ui.set_width(164.);
+                ui.spacing_mut().item_spacing.y = 2.;
+                ui.spacing_mut().button_padding.x = 10.;
+                for (label, kind) in [
+                    ("视频或图片", folder_picker::Selection::Media),
+                    ("ZIP 压缩包", folder_picker::Selection::Zip),
+                    ("壁纸文件夹", folder_picker::Selection::Folder),
+                ] {
+                    if matches!(kind, folder_picker::Selection::Zip) {
+                        ui.add_space(2.);
+                        ui.separator();
+                        ui.add_space(2.);
+                        ui.horizontal(|ui| {
+                            ui.add_space(10.);
+                            ui.label(egui::RichText::new("互动壁纸").small().weak());
+                        });
+                    }
+                    let row = egui::Button::new(label)
+                        .frame_when_inactive(false)
+                        .min_size(egui::vec2(ui.available_width(), 30.));
+                    if ui
+                        .add(row)
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                        .clicked()
+                    {
+                        self.phase = Phase::Choose(kind);
+                        self.notice = None;
+                        ui.close();
+                    }
+                }
+            });
         }
     }
 
     pub fn open_picker(&mut self, frame: &eframe::Frame, ctx: &egui::Context) {
-        if matches!(self.phase, Phase::Choose) {
-            match folder_picker::open(frame, ctx, PathBuf::new(), "选择要导入的壁纸文件夹")
-            {
-                Ok(receiver) => self.phase = Phase::Choosing(receiver),
-                Err(error) => self.failed(format!("无法打开文件夹选择窗口，{error}")),
+        if let Phase::Choose(kind) = self.phase {
+            let title = match kind {
+                folder_picker::Selection::Folder => "选择要导入的壁纸文件夹",
+                folder_picker::Selection::Zip => "选择互动壁纸 ZIP",
+                folder_picker::Selection::Media => "选择视频或图片",
+            };
+            match folder_picker::open_dialog(frame, ctx, PathBuf::new(), title, kind) {
+                Ok(receiver) => self.phase = Phase::Choosing(kind, receiver),
+                Err(error) => self.failed(format!("无法打开选择窗口，{error}")),
             }
         }
     }
 
     pub fn poll(&mut self, root: &Path, ctx: &egui::Context) -> Option<Receipt> {
         match &self.phase {
-            Phase::Choosing(receiver) => {
+            Phase::Choosing(kind, receiver) => {
+                let kind = *kind;
                 let result = match receiver.try_recv() {
                     Ok(result) => result,
                     Err(mpsc::TryRecvError::Empty) => return None,
-                    Err(mpsc::TryRecvError::Disconnected) => Err("文件夹选择已中断".into()),
+                    Err(mpsc::TryRecvError::Disconnected) => Err("文件选择已中断".into()),
                 };
                 self.phase = Phase::Idle;
                 match result {
                     Ok(Some(path)) => {
                         let root = root.to_owned();
+                        let zip = matches!(kind, folder_picker::Selection::Zip);
+                        let media = matches!(kind, folder_picker::Selection::Media)
+                            .then(|| Arc::new(MediaProgress::default()));
+                        self.media = media.clone();
                         self.run(ctx, move || {
-                            match wallpaper_import::prepare(&root, Path::new(&path))? {
+                            let preparation = match &media {
+                                Some(progress) => wallpaper_import::prepare_media(
+                                    &root,
+                                    Path::new(&path),
+                                    &progress.cancelled,
+                                    |copied, total| {
+                                        progress.total.store(total, Ordering::Relaxed);
+                                        progress.copied.store(copied, Ordering::Relaxed);
+                                    },
+                                ),
+                                None if zip => {
+                                    wallpaper_import::prepare_zip(&root, Path::new(&path))
+                                }
+                                None => wallpaper_import::prepare(&root, Path::new(&path)),
+                            };
+                            if media
+                                .as_ref()
+                                .is_some_and(|p| p.cancelled.load(Ordering::Relaxed))
+                            {
+                                return Ok(Outcome::Cancelled);
+                            }
+                            match preparation? {
                                 Preparation::Installed(receipt) => {
                                     Ok(Outcome::AlreadyInstalled(receipt))
                                 }
@@ -91,10 +195,11 @@ impl ImportFlow {
                     Ok(result) => result,
                     Err(mpsc::TryRecvError::Empty) => return None,
                     Err(mpsc::TryRecvError::Disconnected) => {
-                        Err("导入任务已中断，请重新选择文件夹".into())
+                        Err("导入任务已中断，请重新选择".into())
                     }
                 };
                 self.phase = Phase::Idle;
+                self.media = None;
                 match result {
                     Ok(Outcome::Published(receipt)) => {
                         self.notice = Some(Ok(if receipt.updated {
@@ -108,6 +213,7 @@ impl ImportFlow {
                         self.notice = Some(Ok(format!("「{}」已在壁纸库中", receipt.name)));
                         return Some(receipt);
                     }
+                    Ok(Outcome::Cancelled) => self.notice = Some(Ok("已取消导入".into())),
                     Ok(Outcome::Confirm(pack)) => self.phase = Phase::Confirm(pack),
                     Err(error) => self.failed(error),
                 }
@@ -137,6 +243,7 @@ impl ImportFlow {
 
     fn failed(&mut self, error: String) {
         self.phase = Phase::Idle;
+        self.media = None;
         self.notice = Some(Err(error));
     }
 
@@ -144,7 +251,31 @@ impl ImportFlow {
         if matches!(self.phase, Phase::Working(_)) {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("正在检查并试播壁纸…");
+                if let Some(progress) = &self.media {
+                    let total = progress.total.load(Ordering::Relaxed);
+                    let copied = progress.copied.load(Ordering::Relaxed);
+                    if copied < total {
+                        ui.label(format!(
+                            "正在复制媒体文件 · {:.0}%",
+                            100. * copied as f64 / total as f64
+                        ));
+                    } else {
+                        ui.label("正在检查媒体并生成封面…");
+                    }
+                    if ui
+                        .add_enabled(
+                            !progress.cancelled.load(Ordering::Relaxed),
+                            egui::Button::new("取消"),
+                        )
+                        .clicked()
+                    {
+                        progress.cancelled.store(true, Ordering::Relaxed);
+                    }
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(150));
+                } else {
+                    ui.label("正在检查并试播壁纸…");
+                }
             });
         } else if let Some(result) = &self.notice {
             let dismissed = ui

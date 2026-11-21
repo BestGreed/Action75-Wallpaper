@@ -10,6 +10,8 @@
 
 均需要 Windows x64、Visual Studio 2022 C++ 工具、Windows SDK 和 CMake。每个工程的 README 给出独立构建命令；输出目录可放在仓库外。粒子工程静态链接 Effekseer CPU 模拟、LLGI 与 D3D12 Renderer，成品无需安装编辑器，也不加载独立 Effekseer DLL。其共享代码属于作者包，不要求宿主内置效果类型。
 
-原始 `.png`、`.efk` 和 `settings.json` 按字节保留。美术源工程仍在相邻旧格式目录中；重新导出美术后，更新对应源码工程的资源副本并重新构建安装，保留原生清单与 DLL。
+原始 `.png`、`.efk` 按字节保留，原有设置控件的 ID、默认值、范围和含义保留。各包新增 `backgroundOpacity` 与 `foregroundOpacity`（0–100，默认 100，`appearance: "opacity"`），清单以 `desktopOpacityControl` 声明背景控件。输出为预乘 RGBA，背景为 0 时空白处为 `(0,0,0,0)`，由宿主合成真实桌面；两项均为 100 时保留旧画面和原绘制路径。美术源工程仍在相邻旧格式目录中；重新导出美术后，更新对应源码工程的资源副本并重新构建安装，保留原生清单与 DLL。
 
 测试中的 D3D11 代码只用于冻结旧实现的画面对照，不链接运行 DLL。验收包含独立复制构建、实际 D3D12 帧回读、暂停恢复与空闲，以及通过生产导入器在临时库导入并重新冷加载。详见仓库 [验收记录](../../../../artifacts/dx12-all/08/README.md)。
+
+本次不透明度升级使用独立的旧原生包作为参考，验证每层 0/50/100、按键和明暗底色的合成，详见 [透明叠加验收](../../../../artifacts/opacity-authors/08/README.md)。

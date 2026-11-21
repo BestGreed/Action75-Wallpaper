@@ -90,7 +90,7 @@ int32_t __cdecl render(void *ptr, const A75Frame12 *f) noexcept {
         !f->width || !f->height) return -2;
     auto &s = *static_cast<Instance *>(ptr);
     s.scene.draw(*f, s.paused);
-    return s.paused ? -1 : 0;
+    return !s.paused && s.scene.animates() ? 0 : -1;
   } catch (...) { return -2; }
 }
 void __cdecl destroy(void *ptr) noexcept { delete static_cast<Instance *>(ptr); }

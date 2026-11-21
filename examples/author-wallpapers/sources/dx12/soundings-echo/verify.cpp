@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #ifdef SOUNDINGS_LEGACY_COMPARE
 #include "SpriteBurst.h"
@@ -28,7 +29,7 @@ struct Dx12 {
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 bytes=0,serial=0;
     HMODULE module=nullptr;const A75Wallpaper12* api=nullptr;void* instance=nullptr;
     UINT width=1920,height=720;
-    Dx12(const std::filesystem::path& dir) {
+    Dx12(const std::filesystem::path& dir,const std::string& settings="{}") {
         ComPtr<ID3D12Debug> layer;if(SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&layer)))) layer->EnableDebugLayer();
         ComPtr<IDXGIFactory4> factory;ComPtr<IDXGIAdapter> adapter;
         checked(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"Create DXGI factory");
@@ -49,7 +50,7 @@ struct Dx12 {
         require(!GetProcAddress(module,"Action75GetWallpaper"),"Package must not export ABI1");
         const auto get=reinterpret_cast<A75GetWallpaper12>(GetProcAddress(module,"Action75GetWallpaper12"));
         require(get&&!get(1)&&(api=get(2))&&api->abi==2,"Negotiate ABI2 only");
-        A75Create12 c{sizeof(c),width,height,device.Get(),dir.c_str(),"{}",nullptr,nullptr};instance=api->create(&c);require(instance,"Create author DX12 instance");
+        A75Create12 c{sizeof(c),width,height,device.Get(),dir.c_str(),settings.c_str(),nullptr,nullptr};instance=api->create(&c);require(instance,"Create author DX12 instance");
     }
     ~Dx12() {if(instance)api->destroy(instance);if(module)FreeLibrary(module);}
     void event(UINT type,double time,float x=.38f,float y=.57f,const std::string& settings="{}") {
@@ -142,16 +143,120 @@ struct Legacy {
 };
 #endif
 
+
+// Test the shipping ABI2 directly on transparent RGBA8, including alpha. The
+// frozen ABI2 pack is independently loaded; no expected image comes from the
+// candidate's shader or rendering implementation.
+static nlohmann::json verifyOpacity(const std::filesystem::path& pack,const std::filesystem::path& output,const std::filesystem::path& frozen) {
+    Dx12 test(pack);nlohmann::json report={{"combinations",nlohmann::json::array()}};
+    const nlohmann::json defaults={{"reach",1},{"backgroundStyle",0},{"backgroundBrightness",1},{"backgroundHue",0},{"backgroundSaturation",1},{"backgroundColor",{255,255,255}}};
+    std::array<std::array<Pixels,3>,3> idle{},hit{};
+    constexpr int levels[]={0,50,100};
+    const auto checkPremul=[](const Pixels& p) {for(std::size_t i=0;i<p.size();i+=4)for(unsigned c=0;c<3;++c)require(p[i+c]<=p[i+3],"RGB exceeds premultiplied alpha");};
+    const auto composite=[](const Pixels& p,std::array<unsigned,3> desktop) {
+        auto result=p;for(std::size_t i=0;i<p.size();i+=4) {for(unsigned c=0;c<3;++c)result[i+c]=std::uint8_t(std::clamp(int(std::lround(p[i+c]+desktop[c]*(1-p[i+3]/255.))),0,255));result[i+3]=255;}return result;
+    };
+    for(unsigned b=0;b<3;++b)for(unsigned f=0;f<3;++f) {
+        auto settings=defaults;settings["backgroundOpacity"]=levels[b];settings["foregroundOpacity"]=levels[f];
+        test.event(A75_INPUT_RESET,20);test.event(A75_SETTINGS,20,.38f,.57f,settings.dump());
+        idle[b][f]=test.frame(20,-1);test.event(A75_KEY_DOWN,20);
+        hit[b][f]=test.frame(20.43,f?0:-1);checkPremul(idle[b][f]);checkPremul(hit[b][f]);
+        const auto name="opacity-bg"+std::to_string(levels[b])+"-fg"+std::to_string(levels[f]);
+        soundings::writeImage(output/(name+"-rgba.png"),test.width,test.height,hit[b][f]);
+        soundings::writeImage(output/(name+"-dark.png"),test.width,test.height,composite(hit[b][f],{12,24,36}));
+        soundings::writeImage(output/(name+"-light.png"),test.width,test.height,composite(hit[b][f],{242,235,220}));
+        std::uint64_t visible=0;for(std::size_t i=0;i<hit[b][f].size();i+=4)visible+=hit[b][f][i]!=idle[b][f][i]||hit[b][f][i+1]!=idle[b][f][i+1]||hit[b][f][i+2]!=idle[b][f][i+2];
+        require(f?visible>10:hit[b][f]==idle[b][f],"Foreground visibility/zero control failed");
+        if(!b)for(auto v:idle[b][f])require(v==0,"Background zero must write transparent zero, not opaque black");
+        report["combinations"].push_back({{"background",levels[b]},{"foreground",levels[f]},{"keyChangedPixels",visible},{"premultiplied",true},{"idleSchedule",-1},{"activeSchedule",f?0:-1},{"brightAndDarkCompositeSaved",true}});
+    }
+    unsigned maxBackgroundScale=0,maxForegroundScale=0,maxIndependentOver=0;
+    for(unsigned b=0;b<3;++b)for(unsigned f=0;f<3;++f)for(std::size_t i=0;i<idle[b][f].size();++i) {
+        const auto expectedBackground=int(std::lround(idle[2][2][i]*levels[b]/100.));
+        maxBackgroundScale=std::max(maxBackgroundScale,unsigned(std::abs(int(idle[b][f][i])-expectedBackground)));
+        const auto expectedForeground=int(std::lround(hit[0][2][i]*levels[f]/100.));
+        maxForegroundScale=std::max(maxForegroundScale,unsigned(std::abs(int(hit[0][f][i])-expectedForeground)));
+        const auto alpha=hit[0][f][i-i%4+3]/255.;
+        const auto expectedOver=int(std::lround(hit[0][f][i]+idle[b][f][i]*(1-alpha)));
+        maxIndependentOver=std::max(maxIndependentOver,unsigned(std::abs(int(hit[b][f][i])-expectedOver)));
+    }
+    std::cout<<"opacity errors background="<<maxBackgroundScale<<" foreground="<<maxForegroundScale<<" over="<<maxIndependentOver<<"\n";
+    require(maxBackgroundScale<=1&&maxForegroundScale<=1&&maxIndependentOver<=2,"Independent opacity scale/over exceeded UNORM tolerance");
+    report["maxBackgroundScaleError"]=maxBackgroundScale;report["maxForegroundScaleError"]=maxForegroundScale;report["maxIndependentOverError"]=maxIndependentOver;
+    auto settings=defaults;settings["backgroundOpacity"]=0;settings["foregroundOpacity"]=100;
+    test.event(A75_INPUT_RESET,30);test.event(A75_SETTINGS,30,.5f,.5f,settings.dump());
+    for(unsigned i=0;i<32;++i)test.event(A75_KEY_DOWN,30+i*.001,.5f,.5f);
+    const auto overlap=test.frame(30.43,0);checkPremul(overlap);soundings::writeImage(output/L"opacity-overlap-32-rgba.png",test.width,test.height,overlap);
+    test.event(A75_PAUSE,30.43);require(test.frame(40,-1)==overlap,"Transparent pause must preserve RGBA exactly");
+    test.event(A75_KEY_DOWN,40);require(test.frame(40.1,-1)==overlap,"Paused transparent input must not emit");
+    test.event(A75_RESUME,40.2);checkPremul(test.frame(40.21,0));
+    const auto expired=test.frame(41,-1);require(std::all_of(expired.begin(),expired.end(),[](auto v){return v==0;}),"Transparent expired scene must be all zero");
+    test.event(A75_INPUT_RESET,42);const auto reset=test.frame(42,-1);require(reset==expired,"Transparent reset must remain clear");
+    report["overlapPremultiplied"]=true;report["transparentPauseResume"]=true;report["transparentExpiryIdleAndReset"]=true;
+    if(!frozen.empty()) {
+        const auto legacySettings=nlohmann::json{{"reach",1.4},{"backgroundStyle",1},{"backgroundBrightness",1.7},{"backgroundHue",75},{"backgroundSaturation",.4},{"backgroundColor",{18,96,180}}}.dump();
+        Dx12 restored(pack,legacySettings),prior(frozen,legacySettings);
+        require(restored.frame(0,-1)==prior.frame(0,-1),"Old profile missing opacity must default to fully opaque background");
+        restored.event(A75_KEY_DOWN,1);prior.event(A75_KEY_DOWN,1);
+        require(restored.frame(1.43,0)==prior.frame(1.43,0),"Old profile missing opacity must default to fully visible foreground");
+        require(restored.errors()==0&&prior.errors()==0,"Old profile debug errors");report["oldProfileWithoutNewKeysExact"]=true;
+    }
+
+    report["backgroundVariants"]=nlohmann::json::array();
+    for(const auto& variant:std::vector<std::pair<std::string,nlohmann::json>>{
+        {"white",{{"backgroundStyle",1},{"backgroundColor",{255,255,255}}}},
+        {"near-white",{{"backgroundStyle",1},{"backgroundColor",{250,245,235}}}},
+        {"black",{{"backgroundStyle",1},{"backgroundColor",{0,0,0}}}},
+        {"graded-image",{{"backgroundStyle",0},{"backgroundBrightness",1.8},{"backgroundHue",120},{"backgroundSaturation",1.6},{"backgroundColor",{140,230,190}}}}
+    }) {
+        std::uint64_t zeroBackgroundVisible=0;
+        for(int b:levels)for(int f:levels) {
+            auto settings=defaults;settings.update(variant.second);settings["backgroundOpacity"]=b;settings["foregroundOpacity"]=f;
+            test.event(A75_INPUT_RESET,50);test.event(A75_SETTINGS,50,.38f,.57f,settings.dump());
+            const auto base=test.frame(50,-1);test.event(A75_KEY_DOWN,50);const auto keyed=test.frame(50.43,f?0:-1);checkPremul(base);checkPremul(keyed);
+            if(!b) {
+                require(std::all_of(base.begin(),base.end(),[](auto v){return v==0;}),"Variant zero background must be transparent zero");
+                std::uint64_t covered=0;for(std::size_t i=3;i<keyed.size();i+=4)covered+=keyed[i]>0;
+                require(f?covered>10:covered==0,"Bright or black background erased intrinsic foreground coverage");
+                if(f==100) {
+                    zeroBackgroundVisible=covered;const auto name="opacity-"+variant.first+"-bg0-fg100";
+                    soundings::writeImage(output/(name+"-rgba.png"),test.width,test.height,keyed);
+                    soundings::writeImage(output/(name+"-dark.png"),test.width,test.height,composite(keyed,{12,24,36}));
+                    soundings::writeImage(output/(name+"-light.png"),test.width,test.height,composite(keyed,{242,235,220}));
+                }
+            }
+            if(!f)require(keyed==base,"Foreground zero changed variant background");
+        }
+        report["backgroundVariants"].push_back({{"name",variant.first},{"combinations",9},{"allPremultiplied",true},{"backgroundZeroForegroundCoveragePixels",zeroBackgroundVisible}});
+    }
+    require(test.errors()==0,"Opacity D3D12 debug layer error");report["debugLayerAvailable"]=bool(test.debug);report["debugErrors"]=0;
+    return report;
+}
+
 int wmain(int argc,wchar_t** argv) {
     CoInitializeEx(nullptr,COINIT_MULTITHREADED);SetPriorityClass(GetCurrentProcess(),BELOW_NORMAL_PRIORITY_CLASS);
     try {
-        require(argc==3,"Pass candidate pack and evidence directory");const auto pack=std::filesystem::absolute(argv[1]),output=std::filesystem::absolute(argv[2]);
-        Dx12 native(pack);nlohmann::json report={{"renderer","D3D12/WARP"},{"width",native.width},{"height",native.height},{"cases",nlohmann::json::array()}};
+        require(argc==3||argc==4,"Pass candidate pack, evidence directory, and optional frozen ABI2 pack");const auto pack=std::filesystem::absolute(argv[1]),output=std::filesystem::absolute(argv[2]);
+        std::filesystem::create_directories(output);
+        Dx12 native(pack);std::unique_ptr<Dx12> baseline;
+        if(argc==4)baseline=std::make_unique<Dx12>(std::filesystem::absolute(argv[3]));
+        auto send=[&](UINT type,double time,float x=.38f,float y=.57f,const std::string& settings="{}") {
+            native.event(type,time,x,y,settings);if(baseline)baseline->event(type,time,x,y,settings);
+        };
+        nlohmann::json report={{"renderer","D3D12/WARP"},{"width",native.width},{"height",native.height},{"cases",nlohmann::json::array()}};
 #ifdef SOUNDINGS_LEGACY_COMPARE
         Legacy legacy(pack);report["baseline"]="Frozen real SpriteBurst.cpp + original Background.hlsl, independent D3D11 WARP verification target only";
 #endif
         auto compare=[&](const std::string& name,double time,int expected,bool save=false,double legacyTime=-1) {
             auto next=native.frame(time,expected);nlohmann::json item={{"name",name},{"seconds",time},{"schedule",expected}};
+            if(baseline) {
+                const auto prior=baseline->frame(time,expected);unsigned maximum=0;std::uint64_t changed=0;
+                for(std::size_t i=0;i<next.size();++i) {const auto d=unsigned(std::abs(int(next[i])-int(prior[i])));maximum=std::max(maximum,d);changed+=d!=0;}
+                item["frozenAbi2MaxChannelError"]=maximum;item["frozenAbi2ChangedChannels"]=changed;
+                if(save)soundings::writeImage(output/(name+"-baseline.png"),native.width,native.height,prior);
+                require(maximum==0,("Frozen ABI2 comparison changed: "+name).c_str());
+            }
+
 #ifdef SOUNDINGS_LEGACY_COMPARE
             auto prior=legacy.frame(legacyTime<0?time:legacyTime);unsigned maximum=0;std::uint64_t total=0,changed=0;
             for(std::size_t i=0;i<next.size();++i) {const auto difference=unsigned(std::abs(int(next[i])-int(prior[i])));maximum=std::max(maximum,difference);total+=difference;changed+=difference!=0;}
@@ -164,7 +269,7 @@ int wmain(int argc,wchar_t** argv) {
             if(save)soundings::writeImage(output/(name+"-dx12.png"),native.width,native.height,next);report["cases"].push_back(item);return next;
         };
         const auto idle=compare("idle",0,-1,true);
-        native.event(A75_KEY_DOWN,1);
+        send(A75_KEY_DOWN,1);
 #ifdef SOUNDINGS_LEGACY_COMPARE
         legacy.echoes.push(1,.38f,.57f);
 #endif
@@ -186,7 +291,7 @@ int wmain(int argc,wchar_t** argv) {
         const auto localized=extent(keyFrame);require(localized[4]>10&&localized[2]-localized[0]<=302&&localized[3]-localized[1]<=302,"Echo must stay localized to the key at its declared diameter");
         std::array<unsigned,2> scaleWidths{};unsigned scaleIndex=0;
         for(float reach:{.5f,1.4f}) {
-            const nlohmann::json settings={{"reach",reach}};native.event(A75_SETTINGS,1.43,.38f,.57f,settings.dump());
+            const nlohmann::json settings={{"reach",reach}};send(A75_SETTINGS,1.43,.38f,.57f,settings.dump());
 #ifdef SOUNDINGS_LEGACY_COMPARE
             legacy.settings(settings);
 #endif
@@ -195,41 +300,43 @@ int wmain(int argc,wchar_t** argv) {
         require(scaleWidths[1]>scaleWidths[0]*2.4&&scaleWidths[1]<scaleWidths[0]*3.2,"Reach must scale real visible atlas geometry");
         report["reachPixelWidths"]=scaleWidths;report["defaultKeyChangedPixels"]=localized[4];
         const auto settings=nlohmann::json{{"reach",1.4},{"backgroundBrightness",1.8},{"backgroundHue",120},{"backgroundSaturation",1.6},{"backgroundColor",{140,230,190}}};
-        native.event(A75_SETTINGS,1.43,.38f,.57f,settings.dump());
+        send(A75_SETTINGS,1.43,.38f,.57f,settings.dump());
 #ifdef SOUNDINGS_LEGACY_COMPARE
         legacy.settings(settings);
 #endif
         compare("graded-image",1.43,0,true);
         const auto solid=nlohmann::json{{"reach",1.4},{"backgroundStyle",1},{"backgroundBrightness",1.7},{"backgroundHue",75},{"backgroundSaturation",.4},{"backgroundColor",{18,96,180}}};
-        native.event(A75_SETTINGS,1.43,.38f,.57f,solid.dump());
+        send(A75_SETTINGS,1.43,.38f,.57f,solid.dump());
 #ifdef SOUNDINGS_LEGACY_COMPARE
         legacy.settings(solid);
 #endif
         compare("graded-solid",1.43,0,true);
         const auto defaults=nlohmann::json{{"reach",1},{"backgroundStyle",0},{"backgroundBrightness",1},{"backgroundHue",0},{"backgroundSaturation",1},{"backgroundColor",{255,255,255}}};
-        native.event(A75_SETTINGS,2,.38f,.57f,defaults.dump());
+        send(A75_SETTINGS,2,.38f,.57f,defaults.dump());
 #ifdef SOUNDINGS_LEGACY_COMPARE
         legacy.settings(defaults);
 #endif
         require(compare("expired",2,-1)==idle,"Expired scene must equal original backdrop");
         for(unsigned i=0;i<32;++i) {
             const float x=.08f+(i%8)*.12f,y=.2f+(i/8)*.18f;const double time=3+i*.001;
-            native.event(A75_KEY_DOWN,time,x,y);
+            send(A75_KEY_DOWN,time,x,y);
 #ifdef SOUNDINGS_LEGACY_COMPARE
             legacy.echoes.push(time,x,y);
 #endif
         }
         const auto multi=compare("32-keys-capacity-24",3.3,0,true);
-        native.event(A75_KEY_UP,3.3);require(compare("key-up-no-extra-burst",3.3,0)==multi,"Key up must not emit a burst");
-        native.event(A75_PAUSE,3.3);require(native.frame(10,-1)==multi,"Pause must freeze the effect clock");
-        native.event(A75_KEY_DOWN,10);require(native.frame(10.1,-1)==multi,"Paused input must not emit");
-        native.event(A75_RESUME,10.2);compare("resumed-clock",10.21,0,false,3.31);
-        native.event(A75_INPUT_RESET,10.22);
+        send(A75_KEY_UP,3.3);require(compare("key-up-no-extra-burst",3.3,0)==multi,"Key up must not emit a burst");
+        send(A75_PAUSE,3.3);require(native.frame(10,-1)==multi,"Pause must freeze the effect clock");
+        send(A75_KEY_DOWN,10);require(native.frame(10.1,-1)==multi,"Paused input must not emit");
+        send(A75_RESUME,10.2);compare("resumed-clock",10.21,0,false,3.31);
+        send(A75_INPUT_RESET,10.22);
 #ifdef SOUNDINGS_LEGACY_COMPARE
         legacy.echoes.clear();
 #endif
         require(compare("input-reset",10.22,-1,false,3.32)==idle,"Input reset must clear active events");
         require(native.errors()==0,"D3D12 debug layer reported errors");report["debugLayerAvailable"]=bool(native.debug);report["debugErrors"]=0;
+        if(baseline) {require(baseline->errors()==0,"Baseline D3D12 errors");report["baseline"]="Frozen pre-opacity ABI2 DLL supplied as third argument; all legacy comparison channels exact";}
+        report["opacity"]=verifyOpacity(pack,output,argc==4?std::filesystem::absolute(argv[3]):std::filesystem::path{});
         report["pauseResumeClockFrozen"]=true;report["keyUpDoesNotEmit"]=true;report["inputResetClears"]=true;report["status"]="passed";
         std::filesystem::create_directories(output);std::ofstream(output/L"verification.json")<<report.dump(2);
         std::cout<<"PASS: "<<report["cases"].size()<<" native DX12 frame comparisons, settings, 24-hit budget, expiry/sleep, pause clock, reset.\n";

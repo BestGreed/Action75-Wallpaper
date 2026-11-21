@@ -13,6 +13,11 @@
           "binding": { "target": "effectBrightness" }
         },
         {
+          "id": "novaOpacity", "type": "slider", "label": "超新星不透明度",
+          "appearance": "opacity", "surface": "foreground", "advanced": false,
+          "default": 100, "min": 0, "max": 100, "step": 1, "unit": "%"
+        },
+        {
           "id": "novaColor", "type": "color", "label": "色彩滤镜",
           "appearance": "color", "default": [255, 255, 255],
           "binding": { "target": "effectColor" }
@@ -38,6 +43,11 @@
           "id": "diskBrightness", "type": "slider", "label": "吸积盘亮度",
           "appearance": "brightness", "default": 1, "min": 0, "max": 1.6, "step": 0.05,
           "binding": { "target": "effectBrightness" }
+        },
+        {
+          "id": "diskOpacity", "type": "slider", "label": "黑洞与吸积盘不透明度",
+          "appearance": "opacity", "surface": "foreground", "advanced": false,
+          "default": 100, "min": 0, "max": 100, "step": 1, "unit": "%"
         }
       ]
     },
@@ -56,6 +66,11 @@
           "id": "skyBrightness", "type": "slider", "label": "亮度",
           "appearance": "brightness", "default": 1, "min": 0, "max": 1.65, "step": 0.05,
           "binding": { "target": "background.brightness" }
+        },
+        {
+          "id": "backgroundOpacity", "type": "slider", "label": "深空不透明度",
+          "appearance": "opacity", "surface": "background", "advanced": false,
+          "default": 100, "min": 0, "max": 100, "step": 1, "unit": "%"
         },
         {
           "id": "skyHue", "type": "slider", "label": "色相",

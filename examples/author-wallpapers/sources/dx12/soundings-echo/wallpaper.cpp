@@ -16,7 +16,7 @@ using Bound=std::array<float,4>;
 struct alignas(16) Constants {
     float width,height,diameter,invColumns;
     float invRows,atlasWidth,atlasHeight,columns;
-    Bound tint{1,1,1,0},grade{1,1,0,0};
+    Bound tint{1,1,1,0},opacity{1,1,0,0};
     std::array<Sample,24> samples{};
     std::array<Bound,24> bounds{},palettes{};
     Bound backgroundAppearance{},backgroundTint{};
@@ -81,6 +81,7 @@ public:
         checked(device_->CreateRootSignature(0,blob->GetBufferPointer(),blob->GetBufferSize(),IID_PPV_ARGS(&root_)),"Create author root signature");
         pipeline(dir,L"backgroundVS.cso",L"backgroundPS.cso",false,backgroundPipeline_);
         pipeline(dir,L"echoVS.cso",L"echoPS.cso",true,echoPipeline_);
+        pipeline(dir,L"echoVS.cso",L"echoPS.cso",true,echoOverPipeline_,true);
         auto properties=heap(D3D12_HEAP_TYPE_UPLOAD);const auto desc=buffer((sizeof(Constants)+255)&~UINT64(255));
         checked(device_->CreateCommittedResource(&properties,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&constants_)),"Create frame constants");
         D3D12_RANGE none{};checked(constants_->Map(0,&none,&mapped_ ),"Map frame constants");
@@ -102,6 +103,7 @@ public:
         c.diameter=300.f*float(frame.height)/720.f*reach_;c.invColumns=1.f/6;c.invRows=1.f/4;
         c.atlasWidth=atlasWidth_;c.atlasHeight=atlasHeight_;c.columns=6;
         c.backgroundAppearance={brightness_,saturation_,hue_,backgroundEnabled_};
+        c.opacity={backgroundOpacity_,foregroundOpacity_,0,0};
         c.backgroundTint={color_[0]/255.f,color_[1]/255.f,color_[2]/255.f,solid_?1.f:0.f};
         const unsigned live=state_.sample(clock(frame.seconds),c.samples);unsigned drawn=0;
         for(unsigned i=0;i<live;++i) {
@@ -116,14 +118,16 @@ public:
         list->SetGraphicsRootSignature(root_.Get());list->SetGraphicsRootConstantBufferView(0,constants_->GetGPUVirtualAddress());
         list->SetGraphicsRootDescriptorTable(1,descriptors_->GetGPUDescriptorHandleForHeapStart());
         list->SetPipelineState(backgroundPipeline_.Get());list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);list->DrawInstanced(3,1,0,0);
-        if(drawn) {list->SetPipelineState(echoPipeline_.Get());list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);list->DrawInstanced(4,drawn,0,0);}
-        return live&&!paused_?0:-1;
+        if(drawn && foregroundOpacity_>0) {list->SetPipelineState(backgroundOpacity_==1&&foregroundOpacity_==1?echoPipeline_.Get():echoOverPipeline_.Get());list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);list->DrawInstanced(4,drawn,0,0);}
+        return live&&foregroundOpacity_>0&&!paused_?0:-1;
     }
 private:
     double clock(double seconds) const noexcept {return (paused_?pausedAt_:seconds)-offset_;}
     void configure(const char* text) {
         if(!text) return;const auto v=nlohmann::json::parse(text);
         reach_=std::clamp(v.value("reach",reach_),.5f,1.4f);
+        backgroundOpacity_=std::clamp(v.value("backgroundOpacity",backgroundOpacity_*100.f),0.f,100.f)/100.f;
+        foregroundOpacity_=std::clamp(v.value("foregroundOpacity",foregroundOpacity_*100.f),0.f,100.f)/100.f;
         brightness_=std::clamp(v.value("backgroundBrightness",brightness_),0.f,2.f);
         saturation_=std::clamp(v.value("backgroundSaturation",saturation_),0.f,2.f);
         solid_=v.value("backgroundStyle",solid_?1:0)==1;
@@ -152,25 +156,26 @@ private:
         auto handle=descriptors_->GetCPUDescriptorHandleForHeapStart();handle.ptr+=std::size_t(slot)*device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         device_->CreateShaderResourceView(texture.Get(),&view,handle);staging.push_back(source);
     }
-    void pipeline(const std::filesystem::path& dir,const wchar_t* vertex,const wchar_t* pixel,bool additive,ComPtr<ID3D12PipelineState>& pipeline) {
+    void pipeline(const std::filesystem::path& dir,const wchar_t* vertex,const wchar_t* pixel,bool additive,ComPtr<ID3D12PipelineState>& pipeline,bool over=false) {
         const auto read=[&](const wchar_t* name) {std::ifstream file(dir/L"shaders"/name,std::ios::binary);return std::vector<char>(std::istreambuf_iterator<char>(file),{});};
         const auto vs=read(vertex),ps=read(pixel);if(vs.empty()||ps.empty()) throw std::runtime_error("Precompiled author shader missing");
         D3D12_GRAPHICS_PIPELINE_STATE_DESC state{};state.pRootSignature=root_.Get();state.VS={vs.data(),vs.size()};state.PS={ps.data(),ps.size()};
         state.RasterizerState.FillMode=D3D12_FILL_MODE_SOLID;state.RasterizerState.CullMode=D3D12_CULL_MODE_NONE;state.RasterizerState.DepthClipEnable=TRUE;
         auto& blend=state.BlendState.RenderTarget[0];blend.RenderTargetWriteMask=D3D12_COLOR_WRITE_ENABLE_ALL;blend.BlendEnable=additive;
-        blend.SrcBlend=blend.DestBlend=D3D12_BLEND_ONE;blend.BlendOp=D3D12_BLEND_OP_ADD;
-        blend.SrcBlendAlpha=D3D12_BLEND_ZERO;blend.DestBlendAlpha=D3D12_BLEND_ONE;blend.BlendOpAlpha=D3D12_BLEND_OP_ADD;
+        blend.SrcBlend=D3D12_BLEND_ONE;blend.DestBlend=over?D3D12_BLEND_INV_SRC_ALPHA:D3D12_BLEND_ONE;blend.BlendOp=D3D12_BLEND_OP_ADD;
+        blend.SrcBlendAlpha=over?D3D12_BLEND_ONE:D3D12_BLEND_ZERO;blend.DestBlendAlpha=over?D3D12_BLEND_INV_SRC_ALPHA:D3D12_BLEND_ONE;blend.BlendOpAlpha=D3D12_BLEND_OP_ADD;
         state.SampleMask=UINT_MAX;state.PrimitiveTopologyType=D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;state.NumRenderTargets=1;
         state.DepthStencilState.DepthFunc=D3D12_COMPARISON_FUNC_ALWAYS;
         state.RTVFormats[0]=DXGI_FORMAT_R8G8B8A8_UNORM;state.SampleDesc.Count=1;
         checked(device_->CreateGraphicsPipelineState(&state,IID_PPV_ARGS(&pipeline)),"Create author DX12 pipeline");
     }
     ComPtr<ID3D12Device> device_;
-    ComPtr<ID3D12RootSignature> root_;ComPtr<ID3D12PipelineState> backgroundPipeline_,echoPipeline_;
+    ComPtr<ID3D12RootSignature> root_;ComPtr<ID3D12PipelineState> backgroundPipeline_,echoPipeline_,echoOverPipeline_;
     ComPtr<ID3D12DescriptorHeap> descriptors_;std::array<ComPtr<ID3D12Resource>,2> textures_;
     ComPtr<ID3D12Resource> constants_;void* mapped_=nullptr;
     EchoState state_;std::array<Bound,24> bounds_{};
     float atlasWidth_=0,atlasHeight_=0,reach_=1,brightness_=1,saturation_=1,hue_=0,backgroundEnabled_=0;
+    float backgroundOpacity_=1,foregroundOpacity_=1;
     std::array<std::uint8_t,3> color_{255,255,255};bool solid_=false,paused_=false;
     double pausedAt_=0,offset_=0;
 };

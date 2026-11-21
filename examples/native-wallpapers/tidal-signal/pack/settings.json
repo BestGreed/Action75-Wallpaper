@@ -1,10 +1,66 @@
 {
-  "version": 1, "presentation": "layered",
-  "groups": [{
-    "id":"beacons", "label":"信标", "entity":"信标",
-    "controls":[
-      {"id":"signal_rgb","label":"发光颜色","type":"color","appearance":"color","default":[74,224,189]},
-      {"id":"radiance","label":"亮度","type":"slider","appearance":"brightness","min":0.15,"max":1,"step":0.05,"default":0.85}
-    ]
-  }]
+  "version": 1,
+  "presentation": "layered",
+  "groups": [
+    {
+      "id": "beacons",
+      "label": "信标",
+      "entity": "信标",
+      "controls": [
+        {
+          "id": "foregroundOpacity",
+          "label": "信标不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "foreground",
+          "appearance": "opacity",
+          "advanced": false
+        },
+        {
+          "id": "signal_rgb",
+          "label": "发光颜色",
+          "type": "color",
+          "appearance": "color",
+          "default": [
+            74,
+            224,
+            189
+          ]
+        },
+        {
+          "id": "radiance",
+          "label": "亮度",
+          "type": "slider",
+          "appearance": "brightness",
+          "min": 0.15,
+          "max": 1,
+          "step": 0.05,
+          "default": 0.85
+        }
+      ]
+    },
+    {
+      "id": "background",
+      "label": "背景",
+      "controls": [
+        {
+          "id": "backgroundOpacity",
+          "label": "背景不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "background",
+          "appearance": "opacity",
+          "advanced": false
+        }
+      ]
+    }
+  ]
 }

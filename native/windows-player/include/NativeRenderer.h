@@ -23,7 +23,10 @@ public:
     std::unique_ptr<VideoBackground> video;
     unsigned width=0,height=0;
     bool copied=false;
-    std::array<float, 8> appearance{};
+    std::array<float, 12> appearance{};
+    bool media=false;
+    unsigned fit=0;
+    float zoom=1,panX=0,panY=0;
     BackgroundSnapshot();
     ~BackgroundSnapshot();
     BackgroundSnapshot(BackgroundSnapshot&&) noexcept;
@@ -40,7 +43,7 @@ public:
   void releaseResources() noexcept;
   bool resize(unsigned width, unsigned height, std::string &error);
   bool loadBackground(const std::filesystem::path &file, std::string &error,
-                      unsigned maxPixels = 33554432u);
+                      unsigned maxPixels = 33554432u, bool media = false);
   // Bake a static Effekseer layer once at the pack's 1920x720 reference size.
   // Failure leaves the previous image, video or cached canvas intact.
   bool loadCanvasBackground(const std::filesystem::path &file,
@@ -72,6 +75,7 @@ public:
   // Neutral (1,1,0) retains the original pixels and opaque CopyResource path.
   void setBackgroundAppearance(float brightness,float saturation,float hueDegrees,
       const std::array<std::uint8_t,3>& tint={255,255,255}, bool solidColor=false);
+  void setMediaPlacement(unsigned fit, float zoom, float panX, float panY);
   bool isAnimated() const;
   void setBackgroundPaused(bool paused);
   std::string backgroundError() const;
@@ -102,8 +106,11 @@ private:
   Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader_;
   Microsoft::WRL::ComPtr<ID3D11Buffer> backgroundConstants_;
   // brightness, saturation, hue in turns, grade-enabled; RGB tint and solid-background flag.
-  // Two float4s share a single 32-byte background-only constant buffer.
-  float backgroundAppearance_[8]={1,1,0,0,1,1,1,0};
+  // The third vector maps screen UV to media UV (scale.xy, offset.zw).
+  float backgroundAppearance_[12]={1,1,0,0,1,1,1,0,1,1,0,0};
+  bool media_ = false;
+  unsigned mediaFit_ = 0;
+  float mediaZoom_ = 1.f, mediaPanX_ = 0.f, mediaPanY_ = 0.f;
   bool backgroundAppearanceDirty_=true;
   Microsoft::WRL::ComPtr<ID3D11SamplerState> sampler_;
   Microsoft::WRL::ComPtr<ID3D11RasterizerState> rasterizer_;

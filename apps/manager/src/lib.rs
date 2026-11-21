@@ -23,6 +23,7 @@ pub mod runtime_identity;
 pub mod software_update;
 pub mod startup;
 pub mod storage;
+pub mod thumbnail;
 pub mod update_install;
 pub mod wallpaper_import;
 mod wallpaper_library;
@@ -473,16 +474,21 @@ pub fn worker(
                     Ok(status) => Event::Status(status),
                     Err(error) => Event::ConnectionFailed(error),
                 }),
-                Job::Request(v) => Ok(match command(&root, v).and_then(|v| {
-                    if v.is_object() && v.get("running").is_some() {
-                        Ok(v)
-                    } else {
-                        command(&root, json!({"action":"status"}))
-                    }
-                }).inspect_err(|error| storage::log(&root, "ERROR", error)) {
-                    Ok(status) => Event::Status(status),
-                    Err(error) => Event::RequestFailed(error),
-                }),
+                Job::Request(v) => Ok(
+                    match command(&root, v)
+                        .and_then(|v| {
+                            if v.is_object() && v.get("running").is_some() {
+                                Ok(v)
+                            } else {
+                                command(&root, json!({"action":"status"}))
+                            }
+                        })
+                        .inspect_err(|error| storage::log(&root, "ERROR", error))
+                    {
+                        Ok(status) => Event::Status(status),
+                        Err(error) => Event::RequestFailed(error),
+                    },
+                ),
                 Job::Settings {
                     generation,
                     settings,
@@ -634,18 +640,20 @@ pub fn worker(
                         preferences.save(&root)?;
                         storage::log(&root, "INFO", "首次设置完成");
                         Ok::<(), String>(())
-                    })().inspect_err(|error| storage::log(&root, "ERROR", error));
+                    })()
+                    .inspect_err(|error| storage::log(&root, "ERROR", error));
                     let _ = reply.send(Event::SetupFinished(result));
                     repaint.request_repaint();
                     // Setup canceled any pending scan; complete its replacement
                     // even when setup failed, without acknowledging another job.
                     full(&root)
-                },
+                }
                 Job::SaveInterface(interface) => {
-                    let saved = storage::Preferences::load_checked(&root).and_then(|mut preferences| {
-                        preferences.interface = interface;
-                        preferences.save(&root)
-                    });
+                    let saved =
+                        storage::Preferences::load_checked(&root).and_then(|mut preferences| {
+                            preferences.interface = interface;
+                            preferences.save(&root)
+                        });
                     match saved {
                         Ok(()) => continue,
                         Err(error) => Ok(Event::InterfaceSaveFailed(error)),
@@ -656,21 +664,20 @@ pub fn worker(
                     graphics_adapters::GraphicsAdapters::detect()
                         .map_err(|error| error.to_string()),
                 )),
-                Job::SaveGpuPreference(gpu) => {
-                    Ok(Event::GpuPreferenceSaved(
-                        storage::Preferences::load_checked(&root).and_then(|mut preferences| {
-                            preferences.gpu_preference = gpu;
-                            preferences.save(&root).map(|_| gpu)
-                        }),
-                    ))
-                }
+                Job::SaveGpuPreference(gpu) => Ok(Event::GpuPreferenceSaved(
+                    storage::Preferences::load_checked(&root).and_then(|mut preferences| {
+                        preferences.gpu_preference = gpu;
+                        preferences.save(&root).map(|_| gpu)
+                    }),
+                )),
                 Job::Migrate(next) => {
-                    let result = migrate_preferences_with(&root, next, |request| command(&root, request))
-                        .inspect_err(|error| storage::log(&root, "ERROR", error));
+                    let result =
+                        migrate_preferences_with(&root, next, |request| command(&root, request))
+                            .inspect_err(|error| storage::log(&root, "ERROR", error));
                     let _ = reply.send(Event::MigrationFinished(result));
                     repaint.request_repaint();
                     full(&root)
-                },
+                }
                 Job::Save(model) => save_calibration(&root, &model).map(Event::Saved),
             };
             if let Err(error) = &event {
@@ -1168,6 +1175,18 @@ fn local_packs(root: &Path) -> Vec<Value> {
             continue;
         }
         let kind = manifest["kind"].as_str().unwrap_or("");
+        let media = matches!(kind, "image" | "video");
+        // Published media packs keep assets under a revision directory.
+        let media_file = |key: &str| {
+            manifest[key].as_str().is_some_and(|name| {
+                let path = Path::new(name);
+                !name.is_empty()
+                    && path
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_)))
+                    && dir.join(path).is_file()
+            })
+        };
         let native_available =
             kind == "native" && wallpaper_import::native_catalog_available(&dir, &manifest);
         let supported = matches!(
@@ -1181,7 +1200,8 @@ fn local_packs(root: &Path) -> Vec<Value> {
                 | "waterSurface"
                 | "fireworks"
                 | "glassShatter"
-        ) || (native_available && manifest["enabled"] != false);
+        ) || ((native_available || (media && media_file("background")))
+            && manifest["enabled"] != false);
         if bundled
             && (!supported
                 || manifest["enabled"] == false
@@ -1195,6 +1215,8 @@ fn local_packs(root: &Path) -> Vec<Value> {
         let row = |id: &str| {
             let schema_available = if kind == "native" {
                 native_available
+            } else if media {
+                media_file("settings")
             } else {
                 dir.join("settings.json").is_file()
             };
@@ -1773,7 +1795,10 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let (jobs, events) = worker(root.path().to_owned(), eframe::egui::Context::default());
         jobs.send(Job::Request(json!({"action":"pause"}))).unwrap();
-        assert!(matches!(events.recv_timeout(Duration::from_secs(2)).unwrap(), Event::RequestFailed(_)));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Event::RequestFailed(_)
+        ));
         jobs.send(Job::Quit).unwrap();
     }
 
@@ -1785,17 +1810,24 @@ mod tests {
             fs::write(root.path().join("data/app-settings.json"), b"broken").unwrap();
             let (jobs, events) = worker(root.path().to_owned(), eframe::egui::Context::default());
             let job = if setup {
-                Job::Setup { monitor: "unused".into(), monitor_identity: None, device: "unused".into() }
+                Job::Setup {
+                    monitor: "unused".into(),
+                    monitor_identity: None,
+                    device: "unused".into(),
+                }
             } else {
                 Job::Migrate(storage::Preferences::default())
             };
             jobs.send(job).unwrap();
             match events.recv_timeout(Duration::from_secs(2)).unwrap() {
-                Event::SetupFinished(Err(_)) if setup => {},
-                Event::MigrationFinished(Err(_)) if !setup => {},
+                Event::SetupFinished(Err(_)) if setup => {}
+                Event::MigrationFinished(Err(_)) if !setup => {}
                 _ => panic!("failure must complete only the job that produced it"),
             }
-            assert!(matches!(events.recv_timeout(Duration::from_secs(2)).unwrap(), Event::Full { .. }));
+            assert!(matches!(
+                events.recv_timeout(Duration::from_secs(2)).unwrap(),
+                Event::Full { .. }
+            ));
             jobs.send(Job::Quit).unwrap();
         }
     }
@@ -1919,6 +1951,31 @@ mod tests {
         assert!(connection_error.is_some());
         assert!(catalog_error.is_none());
     }
+    #[test]
+    fn local_media_catalog_follows_published_asset_paths() {
+        let fixture = CalibrationFixture::new();
+        for (kind, extension) in [("image", "png"), ("video", "mp4")] {
+            let dir = fixture.root.join("wallpapers-native").join(kind);
+            let rev = "v-0123456789abcdef0123456789abcdef01234567";
+            let prefix = format!(".action75-versions/{rev}");
+            let asset = format!("{prefix}/media.{extension}");
+            let schema = format!("{prefix}/settings.json");
+            fs::create_dir_all(dir.join(&prefix)).unwrap();
+            fs::write(dir.join(&asset), []).unwrap();
+            fs::write(dir.join(&schema), "{}").unwrap();
+            let manifest = json!({"id":kind,"name":kind,"version":1,"kind":kind,
+                                  "settings":schema,"background":asset,"_action75Revision":rev});
+            fs::write(dir.join("manifest.json"), manifest.to_string()).unwrap();
+        }
+        let rows = local_packs(&fixture.root);
+        assert_eq!(rows.len(), 2);
+        for row in rows {
+            assert_eq!(row["kind"], row["id"]);
+            assert_eq!(row["supported"], true);
+            assert_eq!(row["schemaAvailable"], true);
+        }
+    }
+
     #[test]
     fn wallpaper_library_regression_discovery_after_migration_and_upgrade() {
         let fixture = CalibrationFixture::new();

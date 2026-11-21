@@ -1,5 +1,6 @@
 #include "Wallpaper12.h"
 #include "PaintballImages12.h"
+#include "PaintballOpacity12.h"
 
 #include <Effekseer.h>
 #include <Effekseer/Effekseer.EffectImplemented.h>
@@ -7,6 +8,7 @@
 #include <Effekseer/Effekseer.ManagerImplemented.h>
 #include <Effekseer/Material/Effekseer.MaterialFile.h>
 #include <EffekseerRendererDX12.h>
+#include <EffekseerRendererCommon/EffekseerRenderer.Renderer_Impl.h>
 #include <EffekseerRendererLLGI/EffekseerRendererLLGI.Renderer.h>
 #include <EffekseerRendererLLGI/GraphicsDevice.h>
 #include <DX12/LLGI.GraphicsDX12.h>
@@ -110,6 +112,7 @@ public:
                                                false, capacity);
     if (!renderer_ || !manager_)
       throw std::runtime_error("Initialize the Effekseer DX12 renderer and particle pool");
+    renderer_->GetImpl()->IsPremultipliedAlphaEnabled = true;
     // ABI 2 fences each frame before another callback. One frame of constants
     // is sufficient, and the CPU sprite effects use no GPU particle constants.
     auto backend = graphics_.DownCast<EffekseerRendererLLGI::Backend::GraphicsDevice>();
@@ -293,10 +296,10 @@ public:
     return true;
   }
 
-  void updateFrame(double now, double elapsed) {
+  void updateFrame(double now, double elapsed, bool drawForeground) {
     if (!catchUp(now))
       update(float(std::clamp(elapsed, 0., .1)) * appearance_.speed);
-    if (!active() || visible())
+    if (!active() || (drawForeground && visible()))
       idleSince_.reset();
     else if (!idleSince_)
       idleSince_ = now;
@@ -547,10 +550,13 @@ public:
 
   void configure(const Appearance& appearance, double now, Backdrop& backdrop) {
     engine_.configure(appearance, now);
+    foregroundOpacity_ = appearance.foregroundOpacity;
+    if (foregroundOpacity_ == 0 || foregroundOpacity_ == 1)
+      opacityPass_.reset();
     const bool visibleCanvas = !appearance.solidBackground && appearance.backgroundBrightness > 0 &&
                                appearance.backgroundColor != Rgb{0, 0, 0};
     const bool sampled = engine_.samplesBackground();
-    if ((visibleCanvas || sampled) && !canvas_) {
+    if (((visibleCanvas && appearance.backgroundOpacity > 0) || sampled) && !canvas_) {
       canvas_ = canvasImage_.empty() ? bakeCanvas(device_, engine_.directQueue(), canvasEffect_)
                                     : images_.loadDds(canvasImage_);
       images_.finish();
@@ -581,12 +587,20 @@ public:
   }
 
   int draw(const A75Frame12& frame, bool paused) {
+    const bool drawForeground = foregroundOpacity_ > 0;
     if (!paused && engine_.active()) {
-      engine_.updateFrame(frame.seconds, frame.seconds - lastFrame_);
-      engine_.draw(frame);
+      engine_.updateFrame(frame.seconds, frame.seconds - lastFrame_, drawForeground);
+      if (foregroundOpacity_ == 1) {
+        engine_.draw(frame);
+      } else if (drawForeground && engine_.active()) {
+        if (!opacityPass_ || !opacityPass_->matches(frame))
+          opacityPass_.emplace(device_, frame.width, frame.height);
+        engine_.draw(opacityPass_->begin(frame));
+        opacityPass_->blend(frame, foregroundOpacity_);
+      }
     }
     lastFrame_ = frame.seconds;
-    return !paused && engine_.visible() ? 0 : -1;
+    return !paused && drawForeground && engine_.visible() ? 0 : -1;
   }
 
 private:
@@ -601,6 +615,8 @@ private:
   fs::path canvasEffect_, canvasImage_;
   ComPtr<ID3D12Resource> canvas_;
   Engine engine_;
+  std::optional<PaintballOpacityPass> opacityPass_;
+  float foregroundOpacity_ = 1;
   const float scale_;
   size_t pigments_ = 0;
   double lastFrame_ = 0;

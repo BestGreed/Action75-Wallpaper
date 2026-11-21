@@ -277,3 +277,9 @@ set_tests_properties(native_dx12_window PROPERTIES TIMEOUT 20)
 add_test(NAME native_dx12_reconnect COMMAND python
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/monitor_reconnect.py" "$<TARGET_FILE:Action75Native>" "${ACTION75_ROOT}" --dx12)
 set_tests_properties(native_dx12_reconnect PROPERTIES TIMEOUT 45)
+
+add_executable(action75_desktop_shell_fixture tests/DesktopShellFixture.cpp)
+target_link_libraries(action75_desktop_shell_fixture PRIVATE user32)
+add_test(NAME native_desktop_layer COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop_layer.py"
+    "$<TARGET_FILE:Action75Native>" "$<TARGET_FILE:action75_desktop_shell_fixture>" "${ACTION75_ROOT}")
+set_tests_properties(native_desktop_layer PROPERTIES TIMEOUT 70)

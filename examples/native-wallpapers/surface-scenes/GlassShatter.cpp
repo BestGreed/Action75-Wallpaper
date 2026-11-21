@@ -203,12 +203,22 @@ void GlassShatter::configure(const Settings &settings) {
   const auto bg = LayerColor::make(settings.scalar("backgroundHue"), settings.scalar("backgroundSaturation"),
                                    settings.color("backgroundColor"));
   data_.baseShadow = bg.apply(mode == 3 ? Float4{1,1,1,0} : look.shadow);
+  data_.baseShadow[3] = settings.scalar("backgroundOpacity") / 100.f;
   data_.baseReflection = bg.apply(look.reflection);
   data_.shadow = fg.apply(look.shadow);
   data_.reflection = fg.apply(look.reflection);
   data_.rim = fg.apply(look.rim);
   data_.prism = fg.apply(look.prism);
   data_.reflection[3] = settings.scalar("brightness");
+  fractureOpacity_ = settings.scalar("fractureOpacity") / 100.f;
+  if (fractureOpacity_ == 0)
+    clear();
+  if (data_.baseShadow[3] < 1 && fractureOpacity_ > 0 && !transparentCracks_) {
+    auto cracks = gpu_.graphics(shader(GlassCrackVS), shader(GlassCrackPS), Gpu::outputFormat, Blend::Coverage);
+    auto panes = gpu_.graphics(shader(GlassPaneVS), shader(GlassPanePS), Gpu::outputFormat, Blend::Coverage);
+    transparentCracks_ = std::move(cracks);
+    transparentPanes_ = std::move(panes);
+  }
 }
 
 void GlassShatter::discardExpired(double now) noexcept {
@@ -220,7 +230,8 @@ void GlassShatter::discardExpired(double now) noexcept {
 }
 
 void GlassShatter::push(double now, float x, float y) noexcept {
-  if (!std::isfinite(now) || !std::isfinite(x) || !std::isfinite(y) || x < 0 || x > 1 || y < 0 || y > 1 || maxStrength_ <= 0)
+  if (!std::isfinite(now) || !std::isfinite(x) || !std::isfinite(y) || x < 0 || x > 1 ||
+      y < 0 || y > 1 || maxStrength_ <= 0 || fractureOpacity_ == 0)
     return;
   discardExpired(now);
   const float strength = randomBetween(random_, minStrength_, maxStrength_);
@@ -265,7 +276,7 @@ void GlassShatter::draw(const A75Frame12 &frame, bool) {
     const float sinceHit = static_cast<float>(frame.seconds - impact.lastHit);
     const float tail = std::clamp((sinceHit / duration_ - .20f) / .80f, 0.f, 1.f);
     data.position[2] = crackReach(sinceHit, impact.reachOnHit, impact.targetReach);
-    data.position[3] = 1 - tail * tail * (3 - 2 * tail);
+    data.position[3] = (1 - tail * tail * (3 - 2 * tail)) * fractureOpacity_;
     data.reaction[0] = sinceHit;
   }
   auto *commands = frame.commands;
@@ -283,9 +294,10 @@ void GlassShatter::draw(const A75Frame12 &frame, bool) {
 
   commands->SetGraphicsRootDescriptorTable(Gpu::srvSlot(0), crackGeometry_.srv.gpu);
   commands->SetGraphicsRootDescriptorTable(Gpu::srvSlot(1), paneGeometry_.srv.gpu);
-  commands->SetPipelineState(cracks_.Get());
+  const bool transparent = data_.baseShadow[3] < 1;
+  commands->SetPipelineState(transparent ? transparentCracks_.Get() : cracks_.Get());
   commands->DrawInstanced(crackVertices_, count_, 0, 0);
-  commands->SetPipelineState(panes_.Get());
+  commands->SetPipelineState(transparent ? transparentPanes_.Get() : panes_.Get());
   commands->DrawInstanced(paneVertices_, count_, 0, 0);
 }
 

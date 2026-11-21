@@ -312,7 +312,9 @@ std::pair<double,double> targetRange(const std::string& target) {
   if(target=="effectIntensity") return {0,3};
   if(target=="effectSaturation") return {0,2.5};
   if(target=="effectHue") return {-180,180};
-  if(target=="background.style") return {0,1};
+  if(target=="background.style" || target=="background.fit") return {0,1};
+  if(target=="background.zoom") return {.25,4};
+  if(target=="background.panX" || target=="background.panY") return {-1,1};
   if(target=="background.brightness") return {0,4};
   if(target=="background.saturation") return {0,2.5};
   if(target=="background.hue") return {0,360};
@@ -912,6 +914,10 @@ PackAppearance PackSettingsStore::evaluate(const PackSettingsCandidate& candidat
     else if(target=="effectIntensity") result.intensity=mapped;
     else if(target=="effectSaturation") result.saturation=mapped;
     else if(target=="effectHue") result.hue=mapped;
+    else if(target=="background.fit") result.backgroundFit=static_cast<unsigned>(mapped);
+    else if(target=="background.zoom") result.backgroundZoom=mapped;
+    else if(target=="background.panX") result.backgroundPanX=mapped;
+    else if(target=="background.panY") result.backgroundPanY=mapped;
     else if(target=="background.style") result.backgroundStyle=static_cast<unsigned>(mapped);
     else if(target=="background.brightness") result.backgroundBrightness=mapped;
     else if(target=="background.saturation") result.backgroundSaturation=mapped;

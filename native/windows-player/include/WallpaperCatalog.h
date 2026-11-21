@@ -13,7 +13,7 @@ namespace action75 {
 
 struct Pack {
   std::string id, name, description, kind = "effekseer";
-  std::string importedRevision;
+  std::string importedRevision, desktopOpacityControl;
   std::filesystem::path directory, effect, background, canvasEffect, settings, layout, filmShapes;
   std::filesystem::path nativeModule, resourceDirectory;
   std::vector<std::filesystem::path> effects;

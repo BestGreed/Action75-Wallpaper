@@ -1,8 +1,9 @@
 # Real CPU particles on the public D3D12 ABI
 
 This directory independently builds the `lantern-almanac` and `tidemark-bearing`
-packages. `assets/` preserves the original exported `.efk`, textures, covers and
-settings byte for byte. The editable Effekseer projects and generator remain in
+packages. `assets/` preserves the original exported `.efk`, textures and covers
+byte for byte. Its settings retain every original control and add independent
+background/foreground opacity. The editable Effekseer projects and generator remain in
 the original `sources/particle` and `sources/particle/dynamic-proof` author directories.
 
 The runtime does not distinguish wallpaper IDs. `particles.json` declares the
@@ -61,6 +62,51 @@ where the legacy built-in Effekseer backend did not clear particles. This one
 capture-cancellation distinction cannot be preserved through the public ABI.
 Resource paths use the supplied package directory directly, avoiding
 filesystem canonicalization queries that fail inside the host AppContainer.
+
+## Independent object opacity
+
+`backgroundOpacity` and `foregroundOpacity` are percentage sliders (0–100,
+default 100). The manifest's public `desktopOpacityControl` points to the
+background control. Old profiles that omit either value retain 100%. Neither
+control changes the exported effects, original appearance controls, keyboard
+cadence, selected variants or the dynamic bearing input.
+
+100/100 retains the original direct-render path, including all stock Effekseer
+blend modes. When either opacity is reduced, the complete real Effekseer draw
+is rendered into one persistent RGBA8 texture. Its RGB is already the result of
+the original blend operations over transparent black. Since stock additive
+nodes can accumulate RGB above their Max alpha, the layer's coverage is resolved
+as `max(stockAlpha, R, G, B)`. RGB and coverage are then scaled together by
+foreground opacity and composed with the independently premultiplied background
+using standard source-over. This guarantees `RGB <= alpha` and transparent empty
+pixels of `(0,0,0,0)` for the public ABI's premultiplied output.
+
+The transparent branch therefore has ordinary coverage over a light desktop;
+it cannot reproduce unlimited additive light against every possible external
+desktop color through a single bounded premultiplied layer. Default 100/100
+keeps the original rendering exactly. Opacity fades the completed foreground as
+one object rather than changing every particle's alpha before overlapping.
+
+The texture, descriptors and composite pipeline are allocated lazily and reused;
+they are recreated only for a size change. Foreground 0 skips particle GPU
+drawing while continuing the actual CPU simulation with a 100 ms delayed wake.
+Expired effects and static backgrounds return `-1`; pause also returns `-1`.
+Restoring opacity retains the correct live age and never revives expired effects.
+
+The additional verifier loads both actual DLLs and compares 100/100 against a
+frozen DX12 baseline, then checks the nine 0/50/100 combinations, white-background
+removal, bounded premultiplication, whole-layer scaling and hidden-effect age:
+
+```powershell
+cmake --build build --config Release --target verify_particle_opacity --parallel 2
+build/Release/verify_particle_opacity.exe C:/output/particle-packs C:/frozen-dx12-packs C:/evidence
+```
+
+The optional `warp` fourth argument selects WARP. The PNG writer checks WIC's
+negotiated channel order so BGRA negotiation cannot swap the evidence colors.
+Raw `*-premul.png` captures store the actual premultiplied GPU bytes; the
+`*-over-dark.png` and `*-over-light.png` files are explicit offline source-over
+previews, not an actual desktop/host integration test.
 
 ## Independent real-renderer comparison
 

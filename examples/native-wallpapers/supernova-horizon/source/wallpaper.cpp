@@ -31,6 +31,8 @@ struct Background {
     float hue = 0;
     std::array<float, 3> tint{1, 1, 1};
     float disk = 1;
+    float opacity = 1;
+    float diskOpacity = 1;
 
     bool operator==(const Background&) const = default;
 };
@@ -40,6 +42,7 @@ struct Settings {
     float brightness = 1;
     float radius = 1;
     float duration = 0.83f;
+    float opacity = 1;
     std::array<float, 3> tint{1, 1, 1};
 };
 
@@ -55,9 +58,12 @@ struct RootConstants {
     float novaBrightness;
     float novaRadius;
     std::array<float, 3> novaTint;
-    float reserved = 0;
+    float novaOpacity;
+    float skyOpacity;
+    float diskOpacity;
+    std::array<float, 2> reserved{};
 };
-static_assert(sizeof(RootConstants) == 64);
+static_assert(sizeof(RootConstants) == 80);
 
 struct Burst {
     double born;
@@ -125,7 +131,6 @@ void readSettings(Settings& settings, const char* source) {
     if (!source || !*source) {
         return;
     }
-    const Apartment apartment;
     JsonObject object{nullptr};
     if (!JsonObject::TryParse(winrt::to_hstring(source), object)) {
         return;
@@ -137,9 +142,12 @@ void readSettings(Settings& settings, const char* source) {
     bg.saturation = number(object, L"skySaturation", bg.saturation, 0, 1.5f);
     bg.tint = color(object, L"skyColor", bg.tint);
     bg.disk = number(object, L"diskBrightness", bg.disk, 0, 1.6f);
+    bg.opacity = number(object, L"backgroundOpacity", bg.opacity * 100, 0, 100) / 100.f;
+    bg.diskOpacity = number(object, L"diskOpacity", bg.diskOpacity * 100, 0, 100) / 100.f;
     settings.brightness = number(object, L"novaBrightness", settings.brightness, 0, 1.6f);
     settings.radius = number(object, L"novaRadius", settings.radius, 0.55f, 1.45f);
     settings.duration = number(object, L"novaDuration", settings.duration, 0.45f, 1.35f);
+    settings.opacity = number(object, L"novaOpacity", settings.opacity * 100, 0, 100) / 100.f;
     settings.tint = color(object, L"novaColor", settings.tint);
 }
 
@@ -209,12 +217,10 @@ ComPtr<ID3D12PipelineState> pipeline(ID3D12Device* device, ID3D12RootSignature* 
     blend.DestBlend = additive ? D3D12_BLEND_ONE : D3D12_BLEND_ZERO;
     blend.BlendOp = D3D12_BLEND_OP_ADD;
     blend.SrcBlendAlpha = D3D12_BLEND_ONE;
-    blend.DestBlendAlpha = D3D12_BLEND_ZERO;
+    blend.DestBlendAlpha = additive ? D3D12_BLEND_ONE : D3D12_BLEND_ZERO;
     blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
     blend.LogicOp = D3D12_LOGIC_OP_NOOP;
-    blend.RenderTargetWriteMask = additive
-        ? D3D12_COLOR_WRITE_ENABLE_RED | D3D12_COLOR_WRITE_ENABLE_GREEN | D3D12_COLOR_WRITE_ENABLE_BLUE
-        : D3D12_COLOR_WRITE_ENABLE_ALL;
+    blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     desc.SampleMask = UINT_MAX;
     desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
     desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
@@ -297,6 +303,9 @@ public:
             readSettings(updated, event.settings_json);
             skyDirty_ |= updated.background != settings_.background;
             settings_ = updated;
+            if (settings_.opacity == 0) {
+                count_ = 0;
+            }
             break;
         }
         case A75_PAUSE:
@@ -317,7 +326,7 @@ public:
         const float hue = bg.hue * (std::numbers::pi_v<float> / 180.0f);
         const RootConstants constants{size, bg.mode, bg.brightness, bg.saturation, bg.tint, std::cos(hue),
                                       std::sin(hue), bg.disk, settings_.brightness, settings_.radius,
-                                      settings_.tint};
+                                      settings_.tint, settings_.opacity, bg.opacity, bg.diskOpacity};
         auto* commands = frame.commands;
         commands->SetGraphicsRootSignature(root_.Get());
         commands->SetGraphicsRoot32BitConstants(0, sizeof(constants) / sizeof(uint32_t), &constants, 0);
@@ -409,7 +418,7 @@ private:
     }
 
     void trigger(const A75Event& event) {
-        if (settings_.brightness == 0) {
+        if (settings_.brightness == 0 || settings_.opacity == 0) {
             return;
         }
         const auto oldest = std::min_element(bursts_.begin(), bursts_.begin() + count_,
@@ -435,6 +444,7 @@ private:
         return active;
     }
 
+    const Apartment apartment_;
     Settings settings_;
     std::array<Burst, maxBursts> bursts_{};
     size_t count_ = 0;

@@ -73,7 +73,8 @@ float4 backdropVS(uint vertex : SV_VertexID) : SV_Position {
 }
 float4 backdropPS(float4 position : SV_Position) : SV_Target {
     float grain = frac(52.9829189 * frac(dot(floor(position.xy), float2(.06711056, .00583715)))) - .5;
-    return float4(glassBackdrop(position.xy / screen.xy) + grain * (.007 * saturate(reflection.a)) * (screen.w != 3), 1);
+    float3 color = glassBackdrop(position.xy / screen.xy) + grain * (.007 * saturate(reflection.a)) * (screen.w != 3);
+    return float4(saturate(color) * baseShadow.a, baseShadow.a);
 }
 
 struct CrackVertex {

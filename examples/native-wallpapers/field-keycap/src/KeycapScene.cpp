@@ -110,6 +110,10 @@ bool KeycapScene::animated() const {
 }
 
 int32_t KeycapScene::render(const A75Frame12 &frame, bool paused) {
+  if (background_.gpu.rows[2][3] == 0 && background_.gpu.solid[3] == 0) {
+    frame.commands->ClearRenderTargetView(frame.rtv, background_.clearColor().data(), 0, nullptr);
+    return -1;
+  }
   if (background_.edited && !graded_)
     graded_ = graphics_.pipeline(shader(KeycapVertex), shader(KeycapGraded), OutputFormat);
   const auto width = frame.width, height = frame.height;
@@ -146,11 +150,11 @@ int32_t KeycapScene::render(const A75Frame12 &frame, bool paused) {
   }
 
   auto *commands = frame.commands;
-  commands->ClearRenderTargetView(frame.rtv, background_.gpu.solid.data(), 0, nullptr);
+  commands->ClearRenderTargetView(frame.rtv, background_.clearColor().data(), 0, nullptr);
   graphics_.bind(commands, &constants);
   commands->SetPipelineState(background_.edited ? graded_.Get() : normal_.Get());
   commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
   commands->DrawInstanced(4, static_cast<UINT>(keys_.size()), 0, 0);
-  return !paused && (active || animated()) ? 0 : -1;
+  return !paused && ((active && background_.gpu.rows[2][3] > 0) || (animated() && background_.gpu.solid[3] > 0)) ? 0 : -1;
 }
 } // namespace wallpaper

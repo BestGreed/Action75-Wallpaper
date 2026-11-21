@@ -24,6 +24,7 @@ struct SceneConstants {
   float skyHue, skySaturation, starHue, starSaturation;
   std::array<float,3> starTint;
   float starGradeEnabled;
+  std::array<float,4> opacity;
 };
 struct StarConstants {
   float x, y, radius, rotation;
@@ -32,7 +33,7 @@ struct StarConstants {
   float echoRed, echoGreen, echoBlue, echoEnvelope;
   float echoRadius, padding[3];
 };
-static_assert(sizeof(SceneConstants) == 176 && sizeof(StarConstants) == 80);
+static_assert(sizeof(SceneConstants) == 192 && sizeof(StarConstants) == 80);
 
 std::array<std::uint8_t, NoiseSize * NoiseSize * 2> turbulenceTexture() noexcept;
 } // namespace black_hole
@@ -49,6 +50,9 @@ public:
   bool push(double now, Position point, unsigned width, unsigned height) noexcept;
   void clear() noexcept { count_ = 0; }
   std::size_t count() const noexcept { return count_; }
+  bool animates() const noexcept {
+    return appearance_.skyOpacity > 0 || appearance_.holeOpacity > 0 || (appearance_.starOpacity > 0 && count_);
+  }
 
 protected:
   unsigned prepareFrame(unsigned width, unsigned height, unsigned bloomWidth, unsigned bloomHeight,

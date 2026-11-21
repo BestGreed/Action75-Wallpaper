@@ -6,5 +6,6 @@
   "settings": "settings.json",
   "abi": 2,
   "renderer": "d3d12",
-  "entry": "wallpaper.dll"
+  "entry": "wallpaper.dll",
+  "desktopOpacityControl": "backgroundOpacity"
 }

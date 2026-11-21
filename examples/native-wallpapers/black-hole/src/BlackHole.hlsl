@@ -23,6 +23,7 @@ cbuffer Scene : register(b0)
     float skyHue, skySaturation, starHue, starSaturation;
     float3 starTint;
     float starGradeEnabled;
+    float4 layerOpacity; // sky, black hole and disk, key stars, active stars
 };
 
 // The inverse point-mass lens samples the source sky in screen space. The
@@ -325,7 +326,18 @@ float3 AdjustColor(float3 color, float turns, float saturation)
     return high * lerp(1, rgb, saturate(saturation * chroma / high));
 }
 
-float4 ScenePs(ScreenVertex input) : SV_Target
+float3 DisplayLight(float3 light)
+{
+    float3 film = 1 - exp2(-1.29 * light);
+    return lerp(film * 12.92, 1.055 * pow(film, 1.0 / 2.4) - .055, step(.0031308, film));
+}
+
+float LightCoverage(float3 light)
+{
+    return DisplayLight(max(light.r, max(light.g, light.b)).xxx).r;
+}
+
+float4 SceneLayer(ScreenVertex input, float3 opacity, bool translucent)
 {
     float2 delta = input.position.xy - centerPx;
     float2 p = delta / shadowPx;
@@ -336,26 +348,35 @@ float4 ScenePs(ScreenVertex input) : SV_Target
     float ray = 1 - einsteinRadiusSquared * reach / max(r2, .94);
     float2 source = centerPx + delta * ray;
     float3 light = 0;
-    [branch] if (skyBrightness > 0)
+    [branch] if (skyBrightness > 0 && opacity.x > 0)
     {
         float3 skyColor = skyMode == 3 ? 1 : SkyLight(.5 + (source - .5 * resolution) / skySize);
         light = skyColor * skyTint * skyBrightness;
         if (skyHue != 0 || skySaturation != 1) light = AdjustColor(light, skyHue, skySaturation);
+        light *= opacity.x;
     }
+    float coverage = opacity.x;
     [branch] if (r2 < 27)
     {
         float r = sqrt(r2);
         float aa = max(.003, .72 / shadowPx);
-        float visible = ShadowCoverage(r, aa);
+        float geometricVisibility = ShadowCoverage(r, aa);
+        float visible = lerp(1, geometricVisibility, opacity.y);
         float2 q = DiskAxes(p);
         light *= visible;
+        float diskCoverage = 1 - geometricVisibility;
         float foregroundDensity = 0;
         [branch] if (diskBrightness > 0 && abs(q.y) < 3.05)
         {
             float diskFade = (1 - smoothstep(2.25, 3.05, abs(q.y))) * (1 - smoothstep(19, 27, r2));
-            light += diskBrightness * Accretion(q, r, visible, aa, foregroundDensity) * diskFade;
+            float3 disk = diskBrightness * Accretion(q, r, geometricVisibility, aa, foregroundDensity) * diskFade;
+            light += disk;
+            if (translucent)
+                diskCoverage = saturate(diskCoverage + LightCoverage(disk / max(.0001, opacity.y)));
             foregroundDensity *= diskFade;
         }
+        if (translucent)
+            coverage += (1 - coverage) * diskCoverage * opacity.y;
         [branch] if (hasEmissionMaps > 0 && visible > .0001)
         {
             float2 uv = source / resolution;
@@ -369,10 +390,23 @@ float4 ScenePs(ScreenVertex input) : SV_Target
                                    sourceImage.SampleLevel(emissionSampler, uv, 0).rgb,
                                    smoothstep(-.025, .025, ray));
             float transmission = exp2(-1.3 * foregroundDensity * diskBrightness);
-            light += visible * transmission * (1 - smoothstep(21, 27, r2)) * tracedLight;
+            float3 lensLight = visible * transmission * (1 - smoothstep(21, 27, r2)) * tracedLight;
+            light += lensLight * opacity.z;
+            if (translucent)
+                coverage = saturate(coverage + LightCoverage(lensLight) * opacity.z);
         }
     }
-    return float4(light, 1);
+    return float4(light, coverage);
+}
+
+float4 ScenePs(ScreenVertex input) : SV_Target
+{
+    return SceneLayer(input, float3(1, 1, 1), false);
+}
+
+float4 TranslucentScenePs(ScreenVertex input) : SV_Target
+{
+    return SceneLayer(input, layerOpacity.xyz, true);
 }
 
 struct StarData
@@ -504,13 +538,13 @@ LightPaths LightSourcePs(StarVertex input)
     return result;
 }
 
-float4 StarPs(StarVertex input) : SV_Target
+float4 StarLayer(StarVertex input, float2 opacity, bool translucent)
 {
     float2 p = input.local;
     float r2 = dot(p, p);
     clip(1 - r2);
     float shadowRadius = length(input.position.xy - centerPx) / shadowPx;
-    float visible = ShadowCoverage(shadowRadius, .72 / shadowPx);
+    float visible = lerp(1, ShadowCoverage(shadowRadius, .72 / shadowPx), opacity.x);
     clip(visible - .0001);
 
     float age = input.motion.x;
@@ -567,7 +601,18 @@ float4 StarPs(StarVertex input) : SV_Target
         light += disk * lerp(color, hotColor, .27) * wake * smoothstep(.025, .165, age);
     }
     float edge = 1 - smoothstep(.57, 1, r2);
-    return float4(light * (1 - .78 * input.lensMix) * input.light.a * edge * visible, 0);
+    float3 emission = light * (1 - .78 * input.lensMix) * input.light.a * edge * visible;
+    return float4(emission * opacity.y, translucent ? LightCoverage(emission) * opacity.y : 0);
+}
+
+float4 StarPs(StarVertex input) : SV_Target
+{
+    return StarLayer(input, float2(1, 1), false);
+}
+
+float4 TranslucentStarPs(StarVertex input) : SV_Target
+{
+    return StarLayer(input, layerOpacity.yz, true);
 }
 
 float3 BloomSeed(float2 uv)
@@ -599,15 +644,34 @@ float4 BloomVerticalPs(ScreenVertex input) : SV_Target
     return float4(sum, 1);
 }
 
-float4 CompositePs(ScreenVertex input) : SV_Target
+float4 CompositeLayer(ScreenVertex input, bool translucent)
 {
-    float3 scene = sourceImage.SampleLevel(skySampler, input.uv, 0).rgb;
+    float4 scene = sourceImage.SampleLevel(skySampler, input.uv, 0);
     float3 bloom = bloomImage.SampleLevel(skySampler, input.uv, 0).rgb;
     float2 p = (input.position.xy - centerPx) / shadowPx;
     float bloomMask = max(smoothstep(.92, 1.08, length(p)), smoothstep(.20, .41, DiskAxes(p).y));
-    float3 light = scene + bloom * .55 * bloomMask;
-    float3 film = 1 - exp2(-1.29 * light);
-    float3 display = lerp(film * 12.92, 1.055 * pow(film, 1.0 / 2.4) - .055, step(.0031308, film));
+    float3 glow = bloom * .55 * bloomMask;
+    float3 light = scene.rgb + glow;
     float grain = frac(52.9829189 * frac(dot(input.position.xy, float2(.06711056, .00583715)))) - .5;
-    return float4(display + grain / 255, 1);
+    if (!translucent)
+        return float4(DisplayLight(light) + grain / 255, 1);
+    float coverage = saturate(scene.a);
+    float starOpacity = layerOpacity.z * layerOpacity.w;
+    float emittingOpacity = max(layerOpacity.y, starOpacity);
+    if (emittingOpacity > 0)
+        coverage = max(coverage, saturate(LightCoverage(glow / emittingOpacity)) * emittingOpacity);
+    float coverageLimit = 1 - (1 - layerOpacity.x) * (1 - layerOpacity.y) * (1 - starOpacity);
+    coverage = min(coverage, coverageLimit);
+    float3 display = DisplayLight(light / max(.0001, coverage));
+    return float4(saturate(display + grain / 255) * coverage, coverage);
+}
+
+float4 CompositePs(ScreenVertex input) : SV_Target
+{
+    return CompositeLayer(input, false);
+}
+
+float4 TranslucentCompositePs(ScreenVertex input) : SV_Target
+{
+    return CompositeLayer(input, true);
 }

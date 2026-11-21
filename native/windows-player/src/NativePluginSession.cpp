@@ -403,7 +403,7 @@ struct NativePluginSession::Impl {
   }
   void launch(ID3D11Device *device, ID3D12Device *device12, const fs::path &packPath, const fs::path &module,
               unsigned width, unsigned height, const std::string &json,
-              LUID compositionAdapter = {}, HANDLE compositionSurface = nullptr) {
+              LUID compositionAdapter = {}, HANDLE compositionSurface = nullptr, bool premultipliedAlpha = false) {
     const fs::path root = fs::absolute(packPath).lexically_normal();
     const fs::path relative =
         (module.is_absolute() ? module.lexically_relative(root) : module).lexically_normal();
@@ -456,7 +456,8 @@ struct NativePluginSession::Impl {
     check(msg != nullptr, "Map worker IPC");
     composition = compositionSurface != nullptr;
     msg->abi = device12 || composition ? 2 : 1;
-    msg->composition = composition;
+    msg->composition = !composition ? CompositionMode::Off :
+        premultipliedAlpha ? CompositionMode::Premultiplied : CompositionMode::Opaque;
     if (composition) {
       msg->adapter = compositionAdapter;
       // This surface is created for this session only. The worker receives no
@@ -650,10 +651,10 @@ bool NativePluginSession::start12(ID3D12Device *device,const fs::path &root,cons
 }
 bool NativePluginSession::startComposition(LUID adapter, HANDLE surface, const fs::path &root,
                                             const fs::path &module, unsigned width, unsigned height,
-                                            const std::string &json, std::string &error) {
+                                            const std::string &json, std::string &error, bool premultipliedAlpha) {
   try {
     auto candidate = std::make_unique<Impl>();
-    candidate->launch(nullptr, nullptr, root, module, width, height, json, adapter, surface);
+    candidate->launch(nullptr, nullptr, root, module, width, height, json, adapter, surface, premultipliedAlpha);
     impl_ = std::move(candidate);
     return true;
   } catch (const std::exception &failure) {

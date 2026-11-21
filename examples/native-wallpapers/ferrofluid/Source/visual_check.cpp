@@ -6,8 +6,8 @@ using nlohmann::json;
 int wmain(int argc, wchar_t** argv) {
     using namespace readback;
     try {
-        check(argc == 4 || argc == 5,
-              "usage: visual_check [ABI 2 pack] [calibration file] [output folder] [settings file]");
+        check(argc >= 4 && argc <= 6,
+              "usage: visual_check [ABI 2 pack] [calibration file] [output folder] [settings file] [frame count]");
         const auto pack = fs::absolute(argv[1]);
         const fs::path output(argv[3]);
         std::ifstream calibration{fs::path(argv[2])};
@@ -15,7 +15,7 @@ int wmain(int argc, wchar_t** argv) {
         fs::create_directories(output);
         constexpr UINT width = 1280, height = 480;
         Warp12 reader(pack, width, height);
-        if (argc == 5) {
+        if (argc >= 5) {
             std::ifstream settings{fs::path(argv[4])};
             const auto values = json::parse(settings).dump();
             const A75Event event{sizeof(event), A75_SETTINGS, width, height, 0, 0, 0, nullptr, values.c_str()};
@@ -29,7 +29,8 @@ int wmain(int argc, wchar_t** argv) {
         };
         Bytes pixels;
         bool awake = true;
-        for (int frame = 0; frame < (argc == 5 ? 1 : 500); ++frame) {
+        const int frameCount = argc == 6 ? std::stoi(argv[5]) : (argc == 5 ? 1 : 500);
+        for (int frame = 0; frame < frameCount; ++frame) {
             for (const auto& beat : sequence) {
                 if (beat.frame != frame) continue;
                 const auto& p = points.at(beat.key);

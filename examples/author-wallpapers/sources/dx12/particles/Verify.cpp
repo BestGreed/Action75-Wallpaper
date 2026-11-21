@@ -20,7 +20,12 @@ void png(const std::filesystem::path& path,const Image& image){
     check(factory->CreateEncoder(GUID_ContainerFormatPng,nullptr,&encoder),"WIC encoder");check(encoder->Initialize(stream.Get(),WICBitmapEncoderNoCache),"WIC encoder initialize");
     check(encoder->CreateNewFrame(&frame,nullptr),"WIC frame");check(frame->Initialize(nullptr),"WIC frame initialize");check(frame->SetSize(W,H),"WIC size");
     WICPixelFormatGUID format=GUID_WICPixelFormat32bppRGBA;check(frame->SetPixelFormat(&format),"WIC format");
-    check(frame->WritePixels(H,W*4,UINT(image.size()),const_cast<BYTE*>(image.data())),"WIC pixels");check(frame->Commit(),"WIC frame commit");check(encoder->Commit(),"WIC commit");
+    // The Windows PNG codec may negotiate BGRA even when RGBA was requested.
+    // Keep captures faithful to the DX12 RGBA8 readback in either case.
+    auto encoded=image;
+    if(IsEqualGUID(format,GUID_WICPixelFormat32bppBGRA))for(unsigned i=0;i<encoded.size();i+=4)std::swap(encoded[i],encoded[i+2]);
+    else require(IsEqualGUID(format,GUID_WICPixelFormat32bppRGBA),"Unsupported WIC PNG channel order");
+    check(frame->WritePixels(H,W*4,UINT(encoded.size()),encoded.data()),"WIC pixels");check(frame->Commit(),"WIC frame commit");check(encoder->Commit(),"WIC commit");
 }
 json difference(const Image& a,const Image& b){
     std::uint64_t total=0,visibleA=0,visibleB=0,support=0,overlap=0;unsigned maximum=0;int left=W,top=H,right=-1,bottom=-1;

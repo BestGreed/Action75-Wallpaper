@@ -7,6 +7,19 @@
       "label": "黑洞",
       "controls": [
         {
+          "id": "holeOpacity",
+          "label": "黑洞与吸积盘不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "foreground",
+          "appearance": "opacity",
+          "advanced": false
+        },
+        {
           "id": "diskPalette",
           "type": "select",
           "label": "吸积盘配色",
@@ -125,6 +138,19 @@
       "label": "按键恒星",
       "controls": [
         {
+          "id": "starOpacity",
+          "label": "按键恒星不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "foreground",
+          "appearance": "opacity",
+          "advanced": false
+        },
+        {
           "id": "starBrightness",
           "type": "slider",
           "label": "恒星亮度",
@@ -211,6 +237,19 @@
       "id": "sky",
       "label": "远景背景",
       "controls": [
+        {
+          "id": "backgroundOpacity",
+          "label": "远景天空不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "background",
+          "appearance": "opacity",
+          "advanced": false
+        },
         {
           "id": "skyMode",
           "type": "select",

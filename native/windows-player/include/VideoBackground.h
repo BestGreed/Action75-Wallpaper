@@ -19,11 +19,12 @@ public:
   VideoBackground &operator=(const VideoBackground &) = delete;
 
   bool Initialize(ID3D11Device *device, ID3D11DeviceContext *context);
-  bool Open(const std::filesystem::path &file);
+  bool Open(const std::filesystem::path &file, bool preserveAspect = false);
   bool Resize(unsigned width, unsigned height);
   bool UpdateFrame();
   ID3D11ShaderResourceView *TextureView() const noexcept;
   bool IsAnimated() const noexcept;
+  float AspectRatio() const noexcept;
   void SetPaused(bool paused);
   void Close() noexcept;
   const std::string &LastError() const noexcept;

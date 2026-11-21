@@ -27,8 +27,8 @@ private:
   };
 
   void createRootSignature();
-  void createPipelineStates();
-  void resize(unsigned width, unsigned height);
+  void createPipelineStates(bool translucent = false);
+  void resize(unsigned width, unsigned height, DXGI_FORMAT sceneFormat);
   void upload(Upload &, DXGI_FORMAT, unsigned width, unsigned height, unsigned rowBytes,
               const void *, Srv);
   void createSky(ID3D12Resource *, DXGI_FORMAT, Rtv firstRtv, Srv all, Srv firstMip);
@@ -44,12 +44,14 @@ private:
   UINT rtvStride_ = 0, srvStride_ = 0;
   ComPtr<ID3D12RootSignature> root_;
   ComPtr<ID3D12PipelineState> scene_, star_, lightSource_, blurHorizontal_, blurVertical_, composite_;
+  ComPtr<ID3D12PipelineState> translucentScene_, translucentStar_, translucentComposite_;
   ComPtr<ID3D12PipelineState> bakeArtwork_, bakeStars_, mipArtwork_, mipStars_;
   ComPtr<ID3D12Resource> constants_, sky_, stars_, hdr_, bloomA_, bloomB_;
   unsigned char *mapped_ = nullptr;
   Upload artwork_, noise_;
   bool baked_ = false;
   DXGI_FORMAT hdrFormat_, starFormat_;
+  DXGI_FORMAT sceneFormat_ = DXGI_FORMAT_UNKNOWN;
   unsigned width_ = 0, height_ = 0;
 };
 } // namespace action75

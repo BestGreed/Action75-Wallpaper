@@ -17,6 +17,7 @@ void Fireworks12::configure(const PackAppearance &appearance) {
   intensity_ = appearance.intensity;
   data_.background = {linear(appearance.backgroundColor[0]), linear(appearance.backgroundColor[1]),
                       linear(appearance.backgroundColor[2]), appearance.backgroundBrightness};
+  data_.opacity = {appearance.backgroundOpacity, appearance.foregroundOpacity, 0, 0};
   data_.skyGrade = LayerColor::make(appearance.backgroundHue, appearance.backgroundSaturation);
   data_.skyGrade.rows[1][3] = static_cast<float>(appearance.backgroundStyle);
   data_.sparkGrade = LayerColor::make(appearance.hue, appearance.saturation);

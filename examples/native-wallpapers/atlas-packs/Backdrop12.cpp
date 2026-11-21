@@ -25,6 +25,7 @@ std::array<float, 4> solidBackground(const std::array<float, 8>& appearance) {
   const float exposure = gain <= 1 ? gain : gain / (1 + (gain - 1) * peak);
   for (unsigned i = 0; i < 3; ++i)
     color[i] *= exposure;
+  for (auto& channel : color) channel *= appearance[7];
   return color;
 }
 } // namespace
@@ -60,14 +61,20 @@ void Backdrop::configure(const Appearance& settings) {
   hue /= 360;
   const auto tint = settings.backgroundColor;
   const bool grade = gain != 1 || saturation != 1 || hue != 0 || tint != Rgb{255, 255, 255};
+  solid_ = settings.solidBackground;
   appearance_ = {gain, saturation, hue, float(grade), tint[0] / 255.f, tint[1] / 255.f,
-                 tint[2] / 255.f, float(settings.solidBackground)};
+                 tint[2] / 255.f, settings.backgroundOpacity};
 }
 
 void Backdrop::draw(const A75Frame12& frame) {
   auto* commands = frame.commands;
+  if (appearance_[7] == 0) {
+    constexpr float transparent[4]{};
+    commands->ClearRenderTargetView(frame.rtv, transparent, 0, nullptr);
+    return;
+  }
   texture_.prepare(commands);
-  if (appearance_[3] == 0 && appearance_[7] == 0 &&
+  if (appearance_[3] == 0 && !solid_ && appearance_[7] == 1 &&
       frame.width == opaqueWidth_ && frame.height == opaqueHeight_) {
     // Match the original fast path for opaque, ungraded art at native size.
     auto* source = texture_.resource();
@@ -78,7 +85,7 @@ void Backdrop::draw(const A75Frame12& frame) {
     transition(commands, source, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     return;
   }
-  if (appearance_[7] != 0 || appearance_[0] == 0 ||
+  if (solid_ || appearance_[0] == 0 ||
       (appearance_[4] == 0 && appearance_[5] == 0 && appearance_[6] == 0)) {
     const auto color = solidBackground(appearance_);
     commands->ClearRenderTargetView(frame.rtv, color.data(), 0, nullptr);

@@ -198,6 +198,21 @@
           },
           "surface": "foreground",
           "appearance": "brightness"
+        },
+        {
+          "id": "foregroundOpacity",
+          "label": "前景不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "appearance": "opacity",
+          "surface": "foreground",
+          "binding": {
+            "target": "effect.opacity"
+          }
         }
       ]
     },
@@ -301,6 +316,21 @@
           "advanced": false,
           "binding": {
             "target": "background.color"
+          }
+        },
+        {
+          "id": "backgroundOpacity",
+          "label": "背景不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "appearance": "opacity",
+          "surface": "background",
+          "binding": {
+            "target": "background.opacity"
           }
         }
       ]

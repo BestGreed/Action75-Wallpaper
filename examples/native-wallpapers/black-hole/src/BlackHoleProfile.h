@@ -25,6 +25,9 @@ struct BlackHoleProfile {
     appearance.size = profile.value("holeSize", appearance.size);
     appearance.lensStrength = profile.value("lensStrength", appearance.lensStrength);
     appearance.diskBrightness = profile.value("diskBrightness", appearance.diskBrightness);
+    appearance.skyOpacity = std::clamp(profile.value("backgroundOpacity", 100.f), 0.f, 100.f) / 100.f;
+    appearance.holeOpacity = std::clamp(profile.value("holeOpacity", 100.f), 0.f, 100.f) / 100.f;
+    appearance.starOpacity = std::clamp(profile.value("starOpacity", 100.f), 0.f, 100.f) / 100.f;
     appearance.center = {profile.value("centerX", 58.f) / 100.f, profile.value("centerY", 46.f) / 100.f};
     const auto setSky = [&](BlackHoleSkyStyle &style, std::string prefix) {
       style.brightness = profile.value(prefix + "Brightness", style.brightness);

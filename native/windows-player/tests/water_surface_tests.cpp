@@ -1,4 +1,5 @@
 #include "NativeRenderer.h"
+#include "LegacyNativeSettings.h"
 #include "PackSettings.h"
 #include "WaterSurface.h"
 #include <algorithm>
@@ -93,10 +94,10 @@ int wmain(int argc, wchar_t **argv) {
     require(SUCCEEDED(com.result), "Initialize WIC");
     const fs::path pack = argv[1];
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    PackSettingsStore settings(fs::temp_directory_path() /
-                               ("Action75Stillwater-" + std::to_string(stamp)));
-    settings.registerPack("stillwater", pack, pack / "settings.json");
-    require(settings.hasSchema("stillwater"), settings.schemaError("stillwater"));
+    const auto scratch = fs::temp_directory_path() / ("Action75Stillwater-" + std::to_string(stamp));
+    const action75::test::LegacyNativeSettings legacy(scratch);
+    PackSettingsStore settings(scratch);
+    legacy.registerPack(settings, "stillwater", pack);
     const auto defaults = settings.evaluate(settings.current("stillwater"));
     const auto still = settings.evaluate(settings.prepare(
         "stillwater", {{"ambient", 0}, {"impactMin", 1}, {"impactMax", 1}}));

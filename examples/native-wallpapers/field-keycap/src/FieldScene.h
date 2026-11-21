@@ -28,6 +28,7 @@ private:
   Graphics12 graphics_;
   ComPtr<ID3D12PipelineState> sim_, shade_, composite_, blurHorizontal_, blurVertical_;
   ComPtr<ID3D12PipelineState> gradedShade_, gradedComposite_;
+  ComPtr<ID3D12PipelineState> backgroundShade_, foregroundShade_, weightedComposite_, foregroundComposite_;
   ComPtr<ID3D12DescriptorHeap> targets_, textures_;
   unsigned targetStride_ = 0, textureStride_ = 0;
   std::array<ComPtr<ID3D12Resource>, SurfaceCount> surfaces_;
@@ -45,6 +46,6 @@ private:
   float lifetime_ = 3, turbulence_ = .9f, propagation_ = 1;
   float brightness_ = 1, intensity_ = 1, scale_ = 1, speed_ = 1;
   float ambient_ = .35f, detail_ = .8f, bloom_ = .6f, sparks_ = .5f, quality_ = 1;
-  double previous_ = -1, simulationTime_ = 0;
+  double previous_ = -1, simulationTime_ = 0, lastImpulse_ = -1;
 };
 } // namespace wallpaper

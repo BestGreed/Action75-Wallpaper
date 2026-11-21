@@ -147,6 +147,7 @@ pub(super) fn run(
     nonce: &str,
     native: bool,
     integrated: bool,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<Exit, String> {
     if native {
         let worker = executable.with_file_name(WORKER);
@@ -156,7 +157,7 @@ pub(super) fn run(
             return Err(format!("原生壁纸需要播放器同目录的 {WORKER}"));
         }
     }
-    run_process(executable, stage, nonce, native, integrated)
+    run_process(executable, stage, nonce, native, integrated, cancel)
         .map_err(|e| format!("无法运行隔离试播，{e}"))
 }
 
@@ -166,6 +167,7 @@ fn run_process(
     nonce: &str,
     native: bool,
     integrated: bool,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
 ) -> windows::core::Result<Exit> {
     let token = ordinary_token()?;
     let desktop_name = format!("Action75Import-{nonce}");
@@ -249,7 +251,28 @@ fn run_process(
         if ResumeThread(primary_thread.0) == u32::MAX {
             return Err(windows::core::Error::from_win32());
         }
-        let wait = WaitForSingleObject(child.0, TIMEOUT_MS);
+        let started = std::time::Instant::now();
+        let wait = loop {
+            let remaining = TIMEOUT_MS
+                .saturating_sub(started.elapsed().as_millis().min(u32::MAX as u128) as u32);
+            let interval = if cancel.is_some() {
+                remaining.min(100)
+            } else {
+                remaining
+            };
+            let state = WaitForSingleObject(child.0, interval);
+            if state != WAIT_TIMEOUT || remaining == interval {
+                break state;
+            }
+            if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
+                TerminateJobObject(job.0, 1223)?;
+                WaitForSingleObject(child.0, 2_000);
+                return Err(windows::core::Error::new(
+                    windows::core::HRESULT::from_win32(1223),
+                    "已取消导入",
+                ));
+            }
+        };
         let timed_out = wait == WAIT_TIMEOUT;
         if timed_out {
             TerminateJobObject(job.0, 124)?;

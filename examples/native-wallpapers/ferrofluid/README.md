@@ -2,6 +2,8 @@
 
 将同级 **Ferrofluid** 文件夹导入支持公开原生 ABI 2 的控制台。Source 包含 C++ 和 HLSL，Preview/interaction.webp 展示单键吸引、多键竞争、依次松开和回流。包 ID 沿用 `meniscus-ferrofluid-v1`。
 
+磁流体与背景的不透明度可独立设置为 0–100%，初始均为 100%。背景设为 0% 时，支持桌面透明合成的播放器会在液体周围显示桌面，长按和换键仍然生效。
+
 ## 构建
 
 需要 Windows x64、Visual Studio 2022 C++ Build Tools、Windows SDK 和 CMake。在本目录运行以下命令。脚本在临时目录生成可导入的独立包。完整源码包附有公开头文件和 nlohmann/json 3.12.0。单独复制示例时，可用 `-SdkInclude` 指向两个公开头文件所在目录，用 `-SdkVendor` 指向包含 `nlohmann/` 的目录。
@@ -13,7 +15,7 @@ $work = Join-Path $env:TEMP "Action75-Ferrofluid-$([guid]::NewGuid())"
 
 原作者最新版工程为 action75-ferrofluid-studio，基线 DLL 的 SHA-256 为 032686139ae184b28d4df138b8d60f2dd54139602f4ebed4c465cb34b7fd704c。该作品的浅色器皿、黑色液面与反射由程序绘制，原控制项和 192×72 守恒求解器均保留。优化重复使用四行三次插值结果，只清除前一帧液体的矩形，并上传前后液体矩形的并集。绘制阶段筛掉全干的网格块，背景跳过深度写入。初始化仍会写入一次完整的 961×361 高度纹理。
 
-运行 `$work/build/Release/visual_check.exe <包目录> <键位校准 JSON> <帧输出目录>`，按固定时间轴使用 D3D12 WARP 回读按键交互。用相同回读器运行 `python Source/test_appearance.py <visual_check.exe> <键位校准 JSON> <输出目录> --pack <包目录>`，可以复验两层共十项外观控件。
+运行 `$work/build/Release/visual_check.exe <包目录> <键位校准 JSON> <帧输出目录>`，按固定时间轴使用 D3D12 WARP 回读按键交互。用相同回读器运行 `python Source/test_appearance.py <visual_check.exe> <键位校准 JSON> <输出目录> --pack <包目录>`，可以复验两层共十二项外观控件。
 
 ## ABI 1 局部表面重建的历史实测
 

@@ -8,6 +8,8 @@
 #include <shlwapi.h>
 #include <wrl/client.h>
 #include <atomic>
+#include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <new>
 #include <sstream>
@@ -97,6 +99,10 @@ struct VideoBackground::Impl {
   std::shared_ptr<PlaybackEvents> events;
   std::string error;
   unsigned width = 1920, height = 720;
+  unsigned outputWidth=1920, outputHeight=720;
+  float aspect=0;
+  uint64_t nativePixels=0;
+  bool preserveAspect=false;
   bool foundationStarted = false;
   bool paused = false, ready = false, failed = false, hasFrame = false;
   std::chrono::steady_clock::time_point loadingStarted{};
@@ -131,7 +137,16 @@ struct VideoBackground::Impl {
       error = "Invalid video output size";
       return false;
     }
-    if (!engine) { width = requestedWidth; height = requestedHeight; return true; }
+    outputWidth=requestedWidth;
+    outputHeight=requestedHeight;
+    if (!engine || (preserveAspect && !aspect)) return true;
+    if (preserveAspect) {
+      // Keep the transfer target in the source display aspect, within the output pixel budget.
+      const double pixels=double(std::min(uint64_t(outputWidth)*outputHeight,nativePixels));
+      const double h=std::min({std::sqrt(pixels/aspect),16384.,16384./aspect});
+      requestedWidth=std::max(1u,static_cast<unsigned>(std::round(h*aspect)));
+      requestedHeight=std::max(1u,static_cast<unsigned>(std::round(h)));
+    }
     if (texture && width == requestedWidth && height == requestedHeight) return true;
     D3D11_TEXTURE2D_DESC description{};
     description.Width = requestedWidth;
@@ -176,10 +191,11 @@ bool VideoBackground::Initialize(ID3D11Device *device,
   return true;
 }
 
-bool VideoBackground::Open(const std::filesystem::path &file) {
+bool VideoBackground::Open(const std::filesystem::path &file, bool preserveAspect) {
   Close();
   auto &state = *impl_;
   state.error.clear();
+  state.aspect=0;state.preserveAspect=preserveAspect;
   state.failed = false;
   if (!state.device || !state.context) { state.error = "Video has not been initialized"; return false; }
   try {
@@ -216,7 +232,7 @@ bool VideoBackground::Open(const std::filesystem::path &file) {
         !state.check(state.engine->SetAutoPlay(FALSE), "Configure video autoplay") ||
         !state.check(state.engine->SetPreload(MF_MEDIA_ENGINE_PRELOAD_AUTOMATIC), "Configure video loading") ||
         !state.check(state.engine->SetLoop(TRUE), "Loop video") ||
-        !state.target(state.width, state.height)) { Close(); return false; }
+        !state.target(state.outputWidth, state.outputHeight)) { Close(); return false; }
     const std::wstring absolute = std::filesystem::absolute(file).wstring();
     DWORD urlSize = 32768;
     std::vector<wchar_t> url(urlSize);
@@ -261,15 +277,25 @@ bool VideoBackground::UpdateFrame() {
     state.engine->Pause();
     return false;
   }
-  if (state.events->metadata.exchange(false, std::memory_order_acq_rel) && !state.engine->HasVideo()) {
-    state.error = "The selected file does not contain a video stream";
-    state.failed = true;
-    state.engine->Pause();
-    return false;
+  if (state.events->metadata.exchange(false, std::memory_order_acq_rel)) {
+    DWORD w=0,h=0,nativeW=0,nativeH=0;
+    if (!state.engine->HasVideo() || FAILED(state.engine->GetNativeVideoSize(&nativeW,&nativeH)) ||
+        !nativeW || !nativeH) {
+      state.error = "视频缺少可解码的视频轨道或有效画幅。";
+      state.failed = true;
+      state.engine->Pause();
+      return false;
+    }
+    state.nativePixels=uint64_t(nativeW)*nativeH;
+    if (FAILED(state.engine->GetVideoAspectRatio(&w,&h)) || !w || !h) {
+      w=nativeW; h=nativeH;
+    }
+    state.aspect=float(w)/h;
+    if (!state.target(state.outputWidth,state.outputHeight)) return false;
   }
   if (state.events->ready.exchange(false, std::memory_order_acq_rel)) {
     state.ready = true;
-    if (!state.paused && !state.check(state.engine->Play(), "Start video playback")) return false;
+    if ((!state.paused || !state.hasFrame) && !state.check(state.engine->Play(), "Start video playback")) return false;
   }
   if (!state.ready && std::chrono::steady_clock::now() - state.loadingStarted >
                           std::chrono::seconds(15)) {
@@ -278,7 +304,7 @@ bool VideoBackground::UpdateFrame() {
     state.engine->Pause();
     return false;
   }
-  if (state.paused || !state.ready || !state.texture) return false;
+  if ((state.paused && state.hasFrame) || !state.ready || !state.texture) return false;
   LONGLONG presentationTime = 0;
   const HRESULT tick = state.engine->OnVideoStreamTick(&presentationTime);
   if (tick == S_FALSE) return false;
@@ -293,6 +319,7 @@ bool VideoBackground::UpdateFrame() {
   if (!state.check(state.engine->TransferVideoFrame(state.texture.Get(), &source,
                                                    &destination, &black), "Transfer video frame")) return false;
   state.hasFrame = true;
+  if (state.paused) return state.check(state.engine->Pause(), "Pause video at first frame");
   return true;
 }
 
@@ -300,8 +327,10 @@ ID3D11ShaderResourceView *VideoBackground::TextureView() const noexcept {
   return impl_->hasFrame ? impl_->view.Get() : nullptr;
 }
 
+float VideoBackground::AspectRatio() const noexcept { return impl_->aspect; }
+
 bool VideoBackground::IsAnimated() const noexcept {
-  return impl_->engine && !impl_->failed && !impl_->paused;
+  return impl_->engine && !impl_->failed && (!impl_->paused || !impl_->hasFrame);
 }
 
 void VideoBackground::SetPaused(bool paused) {
@@ -311,8 +340,9 @@ void VideoBackground::SetPaused(bool paused) {
   // Preloading continues while paused; autoplay is already disabled. Calling
   // Pause before ready is unnecessary and may be rejected by some sources.
   if (!state.engine || state.failed || !state.ready) return;
-  if (paused) state.check(state.engine->Pause(), "Pause video");
-  else if (state.ready) state.check(state.engine->Play(), "Resume video");
+  if (paused) {
+    if (state.hasFrame) state.check(state.engine->Pause(), "Pause video");
+  } else state.check(state.engine->Play(), "Resume video");
 }
 
 void VideoBackground::Close() noexcept { if (impl_) impl_->close(); }

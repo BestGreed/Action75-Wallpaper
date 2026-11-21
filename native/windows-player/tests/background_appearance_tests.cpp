@@ -146,6 +146,23 @@ int main() {
       require(frame(renderer,1,1,0)==baseline && !renderer.usingBackdropCopy(),"Neutral sampling path differs from original copy pixels");
       renderer.allowBackdropCopy(true);
     });
+    test("media fit, zoom, pan and rollback use source aspect",[&] {
+      require(renderer.loadBackground(atlasFile,error,4096,true),error);
+      renderer.setMediaPlacement(1,1,0,0);
+      auto pixels=frame(renderer,1,1,0);
+      require(pixel(pixels,64,16)==Rgb{0,0,0} && pixel(pixels,64,64)==markerColor,"Contain lost aspect or bars");
+      renderer.setMediaPlacement(0,1,0,0);
+      require(pixel(frame(renderer,1,1,0),64,16)==markerColor,"Cover did not fill output");
+      renderer.setMediaPlacement(1,.5f,.5f,0);
+      const auto placed=frame(renderer,1,1,0);
+      require(pixel(placed,32,64)==Rgb{0,0,0} && pixel(placed,96,64)==markerColor,"Zoom or pan ignored");
+      auto snapshot=renderer.takeBackground();
+      load(colorFile);
+      renderer.setMediaPlacement(0,2,0,0);
+      renderer.restoreBackground(std::move(snapshot));
+      require(frame(renderer,1,1,0)==placed,"Rollback lost placement");
+      load(colorFile);
+    });
     test("brightness zero is black and half-white is approximately 128 gray",[&] {
       load(whiteFile);const auto black=frame(renderer,0,1,0);
       require(!renderer.usingBackdropCopy(),"Zero brightness incorrectly bypassed grading through copy");

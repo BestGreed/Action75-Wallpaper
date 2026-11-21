@@ -41,6 +41,9 @@ float4 ps(V i):SV_TARGET {
  float inner=band(depth-5.5,1.0);
  float halo=exp(-depth/7);
  float3 color=0;
+#ifdef GRADE_BACKGROUND
+ float3 base=0;
+#endif
  if(style.w<.5) {
    // Etched circuits: twin rails, traveling charge, corner brackets and ticks.
    float dash=smoothstep(.32,.5,frac(angle*24+seed));
@@ -51,7 +54,7 @@ float4 ps(V i):SV_TARGET {
    color=rim*style.x*(rail+corner*edge*.85+ticks*motion.y*.35);
    color+=rim*motion.w*(halo*.09+grid*motion.y);
 #ifdef GRADE_BACKGROUND
-   color=gradeBackground(color);
+   base=color=gradeBackground(color);
 #endif
    float ring=band(length(uv)-age*2.8,.07+style.z*.1);
    color+=lightColor*pulse*style.y*(pool*.65+ring*.5+inner*.6+halo*.35);
@@ -63,7 +66,7 @@ float4 ps(V i):SV_TARGET {
    color=rim*style.x*(edge*(.45+comet*2)+ribbon*motion.y*.65);
    color+=rim*motion.w*(halo*.16+caustic*.045*motion.y);
 #ifdef GRADE_BACKGROUND
-   color=gradeBackground(color);
+   base=color=gradeBackground(color);
 #endif
    float ripple=.5+.5*cos(length(uv)*18-age*16+wave*2);
    color+=lightColor*pulse*style.y*(pool*.65+caustic*.45+pow(ripple,4)*.23+halo*.45);
@@ -75,7 +78,7 @@ float4 ps(V i):SV_TARGET {
    color=rim*style.x*(edge*(.16+comet*3.8)+inner*.12*motion.y);
    color+=lightColor*motion.w*(star*twinkle*.8*motion.y+halo*.07);
 #ifdef GRADE_BACKGROUND
-   color=gradeBackground(color);
+   base=color=gradeBackground(color);
 #endif
    float2 orbit=uv;orbit.y+=sin(uv.x*2+t+seed*6)*.18;
    float arc=band(length(orbit)-(.25+age*.9),.025+style.z*.025);
@@ -83,7 +86,13 @@ float4 ps(V i):SV_TARGET {
  }
  color*=mask;
 #ifdef GRADE_BACKGROUND
- return float4(overSolidBackground(1-exp(-color)),1);
+ float3 full=overSolidBackground(1-exp(-color));
+ float f=backgroundRows[2].w,b=solidBackground.a;
+ if(f==1 && b==1) return float4(full,1);
+ float3 backdrop=overSolidBackground(1-exp(-base*mask));
+ float3 light=1-exp(-max(0,color-base*mask));
+ return float4(full*(f*b)+backdrop*(b*(1-f))+light*(f*(1-b)),
+               b+f*(1-b)*max(light.r,max(light.g,light.b)));
 #else
  return float4(1-exp(-color),1);
 #endif

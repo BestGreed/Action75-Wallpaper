@@ -3,6 +3,7 @@
 #include <cstring>
 #include <dxgi1_4.h>
 #include <utility>
+#include <vector>
 #include <wrl/client.h>
 using Microsoft::WRL::ComPtr;
 
@@ -77,30 +78,50 @@ int wmain(int argc,wchar_t **argv) {
                fence->GetCompletedValue()==submitted;
     };
     bool copied=false;
+    const auto copyFrame=[&](){
+        if (copied) return true;
+        if (!begin()) return false;
+        D3D12_RESOURCE_BARRIER b{};
+        b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition={target.Get(),0,D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_COPY_SOURCE};
+        commands->ResourceBarrier(1,&b);
+        const D3D12_TEXTURE_COPY_LOCATION dst{readback.Get(),D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,footprint};
+        D3D12_TEXTURE_COPY_LOCATION src{target.Get(),D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+        commands->CopyTextureRegion(&dst,0,0,0,&src,nullptr);
+        std::swap(b.Transition.StateBefore,b.Transition.StateAfter);
+        commands->ResourceBarrier(1,&b);
+        if (!submit()) return false;
+        copied=true;
+        return true;
+    };
+    const auto unpack=[](const unsigned char* p){
+        return (unsigned(p[3])<<24)|(unsigned(p[0])<<16)|(unsigned(p[1])<<8)|p[2];
+    };
     auto pixel=[&](int x,int y){
-        if (!copied) {
-            if (!begin()) return 0u;
-            D3D12_RESOURCE_BARRIER b{};
-            b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            b.Transition={target.Get(),0,D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_COPY_SOURCE};
-            commands->ResourceBarrier(1,&b);
-            const D3D12_TEXTURE_COPY_LOCATION dst{readback.Get(),D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,footprint};
-            D3D12_TEXTURE_COPY_LOCATION src{target.Get(),D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
-            commands->CopyTextureRegion(&dst,0,0,0,&src,nullptr);
-            std::swap(b.Transition.StateBefore,b.Transition.StateAfter);
-            commands->ResourceBarrier(1,&b);
-            if (!submit()) return 0u;
-            copied=true;
-        }
+        if (!copyFrame()) return 0u;
         void *mapped=nullptr;
         const auto offset=size_t(y)*footprint.Footprint.RowPitch+size_t(x)*4;
         const D3D12_RANGE range{offset,offset+4};
         if (FAILED(readback->Map(0,&range,&mapped))) return 0u;
         const auto *p=static_cast<const unsigned char*>(mapped)+offset;
-        const unsigned result=(unsigned(p[3])<<24)|(unsigned(p[0])<<16)|(unsigned(p[1])<<8)|p[2];
+        const unsigned result=unpack(p);
         const D3D12_RANGE none{};
         readback->Unmap(0,&none);
         return result;
+    };
+    const auto capture=[&](std::vector<unsigned>& pixels){
+        if (!copyFrame()) return false;
+        void* mapped=nullptr;
+        const D3D12_RANGE range{0, static_cast<SIZE_T>(bytes)};
+        if (FAILED(readback->Map(0,&range,&mapped))) return false;
+        for (unsigned y=0; y<height; ++y) {
+            const auto* row=static_cast<const unsigned char*>(mapped)+size_t(y)*footprint.Footprint.RowPitch;
+            for (unsigned x=0; x<width; ++x)
+                pixels[size_t(y)*width+x]=unpack(row+size_t(x)*4);
+        }
+        const D3D12_RANGE none{};
+        readback->Unmap(0,&none);
+        return true;
     };
     A75Create12 cfg={sizeof(cfg),width,height,device.Get(),L".","{}"};
     void *game=api->create(&cfg); CHECK(game);
@@ -137,11 +158,44 @@ int wmain(int argc,wchar_t **argv) {
         emit(A75_SETTINGS,nullptr,test.reset); CHECK(render()==-1);
         CHECK(pixel(93,246)==0xff86efce && pixel(14,10)==0xff101b2b);
     }
+    const auto opacity=[&](int foreground,int background){
+        char json[100];
+        std::snprintf(json,sizeof(json),R"({"foregroundOpacity":%d,"backgroundOpacity":%d})",foreground,background);
+        emit(A75_SETTINGS,nullptr,json);
+    };
+    std::vector<unsigned> backgroundPixels(width*height), objectPixels(width*height), combined(width*height);
+    opacity(0,100); CHECK(render()==-1 && capture(backgroundPixels));
+    opacity(100,0); CHECK(render()==-1 && capture(objectPixels));
+    CHECK(objectPixels[10*width+14]==0 && backgroundPixels[10*width+14]==0xff101b2b);
+    for (const int background:{0,50,100}) {
+        for (const int foreground:{0,50,100}) {
+            opacity(foreground,background);
+            CHECK(render()==-1 && capture(combined));
+            for (size_t i=0; i<combined.size(); ++i) {
+                const unsigned front=objectPixels[i];
+                const unsigned back=backgroundPixels[i];
+                const unsigned frontWeight=(front>>24) ? foreground : 0;
+                const unsigned backWeight=background*(100-frontWeight);
+                unsigned expected=0;
+                for (const unsigned shift:{0,8,16,24}) {
+                    const unsigned frontChannel=(front>>shift)&255;
+                    const unsigned backChannel=(back>>shift)&255;
+                    const unsigned channel=(frontChannel*frontWeight*100+backChannel*backWeight+5000)/10000;
+                    expected|=channel<<shift;
+                }
+                CHECK(combined[i]==expected);
+            }
+        }
+    }
+    opacity(400,-42);
+    CHECK(render()==-1 && pixel(93,246)==0xff86efce && pixel(14,10)==0);
     emit(A75_KEY_DOWN,"ArrowRight");
     for (int i=0;i<32;++i) CHECK(render()==0);
     emit(A75_KEY_UP,"ArrowRight"); CHECK(render()==-1);
-    CHECK(pixel(93,246)!=0xff86efce && pixel(101,24)==0xffdcefeb && pixel(92,26)!=0xffdcefeb);
+    CHECK(pixel(93,246)==0 && pixel(101,24)==0xffdcefeb && pixel(92,26)==0);
+    opacity(100,100);
     emit(A75_SETTINGS,nullptr,"{ \"amber_lights\" : true }"); CHECK(render()==-1 && pixel(50,270)==0xffffbb59);
+    opacity(100,0);
     emit(A75_KEY_DOWN,"Space"); CHECK(render()==0); emit(A75_INPUT_RESET);
     emit(A75_PAUSE); CHECK(render()==-1 && pixel(456,138)==0xffffbb59);
     emit(A75_RESUME); CHECK(render()==0 && pixel(456,138)!=0xffffbb59);
@@ -152,8 +206,8 @@ int wmain(int argc,wchar_t **argv) {
     CHECK(render()==-1);
     emit(A75_KEY_DOWN,"ArrowRight");
     for (int i=0;i<155;++i) render();
-    CHECK(render()==-1 && pixel(93,246)==0xffffbb59 && pixel(196,26)!=0xffdcefeb);
+    CHECK(render()==-1 && pixel(93,246)==0xffffbb59 && pixel(196,26)==0 && pixel(14,10)==0);
     api->destroy(game); FreeLibrary(module);
-    std::puts("ABI 2 RGBA8 WARP game readback passed, including amber RGB(255,187,89)");
+    std::puts("ABI 2 WARP passed all nine opacity pairs over the full RGBA8 frame, clear-background input and the amber palette");
     return 0;
 }

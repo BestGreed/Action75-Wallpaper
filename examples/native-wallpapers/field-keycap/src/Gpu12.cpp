@@ -110,7 +110,7 @@ Graphics12::~Graphics12() {
 }
 
 ComPtr<ID3D12PipelineState> Graphics12::pipeline(D3D12_SHADER_BYTECODE vertex, D3D12_SHADER_BYTECODE pixel,
-                                               DXGI_FORMAT format) const {
+                                               DXGI_FORMAT format, bool weighted) const {
   D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
   desc.pRootSignature = signature_.Get();
   desc.VS = vertex;
@@ -123,6 +123,11 @@ ComPtr<ID3D12PipelineState> Graphics12::pipeline(D3D12_SHADER_BYTECODE vertex, D
   blend.SrcBlend = blend.SrcBlendAlpha = D3D12_BLEND_ONE;
   blend.DestBlend = blend.DestBlendAlpha = D3D12_BLEND_ZERO;
   blend.BlendOp = blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+  if (weighted) {
+    blend.BlendEnable = TRUE;
+    blend.SrcBlend = blend.SrcBlendAlpha = D3D12_BLEND_BLEND_FACTOR;
+    blend.DestBlend = blend.DestBlendAlpha = D3D12_BLEND_ONE;
+  }
   blend.LogicOp = D3D12_LOGIC_OP_NOOP;
   blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
   desc.SampleMask = UINT_MAX;

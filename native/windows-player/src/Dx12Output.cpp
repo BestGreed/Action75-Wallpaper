@@ -121,14 +121,50 @@ bool Dx12Output::initializeComposition(HWND window, unsigned w, unsigned h, GpuP
     }
     // The compositor binds the player HWND. Only the worker creates a D3D12 device.
     checked(DCompositionCreateDevice2(nullptr, IID_PPV_ARGS(&composition_)), "Create desktop compositor");
-    checked(composition_->CreateTargetForHwnd(window, TRUE, &compositionTarget_), "Bind wallpaper window");
-    checked(composition_->CreateVisual(&visual_), "Create wallpaper visual");
-    checked(compositionTarget_->SetRoot(visual_.Get()), "Set wallpaper visual");
-    checked(composition_->Commit(), "Commit wallpaper visual");
+    if (!retargetComposition(window, error))
+      return false;
     compositionAdapter_ = desc.AdapterLuid;
     adapterName = desc.Description;
     adapterLuid = (uint64_t(uint32_t(desc.AdapterLuid.HighPart)) << 32) | desc.AdapterLuid.LowPart;
     return resize(w, h, error);
+  } catch (const std::exception &failure) {
+    error = failure.what();
+    return false;
+  }
+}
+
+bool Dx12Output::retargetComposition(HWND window, std::string &error) {
+  if (!composition_ || !IsWindow(window)) {
+    error = "Invalid wallpaper composition window";
+    return false;
+  }
+  if (compositionTarget_ && compositionWindow_ == window)
+    return true;
+  try {
+    Ptr<IDCompositionTarget> target;
+    Ptr<IDCompositionVisual2> visual;
+    checked(composition_->CreateTargetForHwnd(window, TRUE, &target), "Bind wallpaper window");
+    checked(composition_->CreateVisual(&visual), "Create wallpaper visual");
+    if (shownSurface_)
+      checked(visual->SetContent(shownSurface_->content_.Get()), "Attach current wallpaper surface");
+    checked(target->SetRoot(visual.Get()), "Set wallpaper visual");
+    // Commit the old detach and new attach together. An Explorer restart may have
+    // already destroyed the previous destination, in which case it needs no detach.
+    const bool detach = compositionTarget_ && IsWindow(compositionWindow_);
+    HRESULT hr = detach ? compositionTarget_->SetRoot(nullptr) : S_OK;
+    if (SUCCEEDED(hr))
+      hr = composition_->Commit();
+    if (FAILED(hr)) {
+      target->SetRoot(nullptr);
+      if (detach)
+        compositionTarget_->SetRoot(visual_.Get());
+      composition_->Commit();
+      checked(hr, "Move wallpaper visual");
+    }
+    compositionTarget_ = std::move(target);
+    visual_ = std::move(visual);
+    compositionWindow_ = window;
+    return true;
   } catch (const std::exception &failure) {
     error = failure.what();
     return false;

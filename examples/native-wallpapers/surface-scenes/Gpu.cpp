@@ -26,11 +26,11 @@ D3D12_RENDER_TARGET_BLEND_DESC blending(Blend blend) {
   out.DestBlendAlpha = D3D12_BLEND_ZERO;
   out.LogicOp = D3D12_LOGIC_OP_NOOP;
   out.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-  if (blend == Blend::Alpha) {
+  if (blend == Blend::Alpha || blend == Blend::Coverage) {
     out.SrcBlend = D3D12_BLEND_SRC_ALPHA;
     out.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-    out.SrcBlendAlpha = D3D12_BLEND_ZERO;
-    out.DestBlendAlpha = D3D12_BLEND_ONE;
+    out.SrcBlendAlpha = blend == Blend::Coverage ? D3D12_BLEND_ONE : D3D12_BLEND_ZERO;
+    out.DestBlendAlpha = blend == Blend::Coverage ? D3D12_BLEND_INV_SRC_ALPHA : D3D12_BLEND_ONE;
   } else if (blend == Blend::Add || blend == Blend::Pressure) {
     out.DestBlend = D3D12_BLEND_ONE;
     if (blend == Blend::Pressure) {

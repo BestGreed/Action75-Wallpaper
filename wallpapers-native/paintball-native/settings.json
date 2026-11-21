@@ -38,6 +38,22 @@
           "appearance": "brightness"
         },
         {
+          "id": "foregroundOpacity",
+          "type": "slider",
+          "label": "不透明度",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "binding": {
+            "target": "foreground.opacity"
+          },
+          "surface": "foreground",
+          "advanced": false,
+          "appearance": "opacity"
+        },
+        {
           "id": "size",
           "type": "slider",
           "label": "喷溅大小",
@@ -456,6 +472,22 @@
           "surface": "background",
           "advanced": false,
           "appearance": "brightness"
+        },
+        {
+          "id": "backgroundOpacity",
+          "type": "slider",
+          "label": "不透明度",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "binding": {
+            "target": "background.opacity"
+          },
+          "surface": "background",
+          "advanced": false,
+          "appearance": "opacity"
         },
         {
           "id": "backgroundSaturation",

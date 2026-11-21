@@ -452,6 +452,19 @@
           "advanced": false
         },
         {
+          "id": "foregroundOpacity",
+          "label": "烟花不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "foreground",
+          "appearance": "opacity",
+          "advanced": false
+        },
+        {
           "id": "size",
           "label": "绽放范围",
           "type": "slider",
@@ -675,6 +688,19 @@
             "target": "background.brightness"
           },
           "appearance": "brightness",
+          "advanced": false
+        },
+        {
+          "id": "backgroundOpacity",
+          "label": "夜景不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "background",
+          "appearance": "opacity",
           "advanced": false
         },
         {

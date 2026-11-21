@@ -4,6 +4,7 @@
   "name": "磁流体",
   "kind": "native",
   "abi": 2,
+  "desktopOpacityControl": "backgroundOpacity",
   "renderer": "d3d12",
   "description": "一滴有重量的磁液。磁极牵引前缘、尾缘回卷，远处的液体靠近键位时才长出尖峰。",
   "entry": "wallpaper.dll",

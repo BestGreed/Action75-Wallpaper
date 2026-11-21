@@ -197,11 +197,11 @@ Pipeline::Pipeline(ID3D12Device* device, D3D12_SHADER_BYTECODE vertex, D3D12_SHA
       D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS};
   auto& target = desc.BlendState.RenderTarget[0];
   target.BlendEnable = blend != Blend::Opaque;
-  target.SrcBlend = blend == Blend::Multiply ? D3D12_BLEND_ZERO : D3D12_BLEND_ONE;
-  target.DestBlend = blend == Blend::Multiply ? D3D12_BLEND_INV_SRC_COLOR : D3D12_BLEND_ONE;
+  target.SrcBlend = blend == Blend::Multiply ? D3D12_BLEND_INV_DEST_ALPHA : D3D12_BLEND_ONE;
+  target.DestBlend = blend == Blend::Multiply ? D3D12_BLEND_INV_SRC1_COLOR : D3D12_BLEND_ONE;
   target.BlendOp = target.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-  target.SrcBlendAlpha = D3D12_BLEND_ZERO;
-  target.DestBlendAlpha = D3D12_BLEND_ONE;
+  target.SrcBlendAlpha = D3D12_BLEND_ONE;
+  target.DestBlendAlpha = blend == Blend::Multiply ? D3D12_BLEND_INV_SRC_ALPHA : D3D12_BLEND_ONE;
   target.LogicOp = D3D12_LOGIC_OP_NOOP;
   target.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
   check(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline_)), "Create wallpaper pipeline");

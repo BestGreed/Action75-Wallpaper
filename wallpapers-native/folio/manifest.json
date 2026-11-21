@@ -7,6 +7,7 @@
   "name" : "\u6731\u7802\u62d3\u5370 \u00b7 Folio",
   "preview" : "preview.png",
   "renderer" : "d3d12",
+  "desktopOpacityControl" : "backgroundOpacity",
   "settings" : "settings.json",
   "version" : 1
 }

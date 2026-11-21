@@ -1,6 +1,7 @@
 #include "FireworksScene.h"
 #include "Diagnostics.h"
 #include "DisplayGuard.h"
+#include "DesktopWallpaperLayer.h"
 #include "EffectPalette.h"
 #include "EffekseerBackend.h"
 #include "FieldEffect.h"
@@ -417,7 +418,7 @@ struct Scene {
           return compositionSurface &&
                  plugin->startComposition(output->compositionAdapter(), compositionSurface->handle(),
                                           pack.resourceDirectory, pack.nativeModule, renderer.width(),
-                                          renderer.height(), settings.dump(), error);
+                                          renderer.height(), settings.dump(), error, !pack.desktopOpacityControl.empty());
         }
         return plugin->start12(output->device(),pack.resourceDirectory,pack.nativeModule,renderer.width(),
                                renderer.height(),settings.dump(),error);
@@ -567,6 +568,8 @@ private:
                         std::string &error, bool allowComposition = true);
   const Pack *selectedPack() const;
   bool importUpdatePending(const Pack &pack) const;
+  bool setDesktopMode(bool transparent,std::string &error);
+  void refreshDesktopLayer();
   void updateVisibility();
   void refreshDisplayGuard();
   void stopEffects();
@@ -623,6 +626,9 @@ private:
   std::string pluginFallback_;
   std::string preservedPackId_;
   fs::path activeNativeModule_;
+  std::string activeDesktopControl_, desktopError_;
+  DesktopWallpaperLayer desktopLayer_;
+  bool desktopActive_=false;
   bool activeNativeUsesD3D12_ = false;
   struct MissingWallpaper {
     fs::path module;
@@ -712,6 +718,7 @@ json Player::status() const {
       {"presentPending", renderer_.presentPending()},
       {"gpuRecovering", deviceRetryAt_.has_value() || outputRetryAt_.has_value()},
       {"graphicsSuspended", graphicsSuspended_},
+      {"desktopLayerActive", desktopActive_ && IsWindow(desktopLayer_.get())},
       {"presentsCompleted", renderer_.presentsCompleted()},
       {"presentsBusy", renderer_.presentsBusy()},
       {"lastPresentResult", renderer_.lastPresentResult()},
@@ -1063,24 +1070,79 @@ bool Player::validateUniforms(const std::vector<int> &ids, const PackAppearance 
 }
 // A new scene receives its initial values at creation. For an existing scene,
 // wait for the worker before publishing the new profile or writing it to disk.
+static bool usesDesktopAlpha(const std::string &control,const json &values) {
+  return !control.empty() && values.at(control).get<double>() < 100.;
+}
+
+bool Player::setDesktopMode(bool transparent,std::string &error) {
+  if (options_.importTrial || !usesOutputWindow()) return true;
+  auto *output=renderer_.dx12();
+  if (transparent) {
+    if (!output || !output->composes() || !hasMonitor_) {
+      error="当前输出不支持桌面透明显示，请连接键盘屏并启用支持桌面合成的渲染模式。";
+      return false;
+    }
+    HWND progman=FindWindowW(L"Progman",nullptr);
+    // Test windows exist only on a private desktop. Never request Explorer there.
+    if (!options_.headless && (!GetShellWindow() ||
+        shellWindowPid(progman)!=shellWindowPid(GetShellWindow()))) progman=nullptr;
+    if (!desktopLayer_.place(window_,progman,!options_.headless,error,
+                             [&](HWND target) {return output->retargetComposition(target,error);})) {
+      if (!desktopActive_) desktopLayer_.reset();
+      return false;
+    }
+  } else if (desktopActive_) {
+    if (output && output->composes() && !output->retargetComposition(window_,error)) return false;
+    desktopLayer_.reset();
+  }
+  if (!desktopError_.empty() && error_==desktopError_) error_.clear();
+  desktopError_.clear();
+  desktopActive_=transparent;
+  return true;
+}
+
+void Player::refreshDesktopLayer() {
+  if (!desktopActive_ || !hasMonitor_) return;
+  std::string failure;
+  if (!setDesktopMode(true,failure)) {
+    error_=desktopError_=failure;
+    // Explorer can restart independently. Keep the top-level control window alive and hidden.
+    desktopLayer_.show(false);
+    SetTimer(window_,MonitorTopologyTimer,1000,nullptr);
+    return;
+  }
+  desktopLayer_.show(visible_ && outputReady() && !packId_.empty());
+}
+
 void Player::updateProfile(PackSettingsCandidate &profile, const PackAppearance &appearance,
                            std::optional<bool> persist) {
   const bool active = profile.id == packId_;
   if (active && pluginRecoveryPending_)
     throw std::runtime_error(error_);
   const bool notify = active && scene_.plugin && activeProfile_->values != profile.values;
-  if (notify && !sendPluginEvent(A75_SETTINGS, 0, 0, "", profile.values.dump().c_str()))
-    throw std::runtime_error(error_);
-  if (persist.has_value()) {
-    try {
+  const bool wasDesktop=desktopActive_;
+  const bool changeDesktop=active && !graphicsSuspended_ && !activeDesktopControl_.empty() &&
+      wasDesktop!=usesDesktopAlpha(activeDesktopControl_,profile.values);
+  std::string failure;
+  if (changeDesktop && !setDesktopMode(!wasDesktop,failure))
+    throw std::runtime_error(failure);
+  try {
+    if (notify && !sendPluginEvent(A75_SETTINGS, 0, 0, "", profile.values.dump().c_str()))
+      throw std::runtime_error(error_);
+    if (persist.has_value()) {
       settings_.commit(profile, *persist);
       profile.stored = *persist;
-    } catch (...) {
-      if (notify)
-        sendPluginEvent(A75_SETTINGS, 0, 0, "", activeProfile_->values.dump().c_str());
-      throw;
     }
+  } catch (...) {
+    if (changeDesktop) {
+      if (!setDesktopMode(wasDesktop,failure)) error_=failure;
+      updateVisibility();
+    }
+    if (notify && scene_.plugin)
+      sendPluginEvent(A75_SETTINGS, 0, 0, "", activeProfile_->values.dump().c_str());
+    throw;
   }
+  if (changeDesktop && usesOutputWindow()) updateVisibility();
   if (active && (!activeProfile_ || activeProfile_->revision != profile.revision ||
                  activeProfile_->values != profile.values))
     applyProfile(profile, appearance);
@@ -1217,6 +1279,7 @@ void Player::chooseMonitor(bool persistBinding, const std::vector<Monitor> &list
     graphicsSuspended_ = false;
   dirty_ = true;
   updateVisibility();
+  refreshDesktopLayer();
 }
 void Player::updateVisibility() {
   const bool suspended = paused_ || !visible_ || (!outputReady() && !offscreenOnly());
@@ -1227,13 +1290,14 @@ void Player::updateVisibility() {
   }
   if (!pluginPointerEnabled())
     resetPluginPointer();
+  if (desktopActive_) desktopLayer_.show(visible_ && outputReady() && !packId_.empty());
   if (window_ && options_.testWindow != TestWindow::None) {
-    const bool showing = visible_ && outputReady() && !packId_.empty();
+    const bool showing = !desktopActive_ && visible_ && outputReady() && !packId_.empty();
     if (showing != (IsWindowVisible(window_) != FALSE))
       ShowWindow(window_, showing ? SW_SHOWNOACTIVATE : SW_HIDE);
   }
   if (window_ && !options_.headless) {
-    const bool showing = visible_ && outputReady() && !packId_.empty();
+    const bool showing = !desktopActive_ && visible_ && outputReady() && !packId_.empty();
     const auto style = GetWindowLongPtrW(window_, GWL_EXSTYLE);
     const bool pointerInteraction = pluginPointerEnabled() || canClickScene();
     const auto pointerStyle = pointerInteraction ? style & ~WS_EX_TRANSPARENT
@@ -1292,6 +1356,8 @@ void Player::stopEffects() {
 }
 void Player::applyAppearance() {
   scene_.configure(activeAppearance_);
+  renderer_.setMediaPlacement(activeAppearance_.backgroundFit,activeAppearance_.backgroundZoom,
+                             activeAppearance_.backgroundPanX,activeAppearance_.backgroundPanY);
   renderer_.setBackgroundAppearance(
       activeAppearance_.backgroundBrightness, activeAppearance_.backgroundSaturation,
       activeAppearance_.backgroundHue, activeAppearance_.backgroundColor, activeAppearance_.backgroundStyle==1);
@@ -1334,6 +1400,7 @@ bool Player::selectPack(const std::string &id, std::string &error) {
     runtimeControls_ = false;
     packId_.clear();
     activeNativeModule_.clear();
+    activeDesktopControl_.clear();
     activeNativeUsesD3D12_ = false;
     activeProfile_.reset();
     activeImportedPack_.reset();
@@ -1630,10 +1697,12 @@ bool Player::activateOnCurrentOutput(const Pack *found, std::string &error, bool
             ? renderer_.loadCanvasBackground(found->canvasEffect, error)
             : found->background.empty() ||
                   renderer_.loadBackground(found->background, error,
-                                           candidate.sprite ? 4194304u : 33554432u));
+                                           candidate.sprite ? 4194304u : 33554432u, found->kind=="image" || found->kind=="video"));
     if (!backgroundLoaded)
       return false;
     candidate.configure(appearance);
+    renderer_.setMediaPlacement(appearance.backgroundFit,appearance.backgroundZoom,
+                               appearance.backgroundPanX,appearance.backgroundPanY);
     renderer_.setBackgroundAppearance(appearance.backgroundBrightness, appearance.backgroundSaturation,
                                       appearance.backgroundHue, appearance.backgroundColor, appearance.backgroundStyle==1);
     return renderer_.validateFrame([&] {
@@ -1647,8 +1716,9 @@ bool Player::activateOnCurrentOutput(const Pack *found, std::string &error, bool
     }, error);
   };
   bool ready = false;
+  const bool wasDesktop=desktopActive_;
   try {
-    if (prepareFirstFrame()) {
+    if (prepareFirstFrame() && setDesktopMode(usesDesktopAlpha(found->desktopOpacityControl,profile.values),error)) {
       if (!restoringDevice) {
         settings_.commit(profile, !options_.importTrial);
         profile.stored = !options_.importTrial;
@@ -1659,6 +1729,13 @@ bool Player::activateOnCurrentOutput(const Pack *found, std::string &error, bool
     error = exception.what();
   }
   if (!ready) {
+    std::string rollback;
+    if (desktopActive_!=wasDesktop) {
+      if (!setDesktopMode(wasDesktop,rollback)) error+="; "+rollback;
+      updateVisibility();
+    }
+    if (scene_.compositionSurface && renderer_.dx12())
+      renderer_.dx12()->showComposition(scene_.compositionSurface,rollback);
     renderer_.restoreBackground(std::move(oldBackground));
     discardCandidates();
     if (gpuDeviceLost())
@@ -1684,6 +1761,7 @@ bool Player::activateOnCurrentOutput(const Pack *found, std::string &error, bool
   scene_ = std::move(candidate);
   dx12PresentCounters_.discardPending();
   activeNativeModule_ = found->nativeModule;
+  activeDesktopControl_=found->desktopOpacityControl;
   activeNativeUsesD3D12_ = found->usesD3D12;
   pluginPaused_ = false;
   runtimeControls_ = found->runtimeControls;
@@ -2203,7 +2281,7 @@ void Player::resetPluginPointer(bool cancel) {
     sendPluginEvent(A75_INPUT_RESET);
 }
 bool Player::pluginPointerEnabled() const {
-  return scene_.plugin && !options_.headless && visible_ && outputReady() && !paused_;
+  return scene_.plugin && !desktopActive_ && !options_.headless && visible_ && outputReady() && !paused_;
 }
 void Player::pluginFailed() {
   const bool deviceLost = gpuDeviceLost();
@@ -2326,6 +2404,7 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
   }
   if (taskbarCreated_ && m == taskbarCreated_) {
     registerTrayIcon();
+    refreshDesktopLayer();
     return 0;
   }
   if (keyboard_)
@@ -2339,6 +2418,15 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
       *call->legacyCatalogWait = catalogScan_;
     return 1;
   }
+  case DesktopWallpaperLayer::Refresh:
+    refreshDesktopLayer();
+    return 0;
+  case DesktopWallpaperLayer::Lost:
+    if (desktopLayer_.get()==reinterpret_cast<HWND>(w)) {
+      desktopLayer_.reset();
+      refreshDesktopLayer();
+    }
+    return 0;
   case WM_DISPLAYCHANGE:
     chooseMonitor(true);
     return 0;
@@ -2347,7 +2435,8 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
       SetTimer(h, MonitorTopologyTimer, 250, nullptr);
     break;
   case WM_SETTINGCHANGE:
-    if (keyboardZOrderTimer_)
+    if (desktopActive_) PostMessageW(h,DesktopWallpaperLayer::Refresh,0,0);
+    else if (keyboardZOrderTimer_)
       keepKeyboardAboveTaskbar(h);
     break;
   case WM_MOUSEACTIVATE:
@@ -2445,6 +2534,7 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
     DestroyWindow(h);
     return 0;
   case WM_DESTROY:
+    desktopLayer_.reset();
     if (exitShortcut_) {
       UnregisterHotKey(h, ExitHotkey);
       exitShortcut_ = false;
@@ -2528,14 +2618,13 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 bool Player::hasMotion() const {
   return visible_ && (outputReady() || offscreenOnly()) &&
-         (renderer_.presentPending() ||
+         (renderer_.presentPending() || renderer_.isAnimated() ||
           (!paused_ && ((scene_.plugin && scene_.pluginDelay >= 0) || (scene_.water && scene_.water->hasMotion()) ||
                         (scene_.fireworks && scene_.fireworks->count()) ||
                         (scene_.glass && scene_.glass->count()) ||
                         (scene_.procedural && scene_.procedural->count()) || scene_.field ||
                         (scene_.keycaps && (scene_.keycaps->count() || scene_.keycaps->animated())) ||
-                        (scene_.sprite && scene_.sprite->count()) || effects_.HasVisibleEffects() ||
-                        renderer_.isAnimated())));
+                        (scene_.sprite && scene_.sprite->count()) || effects_.HasVisibleEffects())));
 }
 
 void Player::scheduleDeviceRecovery(const std::string &error) {
@@ -2559,6 +2648,8 @@ void Player::releaseGraphics() {
   perf_.reset();
   FieldEffect::releaseDevicePrograms(renderer_.device());
   renderer_.releaseResources();
+  desktopLayer_.reset();
+  desktopActive_=false;
 }
 
 void Player::suspendGraphics() {
@@ -2704,7 +2795,8 @@ void Player::render() {
   pacer_.rendered(now, renderFps(), hasMotion(), phaseReset);
 }
 
-static void checkImportImages(const fs::path &directory, const fs::path &coverToDecode) {
+static void checkImportImages(const fs::path &directory, const fs::path &coverToDecode,
+                              const fs::path &mediaImage) {
   Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
   if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                               IID_PPV_ARGS(factory.GetAddressOf()))))
@@ -2716,8 +2808,14 @@ static void checkImportImages(const fs::path &directory, const fs::path &coverTo
     auto extension = entry.path().extension().wstring();
     std::transform(extension.begin(), extension.end(), extension.begin(),
                    [](wchar_t c) { return std::towlower(c); });
-    if (extension != L".png" && extension != L".jpg" && extension != L".jpeg")
-      continue;
+    const bool source = !mediaImage.empty() && fs::equivalent(entry.path(), mediaImage);
+    const GUID *expected=nullptr;
+    if (extension==L".png") expected=&GUID_ContainerFormatPng;
+    else if (extension==L".jpg" || extension==L".jpeg") expected=&GUID_ContainerFormatJpeg;
+    else if (source && extension==L".bmp") expected=&GUID_ContainerFormatBmp;
+    else if (source && (extension==L".tif" || extension==L".tiff")) expected=&GUID_ContainerFormatTiff;
+    else if (source && extension==L".webp") expected=&GUID_ContainerFormatWebp;
+    else continue;
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
     UINT width = 0, height = 0;
@@ -2727,12 +2825,13 @@ static void checkImportImages(const fs::path &directory, const fs::path &coverTo
         FAILED(decoder->GetFrame(0, &frame)) || FAILED(frame->GetSize(&width, &height)))
       throw std::runtime_error("无法解码图片：" + name);
     GUID format{};
-    const auto &expected =
-        extension == L".png" ? GUID_ContainerFormatPng : GUID_ContainerFormatJpeg;
-    if (FAILED(decoder->GetContainerFormat(&format)) || !IsEqualGUID(format, expected))
+    if (FAILED(decoder->GetContainerFormat(&format)) || !IsEqualGUID(format,*expected))
       throw std::runtime_error("图片内容与扩展名不符：" + name);
-    pixels += std::uint64_t(width) * height;
-    if (width == 0 || height == 0 || width > 4096 || height > 4096 || pixels > 16 * 1024 * 1024)
+    const auto area=std::uint64_t(width)*height;
+    if (!source) pixels+=area;
+    const unsigned sideLimit=source ? 16384 : 4096;
+    if (!width || !height || width>sideLimit || height>sideLimit ||
+        (source ? area>33554432u : pixels>16*1024*1024u))
       throw std::runtime_error("图片尺寸或像素总量超出导入上限：" + name);
     if (!coverToDecode.empty() && fs::equivalent(entry.path(), coverToDecode)) {
       // Decode the cover without allocating a graphics device inside the trial job.
@@ -2757,15 +2856,16 @@ json Player::trialWallpaper() {
     throw std::runtime_error("清单的后端参数不符合要求，请检查图集格数、播放时长或效果大小");
   const auto &pack = packs_.front();
   if (!pack.importTrialAllowed)
-    throw std::runtime_error("目前可试播图集、兼容的 CPU 粒子包、烟火和原生插件壁纸");
+    throw std::runtime_error("该壁纸类型不支持导入试播");
   const auto manifest = readJson(pack.directory / L"manifest.json");
   const auto preview = manifest.contains("preview")
                            ? packAsset(pack.directory, manifest.at("preview").get<std::string>())
                            : pack.directory / L"preview.png";
   const bool hasCover = fs::is_regular_file(preview);
-  checkImportImages(pack.directory, pack.usesD3D12 && hasCover ? preview : fs::path{});
+  checkImportImages(pack.directory, pack.usesD3D12 && hasCover ? preview : fs::path{},
+                    pack.kind == "image" ? pack.background : fs::path{});
   gpuPreference_ = options_.integratedTrial ? GpuPreference::Integrated : GpuPreference::Discrete;
-  if (!initializeOutput(pack.usesD3D12, 1920, 720, false, error_))
+  if (!initializeOutput(pack.usesD3D12, 1920, 720, pack.kind == "video", error_))
     throw std::runtime_error(error_);
   if (!pack.usesD3D12 && hasCover && !renderer_.loadBackground(preview, error_))
     throw std::runtime_error(error_);
@@ -2775,7 +2875,13 @@ json Player::trialWallpaper() {
   if (effectPlayback_ && handle < 0)
     throw std::runtime_error("Variant trial did not trigger a selected Effekseer effect");
   lastFrame_ = std::chrono::steady_clock::now();
-  for (int frame = 0; frame < 6; ++frame) {
+  const auto deadline=lastFrame_+std::chrono::seconds(8);
+  const auto trialFrame=options_.root / L"trial-frame.png";
+  const bool video = pack.kind == "video";
+  const int trialFrames = pack.kind == "image" || video ? 1 : 6;
+  for (int frame = 0; frame < trialFrames || (video && !renderer_.background()); ++frame) {
+    if (video && FramePacer::Clock::now() >= deadline)
+      throw std::runtime_error("无法解码视频首帧，请检查视频编码或安装对应的 Windows 解码器。");
     Sleep(16);
     if (frame == 3 && scene_.plugin && !sendPluginEvent(A75_KEY_UP, 0.5f, 0.5f, "Space"))
       throw std::runtime_error(error_);
@@ -2784,7 +2890,7 @@ json Player::trialWallpaper() {
       throw std::runtime_error(error_);
   }
   // Both output paths wait for GPU completion before encoding the trial PNG.
-  if (!renderer_.saveFrame(options_.root / L"trial-frame.png", error_))
+  if (!renderer_.saveFrame(trialFrame, error_))
     throw std::runtime_error(error_);
   json report = {{"ok", true}, {"framesRendered", framesRendered_}, {"triggered", handle >= 0},
                  {"playerPid", GetCurrentProcessId()}, {"renderer", renderer_.dx12() ? "D3D12" : "D3D11"},

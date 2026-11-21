@@ -6,6 +6,8 @@
 #include "FireworksBlurPS.h"
 #include "FireworksCompositePS.h"
 #include "FireworksIdlePS.h"
+#include "FireworksTranslucentCompositePS.h"
+#include "FireworksTranslucentIdlePS.h"
 
 #include <algorithm>
 #include <cmath>
@@ -362,6 +364,11 @@ void FireworksScene::configure(const Settings &settings) {
   speed_ = settings.scalar("speed");
   const auto tint = settings.color("backgroundTint");
   data_.background = {linear(tint[0]), linear(tint[1]), linear(tint[2]), settings.scalar("backgroundBrightness")};
+  opacity_ = {settings.scalar("foregroundOpacity") / 100, settings.scalar("backgroundOpacity") / 100, 0, 0};
+  if (!translucentComposite_ && opacity_[0] > 0 && (opacity_[0] < 1 || opacity_[1] < 1))
+    translucentComposite_ = gpu_.graphics(shader(FireworksScreenVS), shader(FireworksTranslucentCompositePS));
+  if (!translucentIdle_ && opacity_[1] > 0 && opacity_[1] < 1)
+    translucentIdle_ = gpu_.graphics(shader(FireworksScreenVS), shader(FireworksTranslucentIdlePS));
   data_.skyGrade = LayerColor::make(settings.scalar("backgroundHue"), settings.scalar("backgroundSaturation"));
   data_.skyGrade.rows[1][3] = static_cast<float>(settings.index("backgroundStyle"));
   data_.sparkGrade = LayerColor::make(settings.scalar("effectHue"), settings.scalar("effectSaturation"));
@@ -394,7 +401,7 @@ void FireworksScene::configure(const Settings &settings) {
     if (!palette.value("source", false))
       uploadPalette(i + 1, palette.at("colors"));
   }
-  if (brightness_ <= 0)
+  if (brightness_ <= 0 || opacity_[0] <= 0)
     clear();
 }
 
@@ -419,7 +426,7 @@ void FireworksScene::discardExpired(double now) noexcept {
 
 void FireworksScene::push(double now, float x, float y) noexcept {
   if (!std::isfinite(now) || !std::isfinite(x) || !std::isfinite(y) ||
-      x < 0 || x > 1 || y < 0 || y > 1 || brightness_ <= 0)
+      x < 0 || x > 1 || y < 0 || y > 1 || brightness_ <= 0 || opacity_[0] <= 0)
     return;
   const unsigned shape = playback_.choose(
       [this](unsigned count) { return static_cast<unsigned>(random() * count); });
@@ -472,6 +479,12 @@ void FireworksScene::draw(const A75Frame12 &frame, bool) {
       static_cast<unsigned>(static_cast<float>(requested[quality]) * style_.density),
       budget[quality] / count_) : 0;
   const unsigned visibleSparks = particles * count_;
+  auto *commands = frame.commands;
+  if (!visibleSparks && opacity_[1] <= 0) {
+    const float transparent[4]{};
+    commands->ClearRenderTargetView(frame.rtv, transparent, 0, nullptr);
+    return;
+  }
   const auto w = static_cast<float>(width), h = static_cast<float>(height);
   data_.screen = {w, h, static_cast<float>(std::fmod(now, 120.0)), style_.horizon};
   data_.exposure = {static_cast<float>(particles), brightness_,
@@ -488,19 +501,21 @@ void FireworksScene::draw(const A75Frame12 &frame, bool) {
     record.palette = {static_cast<float>(burst.paletteSlot * colorsPerPalette),
                       static_cast<float>(paletteSizes_[burst.paletteSlot]), 0, 0};
   }
-  auto *commands = frame.commands;
   gpu_.begin(commands);
-  Gpu::prepare(commands, patterns_);
   commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   commands->SetGraphicsRootConstantBufferView(0,
       gpu_.constantBytes(&data_, offsetof(Frame, burst) + count_ * sizeof(DrawBurst)));
   if (!visibleSparks) {
     Gpu::target(commands, frame.rtv, width, height);
-    commands->SetPipelineState(idle_.Get());
+    const bool translucent = opacity_[1] < 1;
+    commands->SetPipelineState(translucent ? translucentIdle_.Get() : idle_.Get());
+    if (translucent)
+      commands->SetGraphicsRootConstantBufferView(1, gpu_.constants(opacity_));
     commands->DrawInstanced(3, 1, 0, 0);
     return;
   }
 
+  Gpu::prepare(commands, patterns_);
   Gpu::transition(commands, light_, D3D12_RESOURCE_STATE_RENDER_TARGET);
   Gpu::target(commands, light_.rtv, width, height);
   const float dark[4]{};
@@ -519,7 +534,10 @@ void FireworksScene::draw(const A75Frame12 &frame, bool) {
   }
   Gpu::transition(commands, light_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
   Gpu::target(commands, frame.rtv, width, height);
-  commands->SetPipelineState(composite_.Get());
+  const bool translucent = opacity_[0] < 1 || opacity_[1] < 1;
+  commands->SetPipelineState(translucent ? translucentComposite_.Get() : composite_.Get());
+  if (translucent)
+    commands->SetGraphicsRootConstantBufferView(1, gpu_.constants(opacity_));
   commands->SetGraphicsRootDescriptorTable(Gpu::srvSlot(0), light_.srv.gpu);
   commands->SetGraphicsRootDescriptorTable(Gpu::srvSlot(1), glow ? blurA_.srv.gpu : gpu_.nullSrv().gpu);
   commands->DrawInstanced(3, 1, 0, 0);

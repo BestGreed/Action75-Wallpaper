@@ -12,7 +12,7 @@ cmake --build build --config Release
 cmake --install build --config Release --prefix "$PWD/out/dx12-key-probe"
 ```
 
-独立复制源码后，配置时传入 `-DACTION75_SDK=...` 指向公开 SDK 的头文件目录。用支持 ABI 2 的播放器导入 `out/dx12-key-probe`。
+独立复制源码后，配置时传入 `-DACTION75_SDK=...` 指向公开 SDK 的头文件目录，并传入 `-DACTION75_SDK_VENDOR=...` 指向包含 `nlohmann/json.hpp` 的目录。用支持 ABI 2 的播放器导入 `out/dx12-key-probe`。
 
 使用黑洞示例的 `verify_native_parity` 工具可对照保存的桥接旧包。旧包需要支持 DX11/DX12 共享资源的硬件适配器。
 

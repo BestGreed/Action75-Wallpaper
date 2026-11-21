@@ -56,13 +56,20 @@ float4 sim(V v):SV_TARGET {
  }
  return float4(clamp(velocity,-.2,.2),clamp(density,0,4),clamp(heat,0,4));
 }
+#ifdef BACKGROUND_ONLY
+#define visibleHits 0
+#define visibleArcs 0
+#else
+#define visibleHits geometry.x
+#define visibleArcs finish.w
+#endif
 float3 nebula(float2 uv,float4 fluid) {
  float t=clock.x;float2 p=uv*float2(clock.z,1)*3.4/dynamics.z;
  float2 warp=float2(fbm(p+float2(t*.05,0)),fbm(p+float2(5.2,-t*.04)));
  p+=(warp-.5)*dynamics.y*2+fluid.rg*7;
  // Keystrokes bend the material itself; they do not stamp a stock ring sprite.
  float disturbance=0;
- [loop]for(int k=0;k<(int)geometry.x;++k){
+ [loop]for(int k=0;k<(int)visibleHits;++k){
   float2 d=(uv-hits[k].xy)*float2(clock.z,1);float r=length(d);
   float twist=exp(-r*9/(dynamics.z*dynamics.w))*hits[k].w;
   p+=float2(-d.y,d.x)*twist*3*dynamics.y;
@@ -81,7 +88,7 @@ float3 nebula(float2 uv,float4 fluid) {
  }
  // With no effective hit, disturbance is zero and the mineral term contributes nothing.
  float mineral=0;
- [branch] if(geometry.x>0)mineral=pow(ridge(p*2.7+warp),18);
+ [branch] if(visibleHits>0)mineral=pow(ridge(p*2.7+warp),18);
 #ifdef GRADE_BACKGROUND
  cloud=gradeBackground(cloud);
 #endif
@@ -100,7 +107,7 @@ float3 electric(float2 uv,float4 fluid) {
  float2 p=uv*float2(clock.z,1);float t=clock.x;
  float energy=0,glow=0;
  float imprints=0;
- [branch] if(finish.w>0 || geometry.x>0){
+ [branch] if(visibleArcs>0 || visibleHits>0){
   uint tile=tileIndex(uv);
   uint localArcs=arcTiles[tile/4][tile%4];
   [loop]while(localArcs!=0){
@@ -233,7 +240,7 @@ float4 iceGeometry(float2 local,float grow,float seed,int kind,float density) {
 float iceCoverage(float distance,float pixel){return 1-smoothstep(-pixel*.65,pixel*.65,distance);}
 float3 crystal(float2 uv,float4 fluid) {
  float2 p=uv*float2(clock.z,1);float3 color=0;
- [loop]for(int i=0;i<(int)geometry.x;++i){
+ [loop]for(int i=0;i<(int)visibleHits;++i){
   float2 delta=(p-hits[i].xy*float2(clock.z,1))/dynamics.z;
   if(dot(delta,delta)>hitInfo[i].w*hitInfo[i].w)continue;
   float seed=hitInfo[i].x;float2 rotation=hitInfo[i].yz;
@@ -324,7 +331,7 @@ float3 crystal(float2 uv,float4 fluid) {
 float3 textile(float2 uv,float4 fluid) {
  float2 p=uv*float2(clock.z,1);float t=clock.x;
  float bend=0,pulse=0;
- [loop]for(int i=0;i<(int)geometry.x;++i){
+ [loop]for(int i=0;i<(int)visibleHits;++i){
   float2 d=p-hits[i].xy*float2(clock.z,1);float r=length(d);
   bend+=sin(r*28-hits[i].z*5)*exp(-r*3)*hits[i].w*.075*dynamics.w;
   pulse+=gauss(r,.11*dynamics.z)*hits[i].w;
@@ -356,6 +363,9 @@ float3 textile(float2 uv,float4 fluid) {
 }
 float4 shade(V v):SV_TARGET {
  float4 fluid=stateTex.SampleLevel(clampLinear,v.uv,0);
+ #ifdef BACKGROUND_ONLY
+ fluid=0;
+ #endif
  float3 color;
 #if FIELD_THEME == 0
  color=nebula(v.uv,fluid);
@@ -429,7 +439,12 @@ float4 composite(V v):SV_TARGET {
  // Scale all channels together: high-energy glows retain their hue.
  float peak=max(color.r,max(color.g,color.b));color/=1+peak;
 #ifdef GRADE_BACKGROUND
+ #ifdef FOREGROUND_ONLY
+ float3 emissive=saturate(toSrgb(color));
+ return float4(emissive,max(emissive.r,max(emissive.g,emissive.b)));
+ #else
  return float4(overSolidBackground(saturate(toSrgb(color))),1);
+ #endif
 #else
  return float4(saturate(toSrgb(color)),1);
 #endif

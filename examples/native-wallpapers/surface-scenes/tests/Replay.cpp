@@ -2,6 +2,7 @@
 
 #include <d3d12sdklayers.h>
 #include <dxgi1_4.h>
+#include <objbase.h>
 #include <wrl/client.h>
 
 #include <cstring>
@@ -33,9 +34,20 @@ void check(HRESULT result, const char *message) {
     throw std::runtime_error(std::string(message) + " (" + std::to_string(result) + ")");
 }
 
+struct ComApartment {
+  ComApartment() { check(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "Initialize COM for replay"); }
+  ~ComApartment() { CoUninitialize(); }
+};
+
 void writeImage(const fs::path &path, const void *pixels, unsigned pitch, unsigned width, unsigned height) {
   std::ofstream file(path, std::ios::binary);
   require(!!file, "Open capture for writing");
+  if (path.extension() == L".rgba") {
+    for (unsigned y = 0; y < height; ++y)
+      file.write(static_cast<const char *>(pixels) + y * pitch, width * 4);
+    require(!!file, "Write raw RGBA frame capture");
+    return;
+  }
   file << "P6\n" << width << ' ' << height << "\n255\n";
   std::vector<char> row(width * 3);
   for (unsigned y = 0; y < height; ++y) {
@@ -59,8 +71,9 @@ struct Output11 {
   ComPtr<ID3D11RenderTargetView> rtv;
   unsigned width = 0, height = 0;
   bool debug = false;
+  unsigned vendorId = 0;
 
-  Output11() {
+  explicit Output11(const Json &) {
     check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
                             &device, nullptr, &context), "Create D3D11 WARP device");
   }
@@ -120,16 +133,32 @@ struct Output12 {
   UINT64 bytes = 0, submission = 0;
   unsigned width = 0, height = 0;
   bool debug = false;
+  unsigned vendorId = 0;
 
-  Output12() {
+  explicit Output12(const Json &timeline) {
     ComPtr<ID3D12Debug> layer;
     debug = SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&layer)));
     if (debug)
       layer->EnableDebugLayer();
     ComPtr<IDXGIFactory4> factory;
-    ComPtr<IDXGIAdapter> adapter;
+    ComPtr<IDXGIAdapter1> adapter;
     check(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)), "Create DXGI factory");
-    check(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)), "Find WARP adapter");
+    const auto vendor = timeline.value("vendorId", 0u);
+    if (vendor) {
+      for (UINT index = 0; factory->EnumAdapters1(index, adapter.ReleaseAndGetAddressOf()) != DXGI_ERROR_NOT_FOUND;
+           ++index) {
+        DXGI_ADAPTER_DESC1 desc{};
+        if (adapter && SUCCEEDED(adapter->GetDesc1(&desc)) && desc.VendorId == vendor &&
+            !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE))
+          break;
+      }
+      require(!!adapter, "Find requested hardware adapter");
+    } else {
+      check(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)), "Find WARP adapter");
+    }
+    DXGI_ADAPTER_DESC1 desc{};
+    check(adapter->GetDesc1(&desc), "Describe replay adapter");
+    vendorId = desc.VendorId;
     check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)), "Create D3D12 WARP device");
     if (debug)
       check(device.As(&messages), "Read D3D12 debug layer messages");
@@ -239,11 +268,12 @@ struct Output12 {
 
 template<class Output>
 Json replay(unsigned abi, const fs::path &pack, const Json &timeline, const fs::path &directory) {
-  Output output;
+  Output output(timeline);
   using Api = typename Output::Api;
   using Get = const Api *(__cdecl *)(uint32_t);
   using Module = std::unique_ptr<std::remove_pointer_t<HMODULE>, decltype(&FreeLibrary)>;
-  Module module(LoadLibraryW((pack / L"wallpaper.dll").c_str()), FreeLibrary);
+  const auto library = std::filesystem::u8path(timeline.value("entry", std::string{"wallpaper.dll"}));
+  Module module(LoadLibraryW((pack / library).c_str()), FreeLibrary);
   require(!!module, "Load " + pack.string());
   const auto get = reinterpret_cast<Get>(GetProcAddress(module.get(), Output::entry));
   require(get && !get(abi == 1 ? 2 : 1), "Locate ABI export and reject incompatible versions");
@@ -255,6 +285,7 @@ Json replay(unsigned abi, const fs::path &pack, const Json &timeline, const fs::
   std::unique_ptr<void, decltype(api->destroy)> instance(api->create(&create), api->destroy);
   require(!!instance, "Create scene");
   const bool hit = api->hit_test && api->hit_test(instance.get(), .5f, .5f, width, height);
+  const char *extension = timeline.value("rgba", false) ? ".rgba" : ".ppm";
   Json results = Json::array();
   for (const auto &step : timeline.at("frames")) {
     const double now = step.at("at").get<double>();
@@ -268,20 +299,22 @@ Json replay(unsigned abi, const fs::path &pack, const Json &timeline, const fs::
       api->on_event(instance.get(), &event);
     }
     const auto name = step.value("capture", std::string{});
-    const auto capture = name.empty() ? fs::path{} : directory / (name + ".ppm");
+    const auto capture = name.empty() ? fs::path{} : directory / (name + extension);
     const auto status = output.frame(instance.get(), *api, width, height, now, capture);
     require(status >= -1, "Frame failed at " + std::to_string(now));
     if (step.contains("status"))
       require(status == step.at("status").get<int>(), "Unexpected scheduling at " + std::to_string(now));
     results.push_back(status);
   }
-  return {{"abi", abi}, {"debug", output.debug}, {"capturesPointer", hit}, {"scheduling", results}};
+  return {{"abi", abi}, {"debug", output.debug}, {"vendorId", output.vendorId},
+          {"capturesPointer", hit}, {"scheduling", results}};
 }
 } // namespace
 
 int wmain(int argc, wchar_t **argv) {
   try {
     require(argc == 5, "Usage: surface_replay <11|12> <pack> <timeline.json> <output directory>");
+    const ComApartment apartment;
     std::ifstream input{fs::path(argv[3])};
     Json timeline;
     input >> timeline;

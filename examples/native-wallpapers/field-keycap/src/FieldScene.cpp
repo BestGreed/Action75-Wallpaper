@@ -5,6 +5,9 @@
 #include "compositeShader.h"
 #include "graded_compositeShader.h"
 #include "graded_shadeShader.h"
+#include "background_shadeShader.h"
+#include "foreground_shadeShader.h"
+#include "foreground_compositeShader.h"
 #include "shadeShader.h"
 #include "simShader.h"
 
@@ -217,6 +220,7 @@ void FieldScene::press(const A75Event &event) {
         break;
     }
   }
+  lastImpulse_ = simulationTime_;
   hits_[nextHit_++ % hits_.size()] = {x, y, now};
 }
 
@@ -226,7 +230,7 @@ void FieldScene::clear() {
   for (auto &arc : arcs_)
     arc.time = -1;
   reset_ = true;
-  previous_ = -1;
+  previous_ = lastImpulse_ = -1;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE FieldScene::target(unsigned index) const {
@@ -327,8 +331,10 @@ void FieldScene::recordPalette(ID3D12GraphicsCommandList *commands) {
 
 int32_t FieldScene::render(const A75Frame12 &frame, bool paused) {
   auto *commands = frame.commands;
-  if (brightness_ <= 0) {
-    commands->ClearRenderTargetView(frame.rtv, background_.gpu.solid.data(), 0, nullptr);
+  const float foreground = background_.gpu.rows[2][3];
+  const float background = background_.gpu.solid[3];
+  if (brightness_ <= 0 || (background == 0 && (foreground == 0 || lastImpulse_ < 0))) {
+    commands->ClearRenderTargetView(frame.rtv, background_.clearColor().data(), 0, nullptr);
     return -1;
   }
   if (background_.edited && !gradedShade_) {
@@ -407,6 +413,12 @@ int32_t FieldScene::render(const A75Frame12 &frame, bool paused) {
     v.hits[live][3] = gain;
     ++live;
   }
+  // An aged fluid tail still emits after the last visible keystroke. Its density
+  // decays by exp(-dt/lifetime); after 16 lifetimes even the HDR maximum rounds to zero.
+  if (live) lastImpulse_ = simulationTime_;
+  const bool hasPendingHit = std::any_of(hits_.begin(), hits_.end(), [](const auto &h) { return h.time >= 0; });
+  if (!hasPendingHit && (Theme == 3 || simulationTime_ - lastImpulse_ > 16 * lifetime_))
+    lastImpulse_ = -1;
   v.geometry[0] = static_cast<float>(live);
   if constexpr (Theme == 1) {
     unsigned count = 0;
@@ -483,15 +495,41 @@ int32_t FieldScene::render(const A75Frame12 &frame, bool paused) {
     pass(State0 + 1 - front_, Sim0 + front_, simWidth_, simHeight_, sim_.Get());
     front_ = 1 - front_;
   }
-  pass(Image, Shade0 + front_, imageWidth_, imageHeight_, background_.edited ? gradedShade_.Get() : shade_.Get());
-  if (bloom_ > 0) {
-    pass(Blur0, Horizontal, blurWidth_, blurHeight_, blurHorizontal_.Get());
-    pass(Blur1, Vertical, blurWidth_, blurHeight_, blurVertical_.Get());
+  auto drawLayer = [&](ID3D12PipelineState *shade, ID3D12PipelineState *composite) {
+    pass(Image, Shade0 + front_, imageWidth_, imageHeight_, shade);
+    if (bloom_ > 0) {
+      pass(Blur0, Horizontal, blurWidth_, blurHeight_, blurHorizontal_.Get());
+      pass(Blur1, Vertical, blurWidth_, blurHeight_, blurVertical_.Get());
+    }
+    setTarget(commands, frame.rtv, frame.width, frame.height);
+    bindTable(commands, Composite);
+    commands->SetPipelineState(composite);
+    commands->DrawInstanced(3, 1, 0, 0);
+  };
+  if (foreground == 1 && background == 1) {
+    drawLayer(background_.edited ? gradedShade_.Get() : shade_.Get(),
+              background_.edited ? gradedComposite_.Get() : composite_.Get());
+  } else {
+    constexpr float transparent[4]{};
+    commands->ClearRenderTargetView(frame.rtv, transparent, 0, nullptr);
+    const auto vertex = shader(FieldVertex);
+    // Interpolate the original, background-only and emissive foreground endpoints.
+    // Reuse the bloom targets and skip every endpoint with zero weight.
+    auto weighted = [&](float weight, auto &shade, D3D12_SHADER_BYTECODE shadeCode,
+                        auto &composite, D3D12_SHADER_BYTECODE compositeCode) {
+      if (weight <= 0) return;
+      if (!shade) shade = graphics_.pipeline(vertex, shadeCode, SurfaceFormat);
+      if (!composite) composite = graphics_.pipeline(vertex, compositeCode, OutputFormat, true);
+      const float factor[4]{weight, weight, weight, weight};
+      commands->OMSetBlendFactor(factor);
+      drawLayer(shade.Get(), composite.Get());
+    };
+    // With no press or remaining fluid tail the only visible endpoint is the animated backdrop.
+    const float f = lastImpulse_ >= 0 ? foreground : 0;
+    weighted(background * f, gradedShade_, shader(graded_shadeShader), weightedComposite_, shader(graded_compositeShader));
+    weighted(background * (1 - f), backgroundShade_, shader(background_shadeShader), weightedComposite_, shader(graded_compositeShader));
+    weighted(f * (1 - background), foregroundShade_, shader(foreground_shadeShader), foregroundComposite_, shader(foreground_compositeShader));
   }
-  setTarget(commands, frame.rtv, frame.width, frame.height);
-  bindTable(commands, Composite);
-  commands->SetPipelineState(background_.edited ? gradedComposite_.Get() : composite_.Get());
-  commands->DrawInstanced(3, 1, 0, 0);
-  return paused ? -1 : 0;
+  return paused || (background == 0 && lastImpulse_ < 0) ? -1 : 0;
 }
 } // namespace wallpaper

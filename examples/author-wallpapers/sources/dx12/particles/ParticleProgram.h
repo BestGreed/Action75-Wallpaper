@@ -32,6 +32,7 @@ struct Program {
     std::array<float,4> dynamic{};
     std::array<bool,4> dynamicBound{};
     float backgroundBrightness=1,backgroundHue=0,backgroundSaturation=1;
+    float backgroundOpacity=1,foregroundOpacity=1;
     std::array<float,3> backgroundColor{1,1,1};
     bool solid=false;
 
@@ -68,6 +69,7 @@ struct Program {
             for(const auto& item:patch.items()) if(values.contains(item.key())) values[item.key()]=item.value();
         }
         scale=speed=brightness=1;
+        backgroundOpacity=foregroundOpacity=1;
         dynamicBound.fill(false);
         for(const auto& group:schema.at("groups")) for(const auto& control:group.at("controls")) {
             if(!control.contains("binding")) continue;
@@ -90,6 +92,8 @@ struct Program {
             else if(target=="background.brightness") backgroundBrightness=v;
             else if(target=="background.hue") backgroundHue=v/360.f;
             else if(target=="background.saturation") backgroundSaturation=v;
+            else if(target=="background.opacity") backgroundOpacity=std::clamp(v/100.f,0.f,1.f);
+            else if(target=="effect.opacity") foregroundOpacity=std::clamp(v/100.f,0.f,1.f);
         }
         if(!interval.empty() && values.at(interval).get<unsigned>()!=oldInterval) keys=0;
     }
@@ -116,7 +120,7 @@ struct Program {
         return -1;
     }
     std::array<float,4> background() const {
-        if(!solid) return {0,0,0,1};
+        if(!solid) return {0,0,0,backgroundOpacity};
         auto rgb=backgroundColor;
         const float peak=std::max({rgb[0],rgb[1],rgb[2]}),chroma=peak-std::min({rgb[0],rgb[1],rgb[2]});
         if(chroma>0 && (backgroundHue!=0 || backgroundSaturation!=1)) {
@@ -131,7 +135,7 @@ struct Program {
             }
         }
         const float gain=backgroundBrightness<=1?backgroundBrightness:backgroundBrightness/(1+(backgroundBrightness-1)*peak);
-        return {rgb[0]*gain,rgb[1]*gain,rgb[2]*gain,1};
+        return {rgb[0]*gain*backgroundOpacity,rgb[1]*gain*backgroundOpacity,rgb[2]*gain*backgroundOpacity,backgroundOpacity};
     }
 };
 }

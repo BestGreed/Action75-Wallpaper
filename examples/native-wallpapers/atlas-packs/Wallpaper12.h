@@ -17,6 +17,7 @@ private:
   Texture texture_;
   Upload constants_;
   Pipeline pipeline_;
+  bool solid_ = false;
   std::array<float, 8> appearance_{1, 1, 0, 0, 1, 1, 1, 0};
   unsigned opaqueWidth_ = 0, opaqueHeight_ = 0;
 };

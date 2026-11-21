@@ -9,8 +9,9 @@ use windows::{
             CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize,
         },
         UI::Shell::{
-            FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, FileOpenDialog,
-            IFileOpenDialog, IShellItem, SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
+            Common::COMDLG_FILTERSPEC, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST,
+            FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, IShellItem,
+            SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
         },
     },
     core::{Error, HRESULT, HSTRING, PCWSTR},
@@ -18,11 +19,28 @@ use windows::{
 
 pub type Reply = Result<Option<String>, String>;
 
+#[derive(Clone, Copy)]
+pub enum Selection {
+    Folder,
+    Media,
+    Zip,
+}
+
 pub fn open(
     frame: &eframe::Frame,
     ctx: &egui::Context,
     initial: PathBuf,
     title: &'static str,
+) -> Result<mpsc::Receiver<Reply>, String> {
+    open_dialog(frame, ctx, initial, title, Selection::Folder)
+}
+
+pub fn open_dialog(
+    frame: &eframe::Frame,
+    ctx: &egui::Context,
+    initial: PathBuf,
+    title: &'static str,
+    selection: Selection,
 ) -> Result<mpsc::Receiver<Reply>, String> {
     let Ok(RawWindowHandle::Win32(window)) = frame.window_handle().map(|handle| handle.as_raw())
     else {
@@ -35,7 +53,7 @@ pub fn open(
     thread::Builder::new()
         .name("folder-picker".into())
         .spawn(move || {
-            let result = pick(HWND(owner.get() as *mut _), initial, title)
+            let result = pick(HWND(owner.get() as *mut _), initial, title, selection)
                 .map_err(|error| error.to_string());
             let _ = send.send(result);
             ctx.request_repaint();
@@ -52,16 +70,36 @@ impl Drop for Apartment {
     }
 }
 
-fn pick(owner: HWND, initial: PathBuf, title: &str) -> windows::core::Result<Option<String>> {
+fn pick(
+    owner: HWND,
+    initial: PathBuf,
+    title: &str,
+    selection: Selection,
+) -> windows::core::Result<Option<String>> {
     // The dialog, its shell items, and the result allocation stay on this thread.
     unsafe {
         CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).ok()?;
         let _apartment = Apartment;
         let dialog: IFileOpenDialog =
             CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
-        dialog.SetOptions(
-            dialog.GetOptions()? | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST,
-        )?;
+        let mode = match selection {
+            Selection::Folder => FOS_PICKFOLDERS,
+            Selection::Media | Selection::Zip => {
+                let (name, pattern) = match selection {
+                    Selection::Zip => (windows::core::w!("互动壁纸 ZIP"), HSTRING::from("*.zip")),
+                    _ => (
+                        windows::core::w!("视频或图片"),
+                        HSTRING::from(action75_manager::wallpaper_import::media_filter_pattern()),
+                    ),
+                };
+                dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
+                    pszName: name,
+                    pszSpec: PCWSTR(pattern.as_ptr()),
+                }])?;
+                FOS_FILEMUSTEXIST
+            }
+        };
+        dialog.SetOptions(dialog.GetOptions()? | mode | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST)?;
         dialog.SetTitle(&HSTRING::from(title))?;
         let wide: Vec<u16> = initial.as_os_str().encode_wide().chain(Some(0)).collect();
         if let Ok(folder) =

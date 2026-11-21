@@ -47,3 +47,9 @@ cmake --install "$work/build" --config Release --prefix "$work/pack"
 2. 在 `create` 中使用 worker 交付的 D3D12 设备建立根签名、管线状态和持久资源。示例在作者机编译 HLSL，运行时从 `pack_dir/shaders` 读取 VS 和 PS 字节码。
 3. 在 `render` 中将绘制命令追加到借用的 graphics command list。worker 已绑定 RTV、视口和裁剪区；作品绑定需要的根签名、PSO 和描述符。目标格式为单采样 RGBA8 UNORM，返回前须处于 RENDER_TARGET。命令列表的关闭、提交和同步归 worker；作者持有的 GPU 资源须至少存活到下一次回调。
 4. 调色或调亮度时，从同一键位回读精确 RGB，同时核对另一处背景。用 `verify_player.py` 检查 ABI 1/2 切换、断开并重新连接后的首键，以及实际 worker 的独立内存和显存读数。详细命令在作品 README。
+
+### DX12 桌面透明叠加
+
+支持桌面透明输出的包可在清单加入 `"desktopOpacityControl": "backgroundOpacity"`。值引用本包的一个滑块 ID。滑块取值 0–100，默认 100。前景不透明度由作品自行定义。宿主根据背景滑块切换桌面层级，作品负责生成对应像素。
+
+在支持该字段的宿主上，合成输出使用预乘透明度。背景完全不透明时输出 alpha 1；完全透明且没有特效的区域输出 RGBA (0, 0, 0, 0)。前景、背景分别合成，亮度与不透明度独立。静态画面提交最后一帧后返回 -1。验收时在明暗底图上检查光晕边缘，并比较不透明度 100% 与升级前的画面。

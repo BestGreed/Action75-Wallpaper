@@ -15,6 +15,7 @@ struct Beacon {
     ComPtr<ID3D12RootSignature> root;
     ComPtr<ID3D12PipelineState> pipeline;
     std::array<float,3> tint{74.f/255,224.f/255,189.f/255};
+    float foreground=1, background=1;
     float strength=.85f, x=.5f, y=.5f;
     double last=-1;
     bool paused=false;
@@ -26,12 +27,14 @@ struct Beacon {
             auto rgb=values.at("signal_rgb").get<std::array<int,3>>();
             for (unsigned i=0;i<rgb.size();++i) tint[i]=std::clamp(rgb[i],0,255)/255.f;
         }
+        foreground=std::clamp(values.value("foregroundOpacity",100.f),0.f,100.f)/100.f;
+        background=std::clamp(values.value("backgroundOpacity",100.f),0.f,100.f)/100.f;
         strength=std::clamp(values.value("radiance",strength),.15f,1.f);
     }
     bool initialize(const A75Create12 &c) {
         D3D12_ROOT_PARAMETER param{};
         param.ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        param.Constants={0,0,10};
+        param.Constants={0,0,12};
         param.ShaderVisibility=D3D12_SHADER_VISIBILITY_PIXEL;
         D3D12_ROOT_SIGNATURE_DESC desc{1,&param,0,nullptr,D3D12_ROOT_SIGNATURE_FLAG_NONE};
         ComPtr<ID3DBlob> blob;
@@ -86,13 +89,13 @@ int32_t __cdecl render(void *ptr,const A75Frame12 *f) noexcept {
     const float age=b.last<0 ? 0 : float(std::max(0.,f->seconds-b.last));
     const bool lit=!b.paused && b.last>=0 && age<2.05f;
     const float constants[]={float(f->width),float(f->height),b.x,b.y,b.tint[0],b.tint[1],b.tint[2],
-                             b.strength,age,lit?1.f:0.f};
+                             b.strength,age,lit?1.f:0.f,b.foreground,b.background};
     f->commands->SetGraphicsRootSignature(b.root.Get());
     f->commands->SetPipelineState(b.pipeline.Get());
-    f->commands->SetGraphicsRoot32BitConstants(0,10,constants,0);
+    f->commands->SetGraphicsRoot32BitConstants(0,12,constants,0);
     f->commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     f->commands->DrawInstanced(3,1,0,0);
-    return lit?0:-1;
+    return lit && b.foreground>0?0:-1;
 }
 void __cdecl destroy(void *ptr) noexcept { delete static_cast<Beacon*>(ptr); }
 }

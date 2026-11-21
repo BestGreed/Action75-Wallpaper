@@ -8,5 +8,7 @@
   "preview": "preview.png",
   "entry": "wallpaper.dll",
   "abi": 2,
-  "renderer": "d3d12"
+  "renderer": "d3d12",
+  "desktopOpacityControl": "backgroundOpacity",
+  "packVersion": "1.1.0"
 }

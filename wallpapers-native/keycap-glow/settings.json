@@ -200,6 +200,19 @@
       "label": "按键光效",
       "controls": [
         {
+          "id": "foregroundOpacity",
+          "label": "按键光效不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "foreground",
+          "appearance": "opacity",
+          "advanced": false
+        },
+        {
           "id": "color",
           "type": "color",
           "label": "光效颜色",
@@ -296,6 +309,19 @@
       "id": "background",
       "label": "背景",
       "controls": [
+        {
+          "id": "backgroundOpacity",
+          "label": "背景不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "background",
+          "appearance": "opacity",
+          "advanced": false
+        },
         {
           "id": "backgroundStyle",
           "type": "select",

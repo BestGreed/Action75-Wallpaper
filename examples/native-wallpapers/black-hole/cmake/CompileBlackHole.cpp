@@ -15,8 +15,9 @@ int wmain(int argc,wchar_t** argv) {
   const auto count=std::to_string(action75::BlackHoleSimulation::MaxStars);
   const D3D_SHADER_MACRO macros[]={{"BLACK_HOLE_MAX_STARS",count.c_str()},{nullptr,nullptr}};
   const char* stages[] = {"ScreenVs", "StarVs", "ScenePs", "StarPs", "LightSourcePs",
-    "BloomHorizontalPs", "BloomVerticalPs", "CompositePs", "BakeArtworkPs", "BakeStarsPs", "SkyMipPs"};
-  const size_t stageCount = std::size(stages) - static_cast<size_t>(!dx12);
+    "BloomHorizontalPs", "BloomVerticalPs", "CompositePs", "BakeArtworkPs", "BakeStarsPs", "SkyMipPs",
+    "TranslucentScenePs", "TranslucentStarPs", "TranslucentCompositePs"};
+  const size_t stageCount = dx12 ? std::size(stages) : 10;
   std::ifstream in(std::filesystem::path(argv[1]), std::ios::binary);
   if (!in) return 1;
   std::string source{std::istreambuf_iterator<char>(in),{}};

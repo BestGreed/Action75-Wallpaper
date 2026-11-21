@@ -1,6 +1,6 @@
 # 黑洞 · 原生 D3D12 壁纸
 
-`pack` 是可导入的 Windows x64 包，ID 为 `event-horizon-native`。随安装器的同款使用 `black-hole`，两处使用同一份 DLL。26 个外观和交互控件沿用原有 ID、单位、范围与默认值。
+`pack` 是可导入的 Windows x64 包，ID 为 `event-horizon-native`。随安装器的同款使用 `black-hole`，两处使用同一份 DLL。黑洞与吸积盘、按键恒星和远景天空均提供独立的不透明度，默认 100%。桌面透明合成需要支持此功能的播放器。
 
 阴影外的按键点亮恒星，重复按键会积累热量，带来直接光像和延时的次像。拖动黑洞阴影可以移动中心，释放后保存到 `centerX`、`centerY`，精度为 0.1%。天空提供星云、虚空、星空和纯色四种样式。
 
@@ -35,3 +35,5 @@ python benchmark.py --player <Action75Native.exe> --baseline-pack <ABI1旧包目
 ```
 
 旧包、旧源码、实测帧和本轮验收结果见仓库的 `artifacts/dx12-all/baseline/06` 与 `artifacts/dx12-all/06`。
+
+可用 [不透明度回放](../surface-scenes/README.md) 对比两个包 ID 的默认画面，并验证 0%、50% 和 100% 的原始 RGBA 帧。

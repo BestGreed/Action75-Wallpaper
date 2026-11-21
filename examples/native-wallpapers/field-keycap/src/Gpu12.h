@@ -32,7 +32,7 @@ public:
   ~Graphics12();
 
   ComPtr<ID3D12PipelineState> pipeline(D3D12_SHADER_BYTECODE vertex, D3D12_SHADER_BYTECODE pixel,
-                                     DXGI_FORMAT format) const;
+                                     DXGI_FORMAT format, bool weighted = false) const;
   void bind(ID3D12GraphicsCommandList *, const void *constants) const;
 
 private:

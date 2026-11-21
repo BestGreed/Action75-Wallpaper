@@ -138,7 +138,7 @@ pub fn show(
 }
 
 fn appearance_rank(control: &Value) -> Option<usize> {
-    ["style", "brightness", "hue", "saturation", "color"]
+    ["style", "brightness", "opacity", "hue", "saturation", "color"]
         .iter()
         .position(|role| Some(*role) == control["appearance"].as_str())
 }

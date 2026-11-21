@@ -7,6 +7,7 @@
   "name" : "\u6f6e\u6c50\u73bb\u7483 \u00b7 Tidal Glass",
   "preview" : "preview.png",
   "renderer" : "d3d12",
+  "desktopOpacityControl" : "backgroundOpacity",
   "settings" : "settings.json",
   "version" : 1
 }

@@ -3,6 +3,7 @@ cbuffer Burst : register(b0) {
   float4 atlasInfo;   // 1/rows, width, height, columns
   float4 effectTint;  // user tint, independent of the cached backdrop
   float4 effectGrade; // saturation, cos(hue), sin(hue), hue enabled
+  float4 opacity;
   float4 hits[24];    // normalized x, y, fractional frame, gain
   float4 bounds[24];  // sample-aware local quad crop
   float4 palettes[24]; // target display RGB and palette enabled
@@ -61,7 +62,8 @@ float3 grade(float3 color, float4 palette) {
   }
   return max(color,float3(0,0,0));
 }
-float4 ps(Out i) : SV_TARGET {
+struct Pixel { float4 ink : SV_Target0; float4 absorb : SV_Target1; };
+Pixel ps(Out i) {
   float3 raw;
   float gain;
   float3 a = atlas.Sample(linearClamp, i.uvA).rgb;
@@ -81,5 +83,11 @@ float4 ps(Out i) : SV_TARGET {
   // Preserve chroma at high gain instead of independently clipping RGB to white.
   const float peak=max(color.r,max(color.g,color.b));
   if (peak>1) color/=peak;
-  return float4(color,0);
+  const float coverage = saturate(peak);
+  Pixel o;
+  // Multiply uses the old absorption on existing paper and adds pigment on
+  // uncovered desktop pixels. The second blend source carries RGB absorption.
+  o.ink = float4(effectTint.w>.5 ? coverage-color : color, coverage) * opacity.x;
+  o.absorb = float4(color * opacity.x, 0);
+  return o;
 }

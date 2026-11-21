@@ -1,6 +1,6 @@
 Texture2D<float2> bath : register(t0);
 SamplerState clampLinear : register(s0);
-cbuffer Material : register(b0) { float shine; float tone; float2 padding; float4 bounds; float4 poles[2]; };
+cbuffer Material : register(b0) { float shine; float tone; float2 inverseFrameSize; float4 bounds; float4 poles[2]; };
 cbuffer Appearance : register(b1) {float4 floorDark, floorLight; float4 fluidRows[3];};
 static const float2 cell=float2(1./961,1./361);
 float2 fieldUV(float2 uv){return (uv*float2(960,360)+.5)*cell;}
@@ -38,8 +38,8 @@ Vary fluidVS(uint id:SV_VertexID, uint2 tile:ORIGIN){
     return o;
 }
 float hash(float2 p){return frac(52.9829189*frac(dot(p,float2(.06711056,.00583715))));}
-float4 floorPS(Vary i):SV_TARGET {
-    float2 uv=i.uv;
+float4 dish(float2 uv,float2 pixel) {
+    if(floorDark.a==0)return 0;
     float2 pos=(uv-float2(.46,.41))*float2(1.35,.89);
     float light=exp(-2.6*dot(pos,pos))+.12*(.5-uv.y);
     float3 base=lerp(floorDark.rgb,floorLight.rgb,light);
@@ -51,9 +51,12 @@ float4 floorPS(Vary i):SV_TARGET {
         float2 shift=float2(cos(a)*.0045,sin(a)*.012)*sqrt((k+.5)/8.);
         shadow+=sampleBath(uv-float2(.003,.010)+shift).y;
     }
-    base*=1-.24*shadow/8.;
-    base+=(hash(floor(i.pos.xy))-.5)*.009;
-    return float4(base,1);
+    base*=1-.24*shadow/8.*floorLight.a;
+    base+=(hash(floor(pixel))-.5)*.009;
+    return float4(saturate(base)*floorDark.a,floorDark.a);
+}
+float4 floorPS(Vary i):SV_TARGET {
+    return dish(i.uv,i.pos.xy);
 }
 float band(float v,float center,float radius,float fringe){
     return 1-smoothstep(radius,radius+fringe,abs(v-center));
@@ -88,6 +91,11 @@ float4 fluidPS(Vary i):SV_TARGET {
     col+=shine*strip*float3(.32,.35,.35);
     [branch] if(fluidRows[0].w!=0)
         col=float3(dot(fluidRows[0].rgb,col),dot(fluidRows[1].rgb,col),dot(fluidRows[2].rgb,col));
-    return float4(saturate(col),1);
+    float alpha=floorLight.a;
+    float4 surface=float4(saturate(col)*alpha,alpha);
+    // Compose against the dish once per visible surface, even where mesh folds overlap.
+    [branch] if(alpha<1 && floorDark.a>0)
+        surface+=(1-alpha)*dish(i.pos.xy*inverseFrameSize,i.pos.xy);
+    return surface;
 }
 

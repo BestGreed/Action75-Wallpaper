@@ -38,12 +38,14 @@ private:
 
   Gpu gpu_;
   ComPtr<ID3D12PipelineState> background_, cracks_, panes_;
+  ComPtr<ID3D12PipelineState> transparentCracks_, transparentPanes_;
   StructuredBuffer crackGeometry_, paneGeometry_;
   std::array<Impact, maxImpacts> impacts_{};
   Frame data_{};
   std::mt19937 random_;
   unsigned count_ = 0, crackVertices_ = 0, paneVertices_ = 0;
   float duration_ = 1.20f;
+  float fractureOpacity_ = 1.f;
   float minStrength_ = .60f, maxStrength_ = 1.45f;
 };
 

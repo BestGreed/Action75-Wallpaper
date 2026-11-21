@@ -1,4 +1,5 @@
 #include "GlassShatter.h"
+#include "LegacyNativeSettings.h"
 #include "NativeRenderer.h"
 #include <algorithm>
 #include <chrono>
@@ -399,9 +400,10 @@ int wmain(int argc, wchar_t **argv) {
     require(SUCCEEDED(com), "Initialize WIC");
     const fs::path pack = fs::absolute(argv[1]);
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    PackSettingsStore settings(fs::temp_directory_path() / ("Action75GlassShatter-" + std::to_string(stamp)));
-    settings.registerPack(packId, pack, pack / "settings.json");
-    require(settings.hasSchema(packId), settings.schemaError(packId));
+    const auto scratch = fs::temp_directory_path() / ("Action75GlassShatter-" + std::to_string(stamp));
+    const action75::test::LegacyNativeSettings legacy(scratch);
+    PackSettingsStore settings(scratch);
+    legacy.registerPack(settings, packId, pack);
 
     const bool preview = argc >= 3;
     NativeRenderer renderer;

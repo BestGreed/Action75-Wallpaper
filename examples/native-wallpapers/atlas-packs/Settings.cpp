@@ -127,7 +127,11 @@ Appearance evaluate(const json& schema, const char* values) {
         solid = rgb(value);
       } else {
         const auto mapped = static_cast<float>(mappedNumber(binding, value));
-        if (target == "background.style")
+        if (target == "foreground.opacity")
+          result.foregroundOpacity = std::clamp(mapped / 100.f, 0.f, 1.f);
+        else if (target == "background.opacity")
+          result.backgroundOpacity = std::clamp(mapped / 100.f, 0.f, 1.f);
+        else if (target == "background.style")
           result.solidBackground = mapped == 1.f;
         else if (target.compare(0, 6, "field.") == 0)
           result.fields[target.substr(6)] = mapped;

@@ -75,7 +75,7 @@ struct Instance {
                              LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!library)
       return HRESULT_FROM_WIN32(GetLastError());
-    if ((fence || msg.composition) && msg.abi == ACTION75_WALLPAPER_ABI12) {
+    if ((fence || msg.composition != CompositionMode::Off) && msg.abi == ACTION75_WALLPAPER_ABI12) {
       auto get = reinterpret_cast<A75GetWallpaper12>(GetProcAddress(library, "Action75GetWallpaper12"));
       if (!get)
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
@@ -86,7 +86,7 @@ struct Instance {
         return E_NOINTERFACE;
       target12 = std::make_unique<WorkerTarget12>();
       if (FAILED(hr = target12->initialize(factory.Get(), adapter.Get(), texture, fence, width,
-                                            height, msg.composition != 0)))
+                                            height, msg.composition)))
         return hr;
       onEvent = api12->on_event;
       destroy = api12->destroy;

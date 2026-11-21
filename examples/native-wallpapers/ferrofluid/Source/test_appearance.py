@@ -25,7 +25,7 @@ liquid=default.max(-1)<85
 plate=default.min(-1)>135
 entries={}
 colors={}
-values=dict(style=2,brightness=.5,hue=120,saturation=0,color=[255,68,36])
+values=dict(opacity=50,style=2,brightness=.5,hue=120,saturation=0,color=[255,68,36])
 for key,c in controls.items():
     if 'appearance' not in c:continue
     role,layer=c['appearance'],c['surface']
@@ -39,7 +39,7 @@ for key,c in controls.items():
     entries[key]=dict(value=values[role],fluidInteriorMaxDelta=int(diff[220:235,630:650].max()),distantFloorMaxDelta=background,wholeImageMaxDelta=int(diff.max()))
     if role=='color':colors[layer]=candidate
 report=dict(defaultEqualsExplicit=True,settingsEventCases=entries)
-assert len(entries)==10
+assert len(entries)==12
 (args.work/'appearance.json').write_text(json.dumps(report,indent=2))
 for k,frame in colors.items():
     Image.fromarray(frame.astype('uint8')).save(args.work/('appearance-'+k+'.png'))

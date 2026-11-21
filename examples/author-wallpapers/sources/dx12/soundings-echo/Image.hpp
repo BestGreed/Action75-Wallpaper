@@ -35,7 +35,13 @@ inline void writeImage(const std::filesystem::path& path,UINT width,UINT height,
     checked(encoder->CreateNewFrame(&frame,&properties),"Create PNG frame");checked(frame->Initialize(properties.Get()),"Initialize PNG frame");
     checked(frame->SetSize(width,height),"Set PNG size");auto format=GUID_WICPixelFormat32bppRGBA;
     checked(frame->SetPixelFormat(&format),"Set PNG pixel format");
-    checked(frame->WritePixels(height,width*4,UINT(rgba.size()),const_cast<BYTE*>(rgba.data())),"Write PNG pixels");
+    // WIC PNG may negotiate BGRA even when RGBA was requested. Encode the
+    // negotiated channel order so visual evidence matches the GPU readback.
+    auto encoded=rgba;
+    if(IsEqualGUID(format,GUID_WICPixelFormat32bppBGRA)) {
+        for(std::size_t i=0;i<encoded.size();i+=4)std::swap(encoded[i],encoded[i+2]);
+    } else if(!IsEqualGUID(format,GUID_WICPixelFormat32bppRGBA)) throw std::runtime_error("Unsupported PNG output pixel format");
+    checked(frame->WritePixels(height,width*4,UINT(encoded.size()),encoded.data()),"Write PNG pixels");
     checked(frame->Commit(),"Commit PNG frame");checked(encoder->Commit(),"Commit PNG");
 }
 }

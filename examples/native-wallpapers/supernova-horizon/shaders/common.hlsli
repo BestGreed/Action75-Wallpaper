@@ -2,7 +2,8 @@ cbuffer Settings : register(b0) {
     float4 sky;            // Aspect, background mode, brightness, saturation.
     float4 skyTintCos;     // RGB filter and cosine of hue rotation.
     float4 light;          // Sine of hue rotation, disk brightness, nova brightness, nova radius.
-    float4 novaTint;       // RGB filter.
+    float4 novaTint;       // RGB filter and supernova opacity.
+    float4 layerOpacity;   // Sky and accretion opacity.
 };
 
 float falloff(float inner, float outer, float value) {

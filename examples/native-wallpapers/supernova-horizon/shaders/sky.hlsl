@@ -103,6 +103,9 @@ float3 accretion(float2 p, float r) {
 }
 
 float4 SkyPS(ScreenVertex input) : SV_Target {
+    if (all(layerOpacity.xy == 0)) {
+        return 0;
+    }
     float2 p = (input.uv - float2(0.555, 0.415)) * float2(sky.x, 1.0);
     float r = length(p);
     float veil = falloff(0.36, max(0.80, sky.x * 0.77), length(p * float2(0.86, 1.21)));
@@ -115,7 +118,15 @@ float4 SkyPS(ScreenVertex input) : SV_Target {
         skyColor += starlight * 0.13;
     }
     float shadow = smoothstep(0.116, 0.121, r);
-    float3 scene = grade(skyColor) * shadow + accretion(p, r) * light.y;
+    float3 disk = layerOpacity.y > 0 ? accretion(p, r) * light.y : 0;
     float dither = (hash21(input.position.xy) - 0.5) * (1.0 / 255.0);
-    return float4(max(0.0, scene + dither * shadow), 1.0);
+    if (all(layerOpacity.xy == 1)) {
+        return float4(max(0.0, grade(skyColor) * shadow + disk + dither * shadow), 1.0);
+    }
+    float occlusion = (1.0 - shadow) * layerOpacity.y;
+    float3 base = saturate(grade(skyColor) + dither) * layerOpacity.x * (1.0 - occlusion);
+    float3 emission = disk * layerOpacity.y;
+    float diskCoverage = saturate(1.0 - shadow + max(disk.r, max(disk.g, disk.b))) * layerOpacity.y;
+    float alpha = layerOpacity.x + (1.0 - layerOpacity.x) * diskCoverage;
+    return float4(min(base + emission, alpha.xxx), alpha);
 }

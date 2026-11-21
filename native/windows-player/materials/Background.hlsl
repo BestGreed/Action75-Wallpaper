@@ -1,7 +1,7 @@
 struct V { float4 position : SV_POSITION; float2 uv : TEXCOORD0; };
 V vs(uint id:SV_VertexID) { V v; float2 uv=float2((id<<1)&2,id&2); v.position=float4(uv*float2(2,-2)+float2(-1,1),0,1); v.uv=uv; return v; }
 Texture2D source:register(t0); SamplerState linearSampler:register(s0);
-cbuffer BackgroundAppearance:register(b0) { float4 appearance; float4 backgroundTint; }
+cbuffer BackgroundAppearance:register(b0) { float4 appearance; float4 backgroundTint; float4 uvTransform; }
 float3 gradeBackground(float3 color) {
   // Branching on a uniform keeps the neutral sample bit-for-bit unchanged.
   // These textures/targets use UNORM, so grade in visible sRGB code values.
@@ -27,7 +27,9 @@ float3 gradeBackground(float3 color) {
   return color*(appearance.x/(1.0+(appearance.x-1.0)*peak));
 }
 float4 ps(V v):SV_TARGET {
-  float3 color=source.Sample(linearSampler,v.uv).rgb;
+  float2 uv=v.uv*uvTransform.xy+uvTransform.zw;
+  if (any(uv<0) || any(uv>1)) return float4(0,0,0,1);
+  float3 color=source.Sample(linearSampler,uv).rgb;
   if (appearance.w!=0.0) color=gradeBackground(color*backgroundTint.rgb);
   return float4(color,1);
 }

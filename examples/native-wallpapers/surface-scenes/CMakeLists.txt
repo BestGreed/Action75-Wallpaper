@@ -74,13 +74,14 @@ function(add_surface_pack id variant scene material symbol_prefix)
 endfunction()
 
 add_surface_pack(stillwater WATER WaterSurface WaterSurface Water
-    vs:ScreenVertex:ScreenVertex ps:WaterPixel:WaterPixel
+    vs:ScreenVertex:ScreenVertex ps:WaterPixel:WaterPixel ps:TranslucentWaterPixel:TranslucentWaterPixel
     vs:ImpactVertex:ImpactVertex ps:ImpactPixel:ImpactPixel
     cs:StepWave:StepWave cs:BuildSlope:BuildSlope cs:BakeOptics:BakeOptics
     cs:DownsampleOptics:DownsampleOptics)
 add_surface_pack(night-fireworks FIREWORKS FireworksScene Fireworks Fireworks
     vs:sparkVS:SparkVS ps:sparkPS:SparkPS vs:screenVS:ScreenVS
-    ps:blurPS:BlurPS ps:compositePS:CompositePS ps:idlePS:IdlePS)
+    ps:blurPS:BlurPS ps:compositePS:CompositePS ps:idlePS:IdlePS
+    ps:translucentCompositePS:TranslucentCompositePS ps:translucentIdlePS:TranslucentIdlePS)
 add_surface_pack(glass-shatter GLASS GlassShatter GlassShatter Glass
     vs:backdropVS:BackdropVS ps:backdropPS:BackdropPS vs:crackVS:CrackVS
     ps:crackPS:CrackPS vs:paneVS:PaneVS ps:panePS:PanePS)
@@ -91,5 +92,5 @@ if(ACTION75_SURFACE_REPLAY)
     target_compile_features(surface_replay PRIVATE cxx_std_17)
     target_compile_definitions(surface_replay PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_include_directories(surface_replay PRIVATE "${ACTION75_SURFACE_SDK}" "${ACTION75_SURFACE_JSON}")
-    target_link_libraries(surface_replay PRIVATE d3d11 d3d12 dxgi)
+    target_link_libraries(surface_replay PRIVATE d3d11 d3d12 dxgi ole32)
 endif()

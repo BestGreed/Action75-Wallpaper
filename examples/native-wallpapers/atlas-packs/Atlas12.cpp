@@ -13,11 +13,11 @@ constexpr std::size_t maxHits = SpriteBurstState::capacity;
 struct Constants {
   float width, height, diameter, invColumns;
   float invRows, atlasWidth, atlasHeight, columns;
-  Vec4 tint, grading;
+  Vec4 tint, grading, opacity;
   std::array<SpriteBurstSample, maxHits> samples;
   std::array<Vec4, maxHits> bounds, palettes;
 };
-static_assert(sizeof(Constants) == 1216);
+static_assert(sizeof(Constants) == 1232);
 
 struct Recipe {
   unsigned columns, rows;
@@ -79,6 +79,7 @@ public:
   }
 
   void configure(const Appearance& appearance, double) {
+    opacity_ = appearance.foregroundOpacity;
     brightness_ = std::clamp(appearance.brightness, 0.f, 4.f);
     scale_ = std::clamp(appearance.scale, .5f, 3.f);
     intensity_ = std::clamp(appearance.intensity, 0.f, 3.f);
@@ -113,7 +114,7 @@ public:
     Constants values{float(frame.width), float(frame.height),
                      recipe_.diameter * float(frame.height) / 720.f * scale_,
                      1.f / recipe_.columns, 1.f / recipe_.rows, atlasWidth_, atlasHeight_,
-                     float(recipe_.columns), tint_, grading_, {}, {}, {}};
+                     float(recipe_.columns), tint_, grading_, {opacity_}, {}, {}, {}};
     std::array<uint32_t, maxHits> paletteIndices{};
     const auto count = hits_.sample(frame.seconds, duration_, frames, values.samples, &paletteIndices);
     unsigned drawn = 0;
@@ -142,6 +143,7 @@ public:
 
 private:
   Recipe recipe_;
+  float opacity_ = 1;
   std::array<Vec4, 96> bounds_{};
   SpriteBurstState hits_;
   Texture texture_;

@@ -5,8 +5,10 @@
 | 包 | 进入壁纸后的操作 | 调整位置 |
 | --- | --- | --- |
 | `stillwater` 水波 | 按 Action75 键或点击副屏，涟漪从触点扩散并叠加 | 「涟漪」控制力度区间、波速、衰减和波峰。「水面」控制背景、纹理、焦散及环境运动。 |
-| `night-fireworks` 烟火 | 按键按规则推进花型，点击副屏可直接放一次 | 「播放花型」选择十种花型、组合轮播、随机及按键间隔。「烟花」和「夜景」控制粒子、配色、辉光和倒影。 |
+| `night-fireworks` 烟火 | 按键按规则推进花型，点击副屏可直接放一次 | 「播放花型」选择十种花型、组合轮播、随机及按键间隔。「烟花」和「夜景与水面」分别控制不透明度，并提供粒子、配色、辉光和倒影设置。 |
 | `glass-shatter` 碎光玻璃 | 按键在键位处产生裂纹，重复敲击会继续延展原裂纹 | 「碎裂」调整随机力度上下限、整体扩展、中心破碎范围、分叉上限和持续时间。「玻璃材质」调整裂缝、反光、折射和碎片。 |
+
+支持桌面透明合成的播放器可分别调整烟花与夜景、涟漪与水面、碎裂与背景的不透明度。所有滑块默认 100%。将背景调为 0% 后，仍可看到按键触发的效果。
 
 ## 独立构建与导入
 
@@ -48,3 +50,23 @@ python examples/native-wallpapers/surface-scenes/tests/fixed_glass_seed.py --fxc
 ```
 
 作者接口契约和宿主运行方式见 [Action75 原生插件制作指南](../../../skills/action75-wallpaper-author/references/native.md)。
+
+### 烟火不透明度回放
+
+烟火包 1.1.0 需要支持桌面透明合成的播放器。前景与背景默认均为 100%。将夜景不透明度调为 0% 后，透过夜景看到桌面，按键烟火仍有火星、辉光和烟雾。水面倒影随夜景一起淡出。将烟花不透明度调为 0% 后，已在绽放的烟火立即结束，场景进入空闲。
+
+使用旧版 ABI 2 烟火完整包作基准，验证相同时刻的 RGBA 像素。下面的 `$previousFireworks` 指向含原版烟火 DLL 和设置的目录，`$replay` 按上节构建。
+
+```powershell
+python examples/native-wallpapers/surface-scenes/tests/fireworks_opacity.py --replay $replay --baseline $previousFireworks --pack wallpapers-native/night-fireworks --output (Join-Path $build 'fireworks-opacity')
+```
+
+回放会验证完全透明像素、两层独立调节、RGB 预乘、静止调度及默认画面。输出中有 `report.json` 和浅色、黑色桌面上的 `desktop-examples.png`。
+
+水波、碎光玻璃、黑洞和奇点余烬的三档不透明度可用同一个回放程序验证。参数 `$previousPacks` 和 `$packs` 分别指向含旧版和新版包子目录的根目录。
+
+```powershell
+python examples/native-wallpapers/surface-scenes/tests/native_layer_opacity.py --replay $replay --baseline $previousPacks --packs $packs --output (Join-Path $build 'layer-opacity') --include stillwater glass-shatter night-fireworks
+```
+
+默认使用 WARP。可添加 `--size 1920 720 --vendor-id 0x8086` 在 Intel GPU 上读回。

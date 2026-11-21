@@ -25,6 +25,7 @@ struct PackAppearance {
   float brightness=1,scale=1,speed=1,intensity=1,hue=0,saturation=1;
   unsigned backgroundStyle=0;
   float backgroundBrightness=1,backgroundHue=0,backgroundSaturation=1;
+  float backgroundOpacity=1,foregroundOpacity=1;
   EffectRgb backgroundColor{255,255,255};
   bool paletteOverride=false;
   std::vector<EffectRgb> resolvedPaletteColors;
@@ -33,7 +34,8 @@ class Configuration {
   nlohmann::json values_={{"sky_program",0},{"willow_arc",true},{"palm_fan",true},
     {"saturn_ring",true},{"mix_stars",false},{"tap_cadence",2},
     {"backgroundStyle",0},{"backgroundBrightness",1},{"backgroundHue",0},
-    {"backgroundSaturation",1},{"backgroundColor",{255,255,255}}};
+    {"backgroundSaturation",1},{"backgroundColor",{255,255,255}},
+    {"backgroundOpacity",100},{"foregroundOpacity",100}};
 public:
   PackAppearance appearance;
   Configuration() { apply("{}"); }
@@ -54,6 +56,8 @@ public:
     a.backgroundBrightness=std::clamp(next.at("backgroundBrightness").get<float>(),0.f,2.f);
     a.backgroundHue=std::clamp(next.at("backgroundHue").get<float>(),0.f,360.f);
     a.backgroundSaturation=std::clamp(next.at("backgroundSaturation").get<float>(),0.f,2.f);
+    a.backgroundOpacity=std::clamp(next.at("backgroundOpacity").get<float>(),0.f,100.f)*.01f;
+    a.foregroundOpacity=std::clamp(next.at("foregroundOpacity").get<float>(),0.f,100.f)*.01f;
     const auto rgb=next.at("backgroundColor").get<std::array<int,3>>();
     for(unsigned i=0;i<3;++i) a.backgroundColor[i]=static_cast<std::uint8_t>(std::clamp(rgb[i],0,255));
     values_=std::move(next);appearance=std::move(a);

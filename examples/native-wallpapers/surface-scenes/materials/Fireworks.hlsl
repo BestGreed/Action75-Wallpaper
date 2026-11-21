@@ -36,9 +36,9 @@ cbuffer Frame : register(b0)
     Burst bursts[MaxBursts];
 };
 
-cbuffer Filter : register(b1)
+cbuffer PassConstants : register(b1)
 {
-    float4 filterStep;
+    float4 passParameters; // Blur offset/downsample or foreground/background opacity.
 };
 
 StructuredBuffer<Seed> seeds : register(t3);
@@ -203,6 +203,7 @@ ScreenVertex screenVS(uint vertex : SV_VertexID)
 float4 blurPS(ScreenVertex input) : SV_Target
 {
     float2 uv = input.uv;
+    float4 filterStep = passParameters;
     // Four bilinear gathers cover the full 4×4 footprint on downsample.
     if (filterStep.z > 0) {
         float2 dx = float2(filterStep.x,0);
@@ -258,7 +259,7 @@ float3 night(float2 uv, float depth)
     return gradeLayer((result + lamp * wink * lights * .034) * background.rgb * background.w, skyGrade);
 }
 
-float4 response(float3 radiance, float2 uv)
+float3 toneMap(float3 radiance, float2 uv)
 {
     float2 lens = (uv - .5) * float2(.61,.78);
     radiance *= 1 - dot(lens,lens);
@@ -266,6 +267,12 @@ float4 response(float3 radiance, float2 uv)
     float shoulder = 1 - exp(-peak * 1.43);
     float3 color = radiance * (shoulder / max(.00001,peak));
     color = lerp(color,shoulder.xxx,smoothstep(1.35,4.7,peak) * .67);
+    return color;
+}
+
+float4 response(float3 radiance, float2 uv)
+{
+    float3 color = toneMap(radiance,uv);
     if (skyGrade[1].w != 0) {
         float3 base = saturate(gradeLayer(background.rgb * background.w, skyGrade));
         base = lerp(12.92 * base, 1.055 * pow(base, 1/2.4) - .055, step(.0031308, base));
@@ -280,7 +287,12 @@ float4 idlePS(ScreenVertex input) : SV_Target
     return response(night(input.uv,input.uv.y - screen.w),input.uv);
 }
 
-float4 compositePS(ScreenVertex input) : SV_Target
+float4 translucentIdlePS(ScreenVertex input) : SV_Target
+{
+    return idlePS(input) * passParameters.y;
+}
+
+float4 composite(ScreenVertex input, float2 opacity)
 {
     float2 uv = input.uv;
     float depth = uv.y - screen.w;
@@ -288,14 +300,18 @@ float4 compositePS(ScreenVertex input) : SV_Target
     float3 bloom = 0;
     if (atmosphere.x > 0 || atmosphere.y > 0)
         bloom = bloomLight.Sample(linearClamp,uv).rgb;
-    float3 radiance = night(uv,depth) + direct + atmosphere.x * bloom * .82;
+    float3 scenery = opacity.y > 0 ? night(uv,depth) : 0;
+    float3 radiance = scenery + direct + atmosphere.x * bloom * .82;
+    float3 fireworks = direct + atmosphere.x * bloom * .82;
     if (atmosphere.y > 0 && dot(bloom,bloom) > .00000008)
     {
         float2 advect = uv * float2(44,18) + float2(-.23 * screen.z,.10 * screen.z);
         float squall = .67 * noise(advect) + .33 * noise(advect * 2.8 + 17);
-        radiance += atmosphere.y * bloom * smoothstep(.25,.72,squall) * .92;
+        float3 smoke = atmosphere.y * bloom * smoothstep(.25,.72,squall) * .92;
+        radiance += smoke;
+        fireworks += smoke;
     }
-    if (depth >= 0 && atmosphere.z > 0)
+    if (depth >= 0 && atmosphere.z > 0 && opacity.y > 0)
     {
         float wave = noise(float2(uv.x * 67,depth * 241 + screen.z * .89));
         float2 mirror = float2(uv.x + (wave - .5) * (.006 + depth * .153),screen.w - depth * 3.65);
@@ -306,5 +322,27 @@ float4 compositePS(ScreenVertex input) : SV_Target
         radiance += water * atmosphere.z * exp(-depth * 8) *
                     (.25 + .75 * smoothstep(-.8,.76,ripples)) * step(0,mirror.y);
     }
-    return response(radiance,uv);
+    float4 overNight = response(radiance,uv);
+    if (opacity.x >= 1 && opacity.y >= 1)
+        return overNight;
+
+    // Reflections belong to the water. Bloom and smoke remain in the firework's coverage.
+    float3 emission = pow(saturate(toneMap(fireworks,uv)),1 / 2.18) * opacity.x;
+    float4 overDesktop = float4(emission,max(emission.r,max(emission.g,emission.b)));
+    if (opacity.y <= 0)
+        return overDesktop;
+
+    // Blend between the firework over the desktop and over an opaque night, both premultiplied.
+    overNight = lerp(response(scenery,uv),overNight,opacity.x);
+    return lerp(overDesktop,overNight,opacity.y);
+}
+
+float4 compositePS(ScreenVertex input) : SV_Target
+{
+    return composite(input,float2(1,1));
+}
+
+float4 translucentCompositePS(ScreenVertex input) : SV_Target
+{
+    return composite(input,passParameters.xy);
 }

@@ -83,6 +83,19 @@
           "max": 99,
           "step": 1,
           "surface": "foreground"
+        },
+        {
+          "id": "foregroundOpacity",
+          "type": "slider",
+          "label": "前景不透明度",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "appearance": "opacity",
+          "surface": "foreground",
+          "advanced": false
         }
       ]
     },
@@ -187,6 +200,19 @@
           "binding": {
             "target": "background.color"
           }
+        },
+        {
+          "id": "backgroundOpacity",
+          "type": "slider",
+          "label": "背景不透明度",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "appearance": "opacity",
+          "surface": "background",
+          "advanced": false
         }
       ]
     }

@@ -133,6 +133,15 @@ static void checkNativeImport(const fs::path &root) {
   write(manifest, dx12.dump());
   catalogue = packs(root);
   require(catalogue.size() == 1 && catalogue.front().usesD3D12, "native D3D12 scan");
+  require(catalogue.front().desktopOpacityControl.empty(), "opaque composition is the default");
+  dx12["desktopOpacityControl"] = "bgOpacity";
+  write(manifest, dx12.dump());
+  require(packs(root).empty(), "desktop opacity with a missing slider was accepted");
+  write(directory / "config/settings.json",
+        R"({"version":1,"groups":[{"controls":[{"id":"bgOpacity","type":"slider","min":0,"max":100,"default":100}]}]})");
+  catalogue = packs(root);
+  require(catalogue.size() == 1 && catalogue.front().desktopOpacityControl == "bgOpacity",
+          "desktop opacity control missing from catalogue");
   dx12["abi"] = 1;
   write(manifest, dx12.dump());
   require(packs(root).empty(), "accepted D3D12 entry as ABI 1");

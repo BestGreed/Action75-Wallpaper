@@ -17,7 +17,7 @@ public:
   static constexpr unsigned shapeCount = VariantPlaybackRules::maxVariants, heartShape = 8;
   FireworksScene(ID3D12Device *device, unsigned width, unsigned height);
   void configure(const Settings &settings);
-  bool readyForKeyBurst() noexcept { return playback_.readyForKeyBurst(); }
+  bool readyForKeyBurst() noexcept { return opacity_[0] > 0 && playback_.readyForKeyBurst(); }
   void push(double now, float x, float y) noexcept;
   void clear() noexcept;
   bool hasMotion() const noexcept { return count_ != 0; }
@@ -57,6 +57,7 @@ private:
 
   Gpu gpu_;
   ComPtr<ID3D12PipelineState> spark_, blur_, composite_, idle_;
+  ComPtr<ID3D12PipelineState> translucentComposite_, translucentIdle_;
   StructuredBuffer patterns_;
   Texture light_, blurA_, blurB_;
   DXGI_FORMAT format_ = DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -66,6 +67,7 @@ private:
   std::array<std::array<Float4, patternSize>, shapeCount> timings_{};
   std::array<float, shapeCount> lifespan_{};
   Frame data_{};
+  Float4 opacity_{1, 1, 0, 0};
   std::array<unsigned, paletteSlots> paletteSizes_{};
   Style style_;
   VariantPlaybackState playback_;

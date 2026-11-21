@@ -2,7 +2,8 @@
 
 namespace action75::worker {
 HRESULT WorkerTarget12::initialize(IDXGIFactory4 *factory, IDXGIAdapter *adapter, HANDLE targetHandle,
-                                   HANDLE syncHandle, unsigned width, unsigned height, bool composition) {
+                                   HANDLE syncHandle, unsigned width, unsigned height, CompositionMode mode) {
+  const bool composition = mode != CompositionMode::Off;
   HRESULT hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device_));
   if (FAILED(hr))
     return hr;
@@ -21,7 +22,7 @@ HRESULT WorkerTarget12::initialize(IDXGIFactory4 *factory, IDXGIAdapter *adapter
     desc.BufferCount = 2;
     desc.Scaling = DXGI_SCALING_STRETCH;
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    desc.AlphaMode = mode == CompositionMode::Premultiplied ? DXGI_ALPHA_MODE_PREMULTIPLIED : DXGI_ALPHA_MODE_IGNORE;
     if (FAILED(hr = factory->QueryInterface(IID_PPV_ARGS(&media))) ||
         FAILED(hr = media->CreateSwapChainForCompositionSurfaceHandle(queue_.Get(), targetHandle,
                                                                       &desc, nullptr, &chain)) ||

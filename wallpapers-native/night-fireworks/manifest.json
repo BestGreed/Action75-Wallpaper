@@ -4,9 +4,11 @@
   "name": "烟火 · Fireworks",
   "kind": "native",
   "description": "按键或点按副屏，烟花从触点原地绽放。心形沿轮廓扩张，蓝银棕榈向上展开长枝。十种花型可自由组合，每发可抽取一套配色。",
+  "packVersion": "1.1.0",
   "settings": "settings.json",
   "preview": "preview.png",
   "entry": "wallpaper.dll",
   "abi": 2,
-  "renderer": "d3d12"
+  "renderer": "d3d12",
+  "desktopOpacityControl": "backgroundOpacity"
 }

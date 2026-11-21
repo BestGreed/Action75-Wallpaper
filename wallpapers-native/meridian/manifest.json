@@ -7,6 +7,7 @@
   "name" : "\u65e5\u8680\u7ecf\u7ebf \u00b7 Meridian",
   "preview" : "preview.png",
   "renderer" : "d3d12",
+  "desktopOpacityControl" : "backgroundOpacity",
   "settings" : "settings.json",
   "version" : 1
 }

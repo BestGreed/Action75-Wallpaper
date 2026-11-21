@@ -1,6 +1,10 @@
 //! A wallpaper is published by replacing one manifest. Its resources live in
 //! a revision directory, so the player can keep its loaded version during an update.
+mod archive;
+mod media;
+pub use archive::prepare_zip;
 mod trial;
+pub use media::{media_filter_pattern, prepare_media};
 
 use crate::wallpaper_library::{self, REVISION, VERSIONS, valid_revision};
 
@@ -371,10 +375,11 @@ fn validate_manifest(manifest: &Value, package: &Path) -> Result<(), String> {
         Some(value) => value.as_str().ok_or("清单中的 kind 必须是后端类型名称")?,
         None => "effekseer",
     };
-    if !matches!(kind, "spriteBurst" | "effekseer" | "fireworks" | "native") {
-        return Err(format!(
-            "暂不支持导入 {kind}。请选择图集、兼容的 CPU 粒子、烟火或原生壁纸包"
-        ));
+    if !matches!(
+        kind,
+        "spriteBurst" | "effekseer" | "fireworks" | "native" | "image" | "video"
+    ) {
+        return Err(format!("暂不支持导入 {kind} 类型的壁纸包"));
     }
     let fields = manifest.as_object().ok_or("清单必须是 JSON 对象")?;
     for key in fields.keys().map(String::as_str) {
@@ -382,13 +387,20 @@ fn validate_manifest(manifest: &Value, package: &Path) -> Result<(), String> {
             "id" | "name" | "version" | "kind" | "description" | "settings" | "preview"
             | "author" | "license" | "packVersion" => true,
             "enabled" => manifest[key] == true,
-            "background" | "effect" => matches!(kind, "spriteBurst" | "effekseer"),
+            "background" => matches!(kind, "spriteBurst" | "effekseer" | "image" | "video"),
+            "effect" => matches!(kind, "spriteBurst" | "effekseer"),
             "columns" | "rows" | "diameter" | "duration" | "composition" => kind == "spriteBurst",
             "effects" | "scale" => kind == "effekseer",
             "runtimeControls" => {
                 matches!(kind, "spriteBurst" | "effekseer") && manifest[key] == false
             }
             "abi" | "entry" | "renderer" => kind == "native",
+            "desktopOpacityControl" => {
+                kind == "native"
+                    && manifest["abi"] == 2
+                    && manifest["renderer"] == "d3d12"
+                    && manifest[key].is_string()
+            }
             _ => false,
         };
         if !allowed {
@@ -404,12 +416,14 @@ fn validate_manifest(manifest: &Value, package: &Path) -> Result<(), String> {
         Ok(())
     };
     for (key, extensions) in [
-        ("background", &["png"][..]),
+        ("background", media::extensions(kind).unwrap_or(&["png"])),
         ("settings", &["json"][..]),
         ("preview", &["png", "jpg", "jpeg"][..]),
     ] {
         if let Some(value) = manifest.get(key) {
             check(value, key, extensions)?;
+        } else if key == "background" && media::extensions(kind).is_some() {
+            return Err("媒体清单需要指定 background 媒体文件".into());
         } else if key == "background" && kind == "spriteBurst" {
             return Err("图集包需要在清单中指定 background 底图".into());
         }
@@ -454,6 +468,33 @@ fn validate_manifest(manifest: &Value, package: &Path) -> Result<(), String> {
                 .map_err(|error| format!("原生壁纸参数文件格式有误，{error}"))?;
         if schema["version"] != 1 || !schema["groups"].is_array() {
             return Err("原生壁纸参数文件需要 version 1 和 groups".into());
+        }
+        if let Some(id) = manifest["desktopOpacityControl"].as_str() {
+            let mut controls = schema["groups"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|group| group["controls"].as_array())
+                .flatten()
+                .filter(|control| control["id"] == id);
+            let slider = controls.next();
+            if id.is_empty()
+                || id.len() > 64
+                || !id
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+                || controls.next().is_some()
+                || !slider.is_some_and(|c| {
+                    c["type"] == "slider"
+                        && c["min"].as_f64() == Some(0.)
+                        && c["max"].as_f64() == Some(100.)
+                        && c["default"].as_f64() == Some(100.)
+                })
+            {
+                return Err(
+                    "desktopOpacityControl 需要引用默认 100、范围 0 到 100 的不透明度滑块".into(),
+                );
+            }
         }
     }
     Ok(())
@@ -548,6 +589,7 @@ fn allowed_package_file(path: &Path, native_entry: Option<&Path>) -> bool {
 fn collect_files(
     base: &Path,
     native_entry: Option<&Path>,
+    media_file: Option<&Path>,
 ) -> Result<BTreeMap<PathBuf, u64>, String> {
     fn visit(
         base: &Path,
@@ -557,6 +599,7 @@ fn collect_files(
         bytes: &mut u64,
         files: &mut BTreeMap<PathBuf, u64>,
         native_entry: Option<&Path>,
+        media_file: Option<&Path>,
     ) -> Result<(), String> {
         if depth > MAX_DEPTH {
             return Err("包的子目录层级超过 12 层".into());
@@ -581,18 +624,30 @@ fn collect_files(
                 ));
             }
             if metadata.is_dir() {
-                visit(base, &path, depth + 1, entries, bytes, files, native_entry)?;
+                visit(
+                    base,
+                    &path,
+                    depth + 1,
+                    entries,
+                    bytes,
+                    files,
+                    native_entry,
+                    media_file,
+                )?;
             } else {
-                if (!metadata.is_file()) || metadata.len() > FILE_BYTES {
+                let media = Some(relative) == media_file;
+                if !metadata.is_file() || (!media && metadata.len() > FILE_BYTES) {
                     return Err(format!(
                         "文件超过 64 MiB 或无法复制（{}）",
                         relative.display()
                     ));
                 }
-                if !allowed_package_file(relative, native_entry) {
+                if !media && !allowed_package_file(relative, native_entry) {
                     return Err(format!("包内文件格式暂不可导入（{}）", relative.display()));
                 }
-                *bytes += metadata.len();
+                if !media {
+                    *bytes += metadata.len();
+                }
                 if *bytes > PACKAGE_BYTES {
                     return Err("包的文件总量超过 128 MiB".into());
                 }
@@ -602,12 +657,36 @@ fn collect_files(
         Ok(())
     }
     let mut files = BTreeMap::new();
-    visit(base, base, 0, &mut 0, &mut 0, &mut files, native_entry)?;
+    visit(
+        base,
+        base,
+        0,
+        &mut 0,
+        &mut 0,
+        &mut files,
+        native_entry,
+        media_file,
+    )?;
     Ok(files)
 }
 
-fn copy_package(source: &Path, package: &Path, native_entry: Option<&Path>) -> Result<(), String> {
-    for (relative, bytes) in collect_files(source, native_entry)? {
+fn copy_package(
+    source: &Path,
+    package: &Path,
+    native_entry: Option<&Path>,
+    media_file: Option<&Path>,
+) -> Result<(), String> {
+    let files = collect_files(source, native_entry, media_file)?;
+    if media_file.is_some() {
+        media::ensure_space(
+            package
+                .ancestors()
+                .find(|dir| dir.is_dir())
+                .ok_or("暂存目录不可用")?,
+            files.values().copied().fold(0u64, u64::saturating_add),
+        )?;
+    }
+    for (relative, bytes) in files {
         let file = open_input(source, &source.join(&relative))?;
         let output = package.join(&relative);
         fs::create_dir_all(output.parent().unwrap())
@@ -630,7 +709,12 @@ fn copy_package(source: &Path, package: &Path, native_entry: Option<&Path>) -> R
     Ok(())
 }
 
-fn identical(candidate: &Path, original: &Path, native_entry: Option<&Path>) -> bool {
+fn identical(
+    candidate: &Path,
+    original: &Path,
+    native_entry: Option<&Path>,
+    media_file: Option<&Path>,
+) -> bool {
     let Ok(original) = plain_directory(original) else {
         return false;
     };
@@ -638,8 +722,8 @@ fn identical(candidate: &Path, original: &Path, native_entry: Option<&Path>) -> 
         return false;
     };
     let (Ok(a), Ok(b)) = (
-        collect_files(&candidate, native_entry),
-        collect_files(&original, native_entry),
+        collect_files(&candidate, native_entry, media_file),
+        collect_files(&original, native_entry, media_file),
     ) else {
         return false;
     };
@@ -846,13 +930,26 @@ fn prepare_with_trial(
         .then(|| native_asset_path(&manifest, "entry", &["dll"]))
         .transpose()?;
     let package = stage.directory.join("wallpapers-native").join(&id);
-    copy_package(&source, &package, native_entry.as_deref())?;
+    let media_path = media::extensions(manifest["kind"].as_str().unwrap_or_default())
+        .map(|formats| resource_path(&manifest["background"], "background", formats))
+        .transpose()?;
+    copy_package(
+        &source,
+        &package,
+        native_entry.as_deref(),
+        media_path.as_deref(),
+    )?;
     if read_small(&package, &package.join("manifest.json"))? != before {
         return Err("清单在导入时发生变化，请重新选择".into());
     }
     validate_manifest(&manifest, &package)?;
     if let Some(installed) = &existing {
-        if identical(&package, &installed.original(), native_entry.as_deref()) {
+        if identical(
+            &package,
+            &installed.original(),
+            native_entry.as_deref(),
+            media_path.as_deref(),
+        ) {
             return Ok(Preparation::Installed(Receipt {
                 id: installed.id.clone(),
                 name: installed.name.clone(),
@@ -887,6 +984,13 @@ fn prepare_with_trial(
 
 impl PreparedImport {
     fn verify_trial(&self) -> Result<(), String> {
+        self.verify_trial_cancellable(None)
+    }
+
+    fn verify_trial_cancellable(
+        &self,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<(), String> {
         let stage = &self.stage;
         let native = self.manifest["kind"] == "native";
         let child = trial::run(
@@ -894,9 +998,10 @@ impl PreparedImport {
             &stage.directory,
             &stage.revision,
             native,
-            self.manifest["renderer"] == "d3d12"
+            (self.manifest["renderer"] == "d3d12" || self.manifest["kind"] == "video")
                 && crate::storage::Preferences::load(&self.root).gpu_preference
                     == crate::storage::GpuPreference::Integrated,
+            cancel,
         )?;
         let report_path = stage.directory.join("trial-result.json");
         let result = read_small(&stage.directory, &report_path)
@@ -1131,7 +1236,10 @@ mod wallpaper_library_regression {
         fs::write(&settings, b"{").unwrap();
 
         let result = prepare_with_trial(&fixture.root, &source, |_| Ok(()));
-        assert!(result.is_err(), "a damaged library configuration must block import");
+        assert!(
+            result.is_err(),
+            "a damaged library configuration must block import"
+        );
         assert!(!fixture.root.join("wallpapers-native").exists());
         assert_eq!(fs::read(&settings).unwrap(), b"{");
 
@@ -1152,9 +1260,17 @@ mod wallpaper_library_regression {
         fs::write(fixture.root.join("data/app-settings.json"), b"{").unwrap();
 
         assert!(pending.publish().is_err());
-        assert!(!fixture.root.join("wallpapers-native/preferences-check").exists());
+        assert!(
+            !fixture
+                .root
+                .join("wallpapers-native/preferences-check")
+                .exists()
+        );
         assert!(!stage.exists());
-        assert_eq!(fs::read(fixture.root.join("data/app-settings.json")).unwrap(), b"{");
+        assert_eq!(
+            fs::read(fixture.root.join("data/app-settings.json")).unwrap(),
+            b"{"
+        );
     }
 
     #[test]
@@ -1269,6 +1385,7 @@ mod wallpaper_library_regression {
             &plain_directory(&installed.join(&prefix)).unwrap(),
             &copied.join(&prefix),
             Some(Path::new(NATIVE_ENTRY)),
+            None,
         )
         .unwrap();
         fs::copy(
@@ -1447,6 +1564,33 @@ mod wallpaper_library_regression {
                 contents
             );
         }
+    }
+
+    #[test]
+    fn desktop_opacity_requires_a_dx12_percentage_slider() {
+        let fixture = Fixture::new();
+        let source = fixture.root.join("author");
+        let mut manifest = native_author(&source);
+        manifest["desktopOpacityControl"] = json!("opacity");
+        let options = source.join("resources/options.json");
+        let slider = json!({"id":"opacity", "type":"slider", "label":"Opacity",
+                            "min":0, "max":100, "default":100, "step":1});
+        let set_controls = |controls: Value| {
+            write_json(
+                &options,
+                &json!({"version":1,"groups":[{"controls":controls}]}),
+            )
+            .unwrap()
+        };
+        set_controls(json!([slider]));
+        assert!(validate_manifest(&manifest, &source).is_err());
+        manifest["abi"] = json!(2);
+        manifest["renderer"] = json!("d3d12");
+        validate_manifest(&manifest, &source).unwrap();
+        set_controls(json!([slider, slider]));
+        assert!(validate_manifest(&manifest, &source).is_err());
+        set_controls(json!([]));
+        assert!(validate_manifest(&manifest, &source).is_err());
     }
 
     #[test]
@@ -1723,7 +1867,7 @@ mod wallpaper_library_regression {
 
         let installed = first.join("wallpapers-native/author-transport");
         let revision = published_revision(&installed);
-        copy_package(&plain_directory(&installed).unwrap(), &shared, None).unwrap();
+        copy_package(&plain_directory(&installed).unwrap(), &shared, None, None).unwrap();
         let retired = shared.join(VERSIONS).join(format!("v-{}", "9".repeat(40)));
         fs::create_dir(&retired).unwrap();
         fs::write(

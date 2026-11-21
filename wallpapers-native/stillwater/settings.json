@@ -11,6 +11,19 @@
       "label": "涟漪",
       "controls": [
         {
+          "id": "rippleOpacity",
+          "label": "涟漪不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "foreground",
+          "appearance": "opacity",
+          "advanced": false
+        },
+        {
           "id": "impactMin",
           "type": "slider",
           "label": "力度下限",
@@ -167,6 +180,19 @@
       "id": "water",
       "label": "水面",
       "controls": [
+        {
+          "id": "backgroundOpacity",
+          "label": "水面不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "background",
+          "appearance": "opacity",
+          "advanced": false
+        },
         {
           "id": "backdrop",
           "type": "select",

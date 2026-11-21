@@ -23,7 +23,7 @@ private:
   struct DrawBurst {Float4 location,motion,rotation,palette;};
   struct Burst {double time,expires;DrawBurst render;float speed;unsigned paletteSlot;};
   struct Frame {
-    Float4 screen,exposure,atmosphere,background;
+    Float4 screen,exposure,atmosphere,background,opacity;
     LayerColor skyGrade,sparkGrade;
     std::array<Float4,paletteSlots*colorsPerPalette> palette;
     std::array<DrawBurst,maxBursts> burst;

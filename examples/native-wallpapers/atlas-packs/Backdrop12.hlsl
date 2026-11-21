@@ -29,5 +29,5 @@ float3 gradeBackground(float3 color) {
 float4 ps(V v):SV_TARGET {
   float3 color=source.Sample(linearSampler,v.uv).rgb;
   if (appearance.w!=0.0) color=gradeBackground(color*backgroundTint.rgb);
-  return float4(color,1);
+  return float4(color * backgroundTint.w,backgroundTint.w);
 }

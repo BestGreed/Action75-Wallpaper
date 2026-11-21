@@ -11,6 +11,19 @@
       "label": "碎裂",
       "controls": [
         {
+          "id": "fractureOpacity",
+          "label": "碎裂不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "foreground",
+          "appearance": "opacity",
+          "advanced": false
+        },
+        {
           "id": "impactMin",
           "label": "力度下限",
           "type": "slider",
@@ -231,6 +244,19 @@
       "id": "background",
       "label": "背景",
       "controls": [
+        {
+          "id": "backgroundOpacity",
+          "label": "背景不透明度",
+          "type": "slider",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "background",
+          "appearance": "opacity",
+          "advanced": false
+        },
         {
           "id": "backdrop",
           "label": "背景样式",

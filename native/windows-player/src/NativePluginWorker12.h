@@ -7,7 +7,7 @@ namespace action75::worker {
 class WorkerTarget12 {
 public:
   HRESULT initialize(IDXGIFactory4 *factory, IDXGIAdapter *adapter, HANDLE targetHandle,
-                     HANDLE syncHandle, unsigned width, unsigned height, bool composition);
+                     HANDLE syncHandle, unsigned width, unsigned height, CompositionMode mode);
   HRESULT render(Mailbox &msg, const A75Wallpaper12 &api, void *state);
   HRESULT finish();
   ID3D12Device *device() const { return device_.Get(); }

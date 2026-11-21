@@ -2,6 +2,7 @@
 
 #include "WaterScreenVertex.h"
 #include "WaterWaterPixel.h"
+#include "WaterTranslucentWaterPixel.h"
 #include "WaterImpactVertex.h"
 #include "WaterImpactPixel.h"
 #include "WaterStepWave.h"
@@ -29,7 +30,7 @@ struct FrameConstants {
   float step, waveSpeedSquared, damping, visibility;
   float phase, backgroundBrightness, crestBrightness, backdrop;
   float tintR, tintG, tintB, backgroundSaturation;
-  float texture, caustics, padding[2];
+  float texture, caustics, rippleOpacity, backgroundOpacity;
   LayerColor waterHue, crestColor;
 };
 static_assert(sizeof(FrameConstants) == 192);
@@ -110,13 +111,20 @@ void WaterSurface::configure(const Settings &settings) {
   backgroundSaturation_ = settings.scalar("saturation");
   texture_ = settings.scalar("texture");
   caustics_ = settings.scalar("caustics");
+  rippleOpacity_ = settings.scalar("rippleOpacity") / 100.f;
+  backgroundOpacity_ = settings.scalar("backgroundOpacity") / 100.f;
+  if (rippleOpacity_ == 0)
+    clear();
+  if ((backgroundOpacity_ < 1 || rippleOpacity_ < 1) && !translucentSurface_)
+    translucentSurface_ = gpu_.graphics(shader(WaterScreenVertex), shader(WaterTranslucentWaterPixel));
   const auto tint = settings.color("waterColor");
   tint_ = {linear(tint[0]), linear(tint[1]), linear(tint[2])};
 }
 
 void WaterSurface::push(double, float x, float y) noexcept {
   const Position point{x, y};
-  if (intensity_ <= 0 || maxStrength_ <= 0 || !std::isfinite(point[0]) || !std::isfinite(point[1]) ||
+  if (rippleOpacity_ == 0 || intensity_ <= 0 || maxStrength_ <= 0 ||
+      !std::isfinite(point[0]) || !std::isfinite(point[1]) ||
       point[0] < 0 || point[0] > 1 || point[1] < 0 || point[1] > 1)
     return;
   rng_ ^= rng_ << 13;
@@ -135,7 +143,8 @@ void WaterSurface::push(double, float x, float y) noexcept {
 }
 
 bool WaterSurface::hasMotion() const noexcept {
-  return hasWaves() || (ambient_ > 0 && backgroundBrightness_ > 0 && (texture_ > 0 || caustics_ > 0));
+  return hasWaves() || (backgroundOpacity_ > 0 && ambient_ > 0 &&
+      backgroundBrightness_ > 0 && (texture_ > 0 || caustics_ > 0));
 }
 
 void WaterSurface::clear() noexcept {
@@ -274,6 +283,12 @@ void WaterSurface::draw(const A75Frame12 &frame, bool paused) {
     }
   }
   const float visibility = smoothUnit(remaining_ / .62f);
+  auto *commands = frame.commands;
+  if (backgroundOpacity_ == 0 && visibility == 0 && !steps) {
+    const float transparent[4]{};
+    commands->ClearRenderTargetView(frame.rtv, transparent, 0, nullptr);
+    return;
+  }
   const float cellX = extent_[0] / columns_, cellY = extent_[1] / rows_;
   // Keep the explicit wave solver stable at all supported speeds and sizes.
   const float cflLimit = .67f * std::min(cellX, cellY) / static_cast<float>(Step);
@@ -283,8 +298,8 @@ void WaterSurface::draw(const A75Frame12 &frame, bool paused) {
                             static_cast<float>(Step), velocity * velocity, damping_, visibility,
                             static_cast<float>(phase_), backgroundBrightness_, crestBrightness_,
                             static_cast<float>(backdrop_), tint_[0], tint_[1], tint_[2],
-                            backgroundSaturation_, texture_, caustics_, {}, waterHue_, crestColor_};
-  auto *commands = frame.commands;
+                            backgroundSaturation_, texture_, caustics_, rippleOpacity_,
+                            backgroundOpacity_, waterHue_, crestColor_};
   gpu_.begin(commands);
   if (!opticsReady_)
     bakeOptics(commands);
@@ -300,7 +315,8 @@ void WaterSurface::draw(const A75Frame12 &frame, bool paused) {
   if (visibility > 0)
     Gpu::transition(commands, slope_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
   Gpu::target(commands, frame.rtv, frame.width, frame.height);
-  commands->SetPipelineState(surface_.Get());
+  const bool translucent = backgroundOpacity_ < 1 || (visibility > 0 && rippleOpacity_ < 1);
+  commands->SetPipelineState(translucent ? translucentSurface_.Get() : surface_.Get());
   commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   commands->SetGraphicsRootDescriptorTable(Gpu::srvSlot(2), visibility > 0 ? slope_.srv.gpu : gpu_.nullSrv().gpu);
   commands->SetGraphicsRootDescriptorTable(Gpu::srvSlot(3), optics_.srv.gpu);

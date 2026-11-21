@@ -7,6 +7,18 @@
       "label": "游戏物件",
       "controls": [
         {
+          "id": "foregroundOpacity",
+          "type": "slider",
+          "label": "不透明度",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "foreground",
+          "appearance": "opacity"
+        },
+        {
           "id": "runnerStyle",
           "label": "配色风格",
           "type": "select",
@@ -91,6 +103,18 @@
       "id": "stationLook",
       "label": "站台背景",
       "controls": [
+        {
+          "id": "backgroundOpacity",
+          "type": "slider",
+          "label": "不透明度",
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "%",
+          "surface": "background",
+          "appearance": "opacity"
+        },
         {
           "id": "stationStyle",
           "label": "配色风格",

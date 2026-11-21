@@ -28,6 +28,7 @@ public:
                   std::string &error);
   bool initializeComposition(HWND window, unsigned w, unsigned h, GpuPreference preference,
                              std::string &error);
+  bool retargetComposition(HWND window, std::string &error);
   bool composes() const { return composition_ != nullptr; }
   bool hasWindowPresentation() const { return chain_ || composes(); }
   LUID compositionAdapter() const { return compositionAdapter_; }
@@ -61,6 +62,7 @@ private:
   Ptr<ID3D12Resource> buffers_[2];
   Ptr<IDCompositionDesktopDevice> composition_;
   Ptr<IDCompositionTarget> compositionTarget_;
+  HWND compositionWindow_ = nullptr;
   Ptr<IDCompositionVisual2> visual_;
   std::shared_ptr<Dx12CompositionSurface> shownSurface_;
   LUID compositionAdapter_{};

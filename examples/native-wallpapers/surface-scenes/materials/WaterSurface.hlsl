@@ -5,7 +5,7 @@ cbuffer Frame : register(b0) {
     float4 Wave;                // time step, speed squared, damping, visibility
     float4 Style;               // ambient phase, exposure, crest brightness, backdrop
     float4 Tint;                // linear RGB, saturation
-    float4 Backdrop;            // floor texture and caustics
+    float4 Backdrop;            // floor texture, caustics, ripple opacity, background opacity
     float4 WaterHue[3], CrestColor[3];
 };
 struct ImpactStamp {
@@ -309,7 +309,7 @@ float3 BackgroundLight(float2 p, float2 uv, uint look, float4 waves, float2 wake
     return look == Custom ? saturate(graded) : graded / (1 + 0.55 * graded);
 }
 
-float4 WaterPixel(Quad input) : SV_Target {
+float4 WaterLayer(Quad input, float2 opacity) {
     float2 uv = input.coordinate;
     float2 p = (uv - 0.5) * Surface.xy;
     const uint look = (uint) Style.w;
@@ -320,9 +320,10 @@ float4 WaterPixel(Quad input) : SV_Target {
     wake /= 1 + 0.72 * length(wake);
 
     float3 color = 0;
-    [branch] if (Style.y > 0)
+    [branch] if (Style.y > 0 && opacity.y > 0)
         color = gradeLayer(BackgroundLight(p, uv, look, waves, wake), WaterHue);
 
+    float4 ripple = 0;
     [branch] if (Wave.w > 0) {
         // The light-facing flank and its adjacent trough separate the ripple
         // from the floor even when the floor is completely black or white.
@@ -338,9 +339,30 @@ float4 WaterPixel(Quad input) : SV_Target {
                      : look == Obsidian ? float3(0.58, 0.61, 0.67)
                      : float3(0.38, 0.62, 0.72);
         color *= 1 - falloff;
-        color = lerp(color, max(color, gradeLayer(light, CrestColor)), glint);
+        float3 crestLight = gradeLayer(light, CrestColor);
+        color = lerp(color, max(color, crestLight), glint);
+        ripple = float4(saturate(LinearToSrgb(crestLight)) * glint, saturate(glint + falloff));
     }
     color = LinearToSrgb(color);
     float dither = frac(52.9829189 * frac(dot(input.position.xy, float2(0.06711056, 0.00583715)))) - 0.5;
-    return float4(saturate(color + dither / 255), 1);
+    float3 visible = saturate(color + dither / 255);
+    if (opacity.x >= 1 && opacity.y >= 1)
+        return float4(visible, 1);
+    if (opacity.y <= 0)
+        return ripple * opacity.x;
+    if (opacity.x < 1 && Wave.w > 0) {
+        float3 base = 0;
+        if (Style.y > 0)
+            base = LinearToSrgb(gradeLayer(BackgroundLight(p, uv, look, 0, 0), WaterHue));
+        visible = lerp(saturate(base + dither / 255), visible, opacity.x);
+    }
+    return lerp(ripple * opacity.x, float4(visible, 1), opacity.y);
+}
+
+float4 WaterPixel(Quad input) : SV_Target {
+    return WaterLayer(input, float2(1, 1));
+}
+
+float4 TranslucentWaterPixel(Quad input) : SV_Target {
+    return WaterLayer(input, Backdrop.zw);
 }

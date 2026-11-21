@@ -93,9 +93,9 @@ static fs::path nativeAsset(const Pack &pack, const std::string &asset, bool pub
 }
 
 static void readNativePack(Pack &pack, const json &manifest, bool recovering) {
-  static constexpr std::array<std::string_view, 15> fields = {
+  static constexpr std::array<std::string_view, 16> fields = {
       "version", "id", "name", "kind", "description", "settings", "preview",
-      "author", "license", "packVersion", "enabled", "abi", "entry", "renderer", "_action75Revision"};
+      "author", "license", "packVersion", "enabled", "abi", "entry", "renderer", "desktopOpacityControl", "_action75Revision"};
   for (const auto &field : manifest.items())
     if (std::find(fields.begin(), fields.end(), field.key()) == fields.end())
       throw std::runtime_error("Unsupported native wallpaper manifest property");
@@ -122,6 +122,29 @@ static void readNativePack(Pack &pack, const json &manifest, bool recovering) {
         !fs::is_regular_file(pack.settings))
       throw std::runtime_error("Native wallpaper settings must be a JSON file");
   }
+  if (const auto opacity = manifest.find("desktopOpacityControl"); opacity != manifest.end()) {
+    const auto id = opacity->get<std::string>();
+    if (!pack.usesD3D12 || pack.settings.empty() || id.empty() || id.size() > 64 ||
+        !std::all_of(id.begin(), id.end(), [](unsigned char c) {
+          return (c < 128 && std::isalnum(c)) || c == '_' || c == '-';
+        }))
+      throw std::runtime_error("Invalid desktop opacity control");
+    const auto schema = readManifest(pack.settings);
+    unsigned matches = 0;
+    for (const auto &group : schema.at("groups")) {
+      for (const auto &control : group.at("controls")) {
+        if (control.at("id") != id)
+          continue;
+        if (control.at("type") != "slider" || control.at("min") != 0 || control.at("max") != 100 ||
+            control.at("default") != 100)
+          throw std::runtime_error("Desktop opacity requires a 0-100 slider defaulting to 100");
+        ++matches;
+      }
+    }
+    if (matches != 1)
+      throw std::runtime_error("Desktop opacity must reference exactly one settings control");
+    pack.desktopOpacityControl = id;
+  }
   if (manifest.contains("preview")) {
     const auto preview = nativeAsset(pack, manifest.at("preview").get<std::string>(), published);
     const auto extension = preview.extension().u8string();
@@ -144,6 +167,14 @@ fs::path packAsset(const fs::path &root, const std::string &relative) {
     throw std::runtime_error("Pack asset escapes its directory");
   return full;
 }
+static bool mediaAssetMatches(const fs::path &file, bool video) {
+  auto extension = file.extension().wstring();
+  std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+  const std::wstring_view formats = video ? L"|.mp4|.m4v|.mov|.wmv|.mkv|.webm|" :
+      L"|.png|.jpg|.jpeg|.bmp|.tif|.tiff|.webp|";
+  return !extension.empty() && formats.find(L"|" + extension + L"|") != formats.npos;
+}
+
 static bool isPngAsset(const fs::path &file) {
   auto extension = file.extension().u8string();
   std::transform(extension.begin(), extension.end(), extension.begin(),
@@ -221,7 +252,8 @@ std::vector<Pack> packs(const fs::path &root, const ImportedRevision *recovery) 
         p.kind = m.value("kind", std::string("effekseer"));
         p.importedRevision = m.value("_action75Revision", std::string());
         const bool native = p.kind == "native";
-        const bool authorKind = native || p.kind == "spriteBurst" || p.kind == "effekseer" ||
+        const bool media = p.kind == "image" || p.kind == "video";
+        const bool authorKind = native || media || p.kind == "spriteBurst" || p.kind == "effekseer" ||
                                 (p.kind == "fireworks" && fireworksAuthorManifest(m));
         if (recovery) {
           if (!samePackId(p.id, recovery->id) || !p.importedRevision.empty() || !authorKind ||
@@ -323,7 +355,7 @@ std::vector<Pack> packs(const fs::path &root, const ImportedRevision *recovery) 
               ((p.kind == "keycap" || p.kind == "field") && !p.layout.empty() &&
                fs::is_regular_file(p.layout)) ||
               (p.kind == "effekseer" && !p.effect.empty() && fs::is_regular_file(p.effect)) ||
-              ((p.kind == "image" || p.kind == "video") && !p.background.empty() &&
+              (media && mediaAssetMatches(p.background, p.kind == "video") &&
                fs::is_regular_file(p.background));
         }
         if (m.value("enabled", true) == false)

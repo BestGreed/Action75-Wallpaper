@@ -31,6 +31,7 @@ cbuffer Frame : register(b0)
     float4 exposure;    // instances per burst, brightness, ember gain, shimmer
     float4 atmosphere;  // bloom, smoke, reflections
     float4 background;  // linear tint and brightness
+    float4 opacity;     // background and complete firework effect coverage
     float4 skyGrade[3], sparkGrade[3];
     float4 palette[81]; // fixed palette and eight rotation slots, nine colors each
     Burst bursts[MaxBursts];
@@ -277,7 +278,29 @@ float4 response(float3 radiance, float2 uv)
 
 float4 idlePS(ScreenVertex input) : SV_Target
 {
-    return response(night(input.uv,input.uv.y - screen.w),input.uv);
+    return response(night(input.uv,input.uv.y - screen.w),input.uv) * opacity.x;
+}
+
+// The original photographic response is nonlinear and combines night radiance
+// with emission before tone mapping. Recover an exact, representable foreground
+// in display space so reducing either layer never changes that response or
+// treats light intensity as opacity. The smallest valid coverage keeps empty
+// pixels transparent, including bloom, smoke and water reflections.
+float4 layerOver(float3 base, float3 combined, float3 effectRadiance)
+{
+    float3 delta = combined - base;
+    float3 coverage = max(delta / max(1 - base, .000001),
+                          -delta / max(base, .000001));
+    // A bright/white background can clip combined == base despite real light.
+    // Keep that effect's intrinsic coverage when the background is made clear.
+    float effectPeak = max(effectRadiance.r, max(effectRadiance.g, effectRadiance.b));
+    float intrinsic = 1 - exp(-max(0, effectPeak) * 1.43);
+    float alpha = saturate(max(intrinsic, max(coverage.r, max(coverage.g, coverage.b))));
+    float3 emission = clamp(combined - base * (1 - alpha), 0, alpha);
+    float foregroundAlpha = alpha * opacity.y;
+    float remainingBackground = opacity.x * (1 - foregroundAlpha);
+    return float4(emission * opacity.y + base * remainingBackground,
+                  foregroundAlpha + remainingBackground);
 }
 
 float4 compositePS(ScreenVertex input) : SV_Target
@@ -306,5 +329,8 @@ float4 compositePS(ScreenVertex input) : SV_Target
         radiance += water * atmosphere.z * exp(-depth * 8) *
                     (.25 + .75 * smoothstep(-.8,.76,ripples)) * step(0,mirror.y);
     }
-    return response(radiance,uv);
+    float3 combined = response(radiance,uv).rgb;
+    [branch] if (opacity.x >= 1 && opacity.y >= 1) return float4(combined,1);
+    float3 base = response(night(uv,depth),uv).rgb;
+    return layerOver(base,combined,max(0,radiance - night(uv,depth)));
 }

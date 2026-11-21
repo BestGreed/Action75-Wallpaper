@@ -21,7 +21,7 @@ public:
                const std::string &settingsJson, std::string &error);
   bool startComposition(LUID adapter, HANDLE surface, const std::filesystem::path &packRoot,
                         const std::filesystem::path &module, unsigned width, unsigned height,
-                        const std::string &settingsJson, std::string &error);
+                        const std::string &settingsJson, std::string &error, bool premultipliedAlpha = false);
   bool renderComposition(double seconds, int32_t &nextDelay, bool validate,
                          HRESULT &present, std::string &error);
   bool compositionDeviceLost() const noexcept;

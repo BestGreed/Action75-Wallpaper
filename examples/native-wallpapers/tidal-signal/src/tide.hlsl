@@ -1,7 +1,7 @@
 cbuffer Beacon : register(b0) {
     float2 size; float2 center;
     float3 tint; float strength;
-    float age; float visible;
+    float age; float visible; float foreground; float background;
 };
 float4 vs(uint id : SV_VertexID) : SV_Position {
     return float4(id == 2 ? 3 : -1, id == 1 ? 3 : -1, 0, 1);
@@ -19,5 +19,11 @@ float4 ps(float4 position : SV_Position) : SV_Target {
     float core = 1 - smoothstep(.010,.018,distance);
     float fade = 1 - smoothstep(1.55,2.05,age);
     float3 signal = lerp(sky + tint * halo * strength, tint * strength, core);
-    return float4(lerp(sky, signal, fade * visible), 1);
+    float envelope=fade*visible;
+    float3 full=lerp(sky,signal,envelope);
+    if (foreground==1 && background==1) return float4(full,1);
+    float3 emission=saturate(tint*strength*lerp(halo,1,core))*envelope;
+    float coverage=max(core*envelope,max(emission.r,max(emission.g,emission.b)));
+    return float4(background*lerp(sky,full,foreground)+(1-background)*foreground*emission,
+                  background+(1-background)*foreground*coverage);
 }

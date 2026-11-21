@@ -328,6 +328,26 @@ fn controller_wgpu_options(preference: GpuPreference) -> eframe::egui_wgpu::Wgpu
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum GalleryCategory {
+    All,
+    Interactive,
+    Image,
+    Video,
+}
+
+impl GalleryCategory {
+    fn matches(self, pack: &Value) -> bool {
+        self == Self::All
+            || self
+                == match pack["kind"].as_str() {
+                    Some("image") => Self::Image,
+                    Some("video") => Self::Video,
+                    _ => Self::Interactive,
+                }
+    }
+}
+
 struct Manager {
     root: PathBuf,
     tx: mpsc::Sender<Job>,
@@ -362,6 +382,7 @@ struct Manager {
     last_poll: Instant,
     polling: bool,
     search: String,
+    gallery_category: GalleryCategory,
     screenshot: Option<PathBuf>,
     screenshot_requested: bool,
     exit_after_screenshot: bool,
@@ -626,6 +647,7 @@ impl Manager {
             last_poll: Instant::now(),
             polling: true,
             search: String::new(),
+            gallery_category: GalleryCategory::All,
             screenshot: None,
             screenshot_requested: false,
             exit_after_screenshot: false,
@@ -1468,7 +1490,9 @@ impl Manager {
         self.visible_packs
             .extend(self.packs.iter().enumerate().filter_map(|(i, pack)| {
                 let name = pack["name"].as_str().unwrap_or_default();
-                (query.is_empty() || name.to_lowercase().contains(&query)).then_some(i)
+                (self.gallery_category.matches(pack)
+                    && (query.is_empty() || name.to_lowercase().contains(&query)))
+                .then_some(i)
             }));
     }
 
@@ -1544,64 +1568,105 @@ impl Manager {
         self.open_profile(id, true);
     }
 
+    fn gallery_tools(&mut self, ui: &mut egui::Ui) {
+        ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+            if !self.panel_open
+                && ui_chrome::icon_button(ui, Icon::OpenPanel, "展开参数", 26.).clicked()
+            {
+                self.panel_open = true;
+                self.remember_interface();
+            }
+            ui.scope(|ui| {
+                ui.visuals_mut().hyperlink_color = ui.visuals().weak_text_color();
+                ui.hyperlink_to(
+                    RichText::new("获取壁纸 ↗").size(13.),
+                    "https://github.com/blackwhite-poi/Action75-Wallpaper-Library",
+                )
+                .on_hover_text("在浏览器中打开壁纸仓库");
+            });
+            self.wallpaper_import.button(
+                ui,
+                self.setup_complete
+                    && !self.deleting
+                    && !self.migrating
+                    && self.compat.is_none()
+                    && self.folder_request.is_none()
+                    && !self.restart_pending,
+            );
+        });
+    }
+
     fn gallery(&mut self, ui: &mut egui::Ui) {
         let compact = ui.ctx().content_rect().height() < 760.;
+        let stack_tools = ui.available_width() < 525.;
         ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.label(
-                    RichText::new("壁纸库").font(ui_style::display_font(if compact {
-                        33.
-                    } else {
-                        36.
-                    })),
-                );
-                ui.label(
-                    RichText::new(format!("{} 款壁纸", self.visible_packs.len()))
-                        .size(13.)
-                        .weak(),
-                );
-            });
+            ui.label(
+                RichText::new("壁纸库").font(ui_style::display_font(if compact {
+                    33.
+                } else {
+                    36.
+                })),
+            );
+            ui.label(
+                RichText::new(format!("{} 款", self.visible_packs.len()))
+                    .size(13.)
+                    .weak(),
+            );
             if self.selecting && self.profile.bundle.is_none() {
                 ui.spinner();
             }
-            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                if !self.panel_open
-                    && ui_chrome::icon_button(ui, Icon::OpenPanel, "展开参数", 26.).clicked()
-                {
-                    self.panel_open = true;
-                    self.remember_interface();
+            if !stack_tools {
+                self.gallery_tools(ui);
+            }
+        });
+        if stack_tools {
+            ui.horizontal(|ui| self.gallery_tools(ui));
+        }
+        ui.horizontal_wrapped(|ui| {
+            for (category, label) in [
+                (GalleryCategory::All, "全部"),
+                (GalleryCategory::Interactive, "互动壁纸"),
+                (GalleryCategory::Image, "图片"),
+                (GalleryCategory::Video, "视频"),
+            ] {
+                let selected = self.gallery_category == category;
+                let response = ui.add(egui::Button::new(label).frame_when_inactive(false));
+                if selected {
+                    let rect = response
+                        .rect
+                        .shrink2(vec2(ui.spacing().button_padding.x, 0.));
+                    ui.painter().hline(
+                        rect.x_range(),
+                        rect.bottom(),
+                        egui::Stroke::new(1.5_f32, ui.visuals().text_color()),
+                    );
                 }
-                let changed = ui
-                    .allocate_ui_with_layout(
-                        vec2(171., 27.),
-                        egui::Layout::left_to_right(Align::Center),
-                        |ui| ui_chrome::search(ui, &mut self.search),
-                    )
-                    .inner
-                    .changed();
-                if changed {
+                if response.clicked() && !selected {
+                    self.gallery_category = category;
                     self.filter_wallpapers();
                 }
-                self.wallpaper_import.button(
-                    ui,
-                    self.setup_complete
-                        && !self.deleting
-                        && !self.migrating
-                        && self.compat.is_none()
-                        && self.folder_request.is_none()
-                        && !self.restart_pending,
-                );
-            });
+            }
+            let width = ui.available_size_before_wrap().x.max(174.);
+            let changed = ui
+                .allocate_ui_with_layout(
+                    vec2(width, 27.),
+                    egui::Layout::right_to_left(Align::Center),
+                    |ui| {
+                        ui.allocate_ui_with_layout(
+                            vec2(171., 27.),
+                            egui::Layout::left_to_right(Align::Center),
+                            |ui| ui_chrome::search(ui, &mut self.search),
+                        )
+                        .inner
+                        .changed()
+                    },
+                )
+                .inner;
+            if changed {
+                self.filter_wallpapers();
+            }
         });
         self.wallpaper_import.status(ui);
-        ui.horizontal_wrapped(|ui| {
-            ui.hyperlink_to(
-                "获取壁纸 ↗",
-                "https://github.com/blackwhite-poi/Action75-Wallpaper-Library",
-            )
-            .on_hover_text("在浏览器中打开 Action75 壁纸仓库");
-            ui.weak("下载并解压后，点击「导入壁纸」选择壁纸文件夹。");
-        });
         if let Some(error) = &self.catalog_error {
             ui.colored_label(
                 ui.visuals().error_fg_color,
@@ -1651,7 +1716,8 @@ impl Manager {
         let mut open_folder = None;
         let allow_delete =
             !blocked && !self.selecting && !self.wallpaper_import.busy() && !self.restart_pending;
-        let mut scroll = egui::ScrollArea::vertical().id_salt("wallpaper-gallery");
+        let mut scroll =
+            egui::ScrollArea::vertical().id_salt(("wallpaper-gallery", self.gallery_category));
         if !self.catalog_loading
             && let Some(id) = &self.wallpaper_import.reveal
             && let Some(index) = self
@@ -2780,6 +2846,7 @@ impl eframe::App for Manager {
             self.wallpaper_import.reveal = Some(receipt.id);
             self.tab = 0;
             self.search.clear();
+            self.gallery_category = GalleryCategory::All;
             self.filter_wallpapers();
             self.request_catalog(true);
         }
@@ -3500,25 +3567,27 @@ mod manager_tests {
                 },
             )
         };
-        let output = frame(vec![]);
-        let position = output
-            .shapes
-            .iter()
-            .find_map(|shape| match &shape.shape {
-                egui::Shape::Text(text) if text.galley.text() == "导入壁纸" => {
-                    Some(text.pos + text.galley.rect.center().to_vec2())
-                }
-                _ => None,
-            })
-            .unwrap();
-        frame(vec![egui::Event::PointerMoved(position)]);
-        for pressed in [true, false] {
-            frame(vec![egui::Event::PointerButton {
-                pos: position,
-                button: egui::PointerButton::Primary,
-                pressed,
-                modifiers: egui::Modifiers::NONE,
-            }]);
+        for label in ["导入", "视频或图片"] {
+            let output = frame(vec![]);
+            let position = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == label => {
+                        Some(text.pos + text.galley.rect.center().to_vec2())
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            frame(vec![egui::Event::PointerMoved(position)]);
+            for pressed in [true, false] {
+                frame(vec![egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }]);
+            }
         }
         assert!(m.wallpaper_import.busy());
         assert!(!m.can_game_compat());
@@ -3698,6 +3767,84 @@ mod manager_tests {
         frame(vec![press(true)]);
         let result = frame(vec![press(false)]);
         assert!(result.platform_output.commands.iter().any(|c| matches!(c, egui::OutputCommand::OpenUrl(u) if u.url == "https://github.com/blackwhite-poi/Action75-Wallpaper-Library")));
+    }
+
+    #[test]
+    fn gallery_category_and_search_preserve_order_and_playback() {
+        let (mut m, _, jobs) = fixture();
+        m.packs = vec![
+            json!({"id":"a","name":"Aurora","kind":"video"}),
+            json!({"id":"b","name":"Sun","kind":"native"}),
+            json!({"id":"c","name":"Sunrise","kind":"image"}),
+            json!({"id":"d","name":"Sunset","kind":"video"}),
+            json!({"id":"e","name":"Sun","kind":"future-effect"}),
+        ];
+        m.status = json!({"running":true,"packId":"b"});
+        m.search = " SUN ".into();
+        m.filter_wallpapers();
+        let ctx = egui::Context::default();
+        ui_style::install_fonts(&ctx);
+        let frame = |m: &mut Manager, events| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        vec2(416., 430.),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| m.gallery(ui));
+                },
+            )
+        };
+        for (label, indexes) in [
+            ("图片", vec![2]),
+            ("视频", vec![3]),
+            ("互动壁纸", vec![1, 4]),
+            ("全部", vec![1, 2, 3, 4]),
+        ] {
+            let output = frame(&mut m, vec![]);
+            if label == "图片" {
+                let rect = |caption| {
+                    output
+                        .shapes
+                        .iter()
+                        .find_map(|shape| match &shape.shape {
+                            egui::Shape::Text(t) if t.galley.text() == caption => {
+                                Some(t.visual_bounding_rect())
+                            }
+                            _ => None,
+                        })
+                        .unwrap()
+                };
+                assert!(rect("壁纸库").bottom() < rect("导入").top());
+            }
+            let pos = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(t) if t.galley.text() == label => {
+                        let bounds = t.visual_bounding_rect();
+                        assert!(shape.clip_rect.contains_rect(bounds));
+                        Some(bounds.center())
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            let press = |pressed| egui::Event::PointerButton {
+                pos,
+                pressed,
+                button: egui::PointerButton::Primary,
+                modifiers: egui::Modifiers::NONE,
+            };
+            frame(&mut m, vec![egui::Event::PointerMoved(pos), press(true)]);
+            frame(&mut m, vec![press(false)]);
+            assert_eq!(m.visible_packs, indexes);
+        }
+        assert_eq!(m.status["packId"], "b");
+        assert!(m.queued_wallpaper.is_none() && jobs.try_recv().is_err());
     }
 
     #[test]

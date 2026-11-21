@@ -26,7 +26,7 @@ struct StructuredBuffer {
   bool pending = true;
 };
 
-enum class Blend { Opaque, Alpha, Add, Pressure };
+enum class Blend { Opaque, Alpha, Coverage, Add, Pressure };
 
 class Gpu {
 public:

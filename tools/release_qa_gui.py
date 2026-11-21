@@ -179,17 +179,24 @@ def import_wallpaper(manager, app, source, published, ready_image, *, click=None
         checked(client_rect(window, C.byref(client)))
         scale = window_dpi(window) / 96
         # The inspector is folded. Position relative to the gallery's right edge in logical pixels.
-        logical_x, logical_y = click or (client.right / scale - 271, 106 if client.bottom / scale >= 760 else 98)
-        x, y = round(logical_x * scale), round(logical_y * scale)
-        point = (y << 16) | x
-        for message, argument, position in (
-            (0x0086, 1, 0), (0x0006, 1, 0), (0x0007, 0, 0),
-            (0x0200, 0, point - 2), (0x0200, 0, point), (0x0201, 1, point), (0x0202, 0, point),
-        ):
-            checked(post(window, message, argument, position))
+        zip_file = source.is_file() and source.suffix.lower() == ".zip"
+        media_file = source.is_file() and not zip_file
+        button_inset = 172
+        logical_x, logical_y = click or (client.right / scale - button_inset, 96 if client.bottom / scale >= 760 else 85)
+        def click_at(lx, ly):
+            point = (round(ly * scale) << 16) | round(lx * scale)
+            for message, argument, position in (
+                (0x0086, 1, 0), (0x0006, 1, 0), (0x0007, 0, 0),
+                (0x0200, 0, point - 2), (0x0200, 0, point), (0x0201, 1, point), (0x0202, 0, point),
+            ):
+                checked(post(window, message, argument, position))
+        click_at(logical_x, logical_y)
+        time.sleep(.25)
+        click_at(logical_x, logical_y + (31 if media_file else 97 if zip_file else 123))
 
         def pickers():
-            return windows("选择要导入", "#32770")
+            title = "选择视频或图片" if media_file else "选择互动壁纸 ZIP" if zip_file else "选择要导入"
+            return windows(title, "#32770")
 
         dialog = wait_for(
             pickers, f"the import folder picker at logical position {logical_x}, {logical_y}"

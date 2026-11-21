@@ -178,6 +178,7 @@ struct Studio {
               "Create liquid pipeline");
     }
     float strength=1,shine=1,tone=0,fluidStyle=0;
+    float foregroundOpacity=100, backgroundOpacity=100;
     SurfaceLook fluidLook,dishLook;
     void updateLook(){
         struct Constants {float floor[2][4];float fluid[3][4];};
@@ -200,6 +201,8 @@ struct Studio {
             auto rgb=fluidLook.transform(axis);
             for(int j=0;j<3;++j)look.fluid[j][i]=rgb[j];
         }
+        look.floor[0][3]=backgroundOpacity/100.f;
+        look.floor[1][3]=foregroundOpacity/100.f;
         look.fluid[0][3]=fluidStyle!=0 || !fluidLook.neutral();
         std::memcpy(constants.data + LookOffset, &look, sizeof(look));
     }
@@ -230,6 +233,8 @@ struct Studio {
         read("shine",shine,0.55f,1.35f);
         read("tone",tone,0,2);
         read("fluidStyle",fluidStyle,0,2);
+        read("foregroundOpacity",foregroundOpacity,0,100);
+        read("backgroundOpacity",backgroundOpacity,0,100);
         fluidLook.read(j,"fluid");dishLook.read(j,"dish");
         if(constants.data)updateLook();
     }
@@ -346,7 +351,7 @@ struct Studio {
         if (!paused || !surfaceReady)
             uploadSurface(frame.commands);
 
-        float material[16] = {shine, tone, 0, 0, bath.x0 / 960.f - .02f, bath.y0 / 360.f - .04f,
+        float material[16] = {shine, tone, 1.f/frame.width, 1.f/frame.height, bath.x0 / 960.f - .02f, bath.y0 / 360.f - .04f,
                              bath.x1 / 960.f + .02f, bath.y1 / 360.f + .04f};
         for (int i = 0; i < std::min(bath.active, 2); ++i) {
             const auto& pole = bath.poles[bath.active - 1 - i];
@@ -373,7 +378,7 @@ struct Studio {
         commands->DrawInstanced(3, 1, 0, 0);
 
         const auto count = writeTiles();
-        if (count) {
+        if (count && foregroundOpacity > 0) {
             const D3D12_VERTEX_BUFFER_VIEW instances{tiles.address(), count * InstanceStride, InstanceStride};
             const D3D12_INDEX_BUFFER_VIEW mesh{indices.address(), IndexCount * sizeof(uint16_t), DXGI_FORMAT_R16_UINT};
             commands->IASetVertexBuffers(0, 1, &instances);
