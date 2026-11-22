@@ -60,7 +60,8 @@ impl ImportFlow {
         !matches!(self.phase, Phase::Idle)
     }
 
-    pub fn button(&mut self, ui: &mut egui::Ui, enabled: bool) {
+    /// Returns true when the operation requires leaving administrator mode.
+    pub fn button(&mut self, ui: &mut egui::Ui, enabled: bool, administrator: bool) -> bool {
         let available = enabled && !self.busy();
         let interactive = ui
             .add_enabled(
@@ -82,6 +83,9 @@ impl ImportFlow {
         for dx in [-3., 3.] {
             ui.painter()
                 .line_segment([c + egui::vec2(dx, -1.5), c + egui::vec2(0., 1.5)], stroke);
+        }
+        if administrator {
+            return interactive.clicked();
         }
         if available {
             let frame = egui::Frame::popup(ui.style())
@@ -120,6 +124,7 @@ impl ImportFlow {
                 }
             });
         }
+        false
     }
 
     pub fn open_picker(&mut self, frame: &eframe::Frame, ctx: &egui::Context) {

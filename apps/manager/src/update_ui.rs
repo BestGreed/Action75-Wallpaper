@@ -19,6 +19,7 @@ enum Notice {
 pub struct Updates {
     installed: bool,
     blocked: Option<String>,
+    administrator: bool,
     preserved_wallpapers: String,
     checked: Option<Instant>,
     release: Option<Release>,
@@ -30,8 +31,9 @@ pub struct Updates {
 }
 
 impl Updates {
-    pub fn enable(&mut self, root: &Path) {
+    pub fn enable(&mut self, root: &Path, administrator: bool) {
         self.installed = update_install::installed(root);
+        self.administrator = administrator;
         if self.installed {
             self.blocked = update_install::check_download_permission().err();
             let path = root.join("data/preserved-wallpapers.txt");
@@ -54,6 +56,7 @@ impl Updates {
 
     fn check(&mut self, ctx: &egui::Context) {
         self.checked = Some(Instant::now());
+        self.release = None;
         self.text = "正在检查更新…".into();
         self.run(ctx, || Notice::Checked(software_update::check()));
     }
@@ -141,27 +144,39 @@ impl Updates {
         self.release.is_some()
     }
 
-    pub fn row(&mut self, ui: &mut egui::Ui, can_install: bool) {
+    /// Returns true when the operation requires leaving administrator mode.
+    pub fn row(&mut self, ui: &mut egui::Ui, can_install: bool) -> bool {
         if !self.installed {
             ui.weak("通过安装版接收更新");
-            return;
+            return false;
         }
+        let mut requires_ordinary = false;
         let busy = self.job.is_some() || self.handing_off || self.installer.is_some();
         if let Some(release) = self.release.clone() {
             ui.label(format!("发现新版本 {}", release.version));
             if ui
                 .add_enabled(
-                    !busy && can_install && self.blocked.is_none(),
+                    !busy && can_install && (self.blocked.is_none() || self.administrator),
                     egui::Button::new("立即更新"),
                 )
                 .clicked()
             {
-                self.text = "正在下载并验证安装包…".into();
-                self.run(ui.ctx(), move || {
-                    Notice::Downloaded(software_update::download(&release))
-                });
+                if self.administrator {
+                    requires_ordinary = true;
+                } else {
+                    self.text = "正在下载并验证安装包…".into();
+                    self.run(ui.ctx(), move || {
+                        Notice::Downloaded(software_update::download(&release))
+                    });
+                }
             }
-        } else if ui
+            if let Some(reason) = &self.blocked
+                && !self.administrator
+            {
+                ui.weak(reason);
+            }
+        }
+        if ui
             .add_enabled(!busy, egui::Button::new("检查更新"))
             .clicked()
         {
@@ -170,15 +185,13 @@ impl Updates {
         if !self.text.is_empty() {
             ui.weak(&self.text);
         }
-        if let Some(reason) = &self.blocked {
-            ui.weak(reason);
-        }
         if !self.preserved_wallpapers.is_empty() {
             ui.weak(format!(
                 "已保留同 ID 的导入壁纸 {}",
                 self.preserved_wallpapers
             ));
         }
+        requires_ordinary
     }
 
     pub fn protect_handoff(&self, ctx: &egui::Context) {

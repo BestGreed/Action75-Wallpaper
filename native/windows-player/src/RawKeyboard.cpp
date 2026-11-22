@@ -1,6 +1,8 @@
 #include "RawKeyboard.h"
 
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <cwctype>
 #include <utility>
 
@@ -87,6 +89,20 @@ bool connectedKeyboardGroup(const std::string& group, const std::vector<Keyboard
     });
 }
 
+bool Action75FnReport::acceptsDevice(const std::wstring& path, const std::string& group) {
+    return matchesDeviceGroup(path, "VID_1CA6&PID_1A0B&MI_01&COL02") && matchesDeviceGroup(path, group);
+}
+
+bool Action75FnReport::releasedFn(const std::uint8_t* report, std::size_t size) noexcept {
+    if (size != ReportBytes || report[0] != 2) return false;
+    const bool mediaPressed = report[1] != 0 || report[2] != 0;
+    // Action75 emits a neutral Consumer Control report when Fn is released.
+    // A neutral report after a nonzero media usage is that media key's release.
+    const bool fn = !mediaPressed && !mediaPressed_;
+    mediaPressed_ = mediaPressed;
+    return fn;
+}
+
 bool KeyboardState::transition(std::uintptr_t device, std::uint16_t usage, bool down) {
     if (down) {
         if (!held_[device].insert(usage).second) return false;
@@ -159,8 +175,12 @@ RawKeyboard::Devices RawKeyboard::enumerate(const std::string& group) {
 bool RawKeyboard::attach(HWND window) {
     if (!window) { error_ = "Raw Input requires a window"; return false; }
     detach();
-    RAWINPUTDEVICE keyboard{0x01, 0x06, RIDEV_INPUTSINK | RIDEV_DEVNOTIFY, window};
-    if (!RegisterRawInputDevices(&keyboard, 1, sizeof(keyboard))) {
+    const RAWINPUTDEVICE devices[] = {
+        {0x01, 0x06, RIDEV_INPUTSINK | RIDEV_DEVNOTIFY, window},
+        {0x0C, 0x01, RIDEV_INPUTSINK | RIDEV_DEVNOTIFY, window},
+    };
+    if (!RegisterRawInputDevices(devices, 2, sizeof(RAWINPUTDEVICE)) &&
+        !RegisterRawInputDevices(devices, 1, sizeof(RAWINPUTDEVICE))) {
         error_ = "RegisterRawInputDevices failed: " + std::to_string(GetLastError());
         return false;
     }
@@ -173,12 +193,16 @@ bool RawKeyboard::attach(HWND window) {
 void RawKeyboard::detach() {
     releaseAll();
     if (window_) {
-        RAWINPUTDEVICE keyboard{0x01, 0x06, RIDEV_REMOVE, nullptr};
-        RegisterRawInputDevices(&keyboard, 1, sizeof(keyboard));
+        const RAWINPUTDEVICE devices[] = {
+            {0x01, 0x06, RIDEV_REMOVE, nullptr},
+            {0x0C, 0x01, RIDEV_REMOVE, nullptr},
+        };
+        for (const auto& device : devices) RegisterRawInputDevices(&device, 1, sizeof(device));
         window_ = nullptr;
     }
     selected_.clear();
     rejected_.clear();
+    fnCollections_.clear();
 }
 
 RawKeyboard::Devices RawKeyboard::refreshDevices() {
@@ -221,9 +245,38 @@ void RawKeyboard::setConfig(const PlayerConfig& config) {
     if (config_.deviceGroup != config.deviceGroup) {
         selected_.clear();
         rejected_.clear();
+        fnCollections_.clear();
     }
     config_ = config;
     if (window_) refreshDevices();
+}
+
+void RawKeyboard::processFnReports(HANDLE device, const std::uint8_t* payload, std::size_t size) {
+    constexpr auto reportOffset = offsetof(RAWHID, bRawData);
+    if (!device || size < reportOffset) return;
+    DWORD layout[2];
+    std::memcpy(layout, payload, sizeof(layout));
+    const auto [reportSize, reportCount] = layout;
+    if (reportSize != Action75FnReport::ReportBytes || !reportCount ||
+        reportCount > (size - reportOffset) / reportSize)
+        return;
+
+    auto found = fnCollections_.find(device);
+    if (found == fnCollections_.end()) {
+        if (!Action75FnReport::acceptsDevice(devicePath(device), config_.deviceGroup)) return;
+        found = fnCollections_.try_emplace(device).first;
+    }
+    ++diagnostics_.selectedPackets;
+    auto report = payload + reportOffset;
+    for (DWORD index = 0; index < reportCount; ++index, report += reportSize) {
+        if (!found->second.releasedFn(report, reportSize)) continue;
+        if (const auto key = config_.fnKey()) {
+            ++diagnostics_.downEvents;
+            emit(*key, true);
+            ++diagnostics_.upEvents;
+            emit(*key, false);
+        }
+    }
 }
 
 bool RawKeyboard::process(UINT message, WPARAM wParam, LPARAM lParam) {
@@ -234,27 +287,52 @@ bool RawKeyboard::process(UINT message, WPARAM wParam, LPARAM lParam) {
             for (const auto usage : state_.removeDevice(handle)) release(usage);
             selected_.erase(handle);
             rejected_.erase(handle);
+            fnCollections_.erase(reinterpret_cast<HANDLE>(lParam));
         } else if (wParam == GIDC_ARRIVAL) refreshDevices();
         return true;
     }
     if (message != WM_INPUT) return false;
     ++diagnostics_.packets;
     diagnostics_.lastPacketMs = GetTickCount64();
-    // Keyboard packets have a fixed upper bound; the read returns their actual size.
+    // A single keyboard or Consumer Control report fits in the stack buffer.
+    // Windows can deliver multiple HID reports in the same message.
     const auto handle = reinterpret_cast<HRAWINPUT>(lParam);
-    RAWINPUT input{};
-    UINT capacity = sizeof(input);
-    const UINT copied = GetRawInputData(handle, RID_INPUT, &input, &capacity, sizeof(RAWINPUTHEADER));
-    if (copied == UINT(-1) || copied > sizeof(input) ||
-        copied < sizeof(RAWINPUTHEADER) + sizeof(RAWKEYBOARD) ||
-        input.header.dwType != RIM_TYPEKEYBOARD) {
+    alignas(RAWINPUT) std::array<std::uint8_t, sizeof(RAWINPUT)> packet;
+    std::vector<std::uint8_t> batch;
+    auto* data = packet.data();
+    UINT capacity = static_cast<UINT>(packet.size());
+    UINT copied = GetRawInputData(handle, RID_INPUT, data, &capacity, sizeof(RAWINPUTHEADER));
+    if (copied == UINT(-1) && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+        capacity = 0;
+        if (GetRawInputData(handle, RID_INPUT, nullptr, &capacity, sizeof(RAWINPUTHEADER)) == 0 &&
+            capacity > packet.size() && capacity <= 64 * 1024) {
+            batch.resize(capacity);
+            data = batch.data();
+            copied = GetRawInputData(handle, RID_INPUT, data, &capacity, sizeof(RAWINPUTHEADER));
+        }
+    }
+    constexpr auto payloadOffset = offsetof(RAWINPUT, data);
+    const auto bufferSize = batch.empty() ? packet.size() : batch.size();
+    if (copied == UINT(-1) || copied > bufferSize || copied < payloadOffset) {
         ++diagnostics_.readErrors;
         return true;
     }
-    const auto device = reinterpret_cast<std::uintptr_t>(input.header.hDevice);
+    RAWINPUTHEADER header;
+    std::memcpy(&header, data, sizeof(header));
+    const auto* payload = data + payloadOffset;
+    const auto payloadBytes = copied - payloadOffset;
+    if (header.dwType == RIM_TYPEHID) {
+        processFnReports(header.hDevice, payload, payloadBytes);
+        return true;
+    }
+    if (header.dwType != RIM_TYPEKEYBOARD || payloadBytes < sizeof(RAWKEYBOARD)) {
+        ++diagnostics_.readErrors;
+        return true;
+    }
+    const auto device = reinterpret_cast<std::uintptr_t>(header.hDevice);
     if (!selected_.count(device)) {
         if (!device || rejected_.count(device)) return true;
-        const auto path = devicePath(input.header.hDevice);
+        const auto path = devicePath(header.hDevice);
         if (path.empty()) return true;
         if (!matchesDeviceGroup(path, config_.deviceGroup)) {
             rejected_.insert(device);
@@ -263,11 +341,13 @@ bool RawKeyboard::process(UINT message, WPARAM wParam, LPARAM lParam) {
         selected_.insert(device);
     }
     ++diagnostics_.selectedPackets;
-    auto scan = input.data.keyboard.MakeCode;
-    if (!scan) scan = static_cast<USHORT>(MapVirtualKeyW(input.data.keyboard.VKey, MAPVK_VK_TO_VSC));
-    const auto flags = input.data.keyboard.Flags;
+    RAWKEYBOARD input;
+    std::memcpy(&input, payload, sizeof(input));
+    auto scan = input.MakeCode;
+    if (!scan) scan = static_cast<USHORT>(MapVirtualKeyW(input.VKey, MAPVK_VK_TO_VSC));
+    const auto flags = input.Flags;
     const auto key = translateScan(scan, (flags & RI_KEY_E0) != 0,
-                                    (flags & RI_KEY_E1) != 0, input.data.keyboard.VKey);
+                                    (flags & RI_KEY_E1) != 0, input.VKey);
     const auto* mapping = key ? config_.findUsage(key->usage) : nullptr;
     if (!mapping) return true;
     const bool down = (flags & RI_KEY_BREAK) == 0;

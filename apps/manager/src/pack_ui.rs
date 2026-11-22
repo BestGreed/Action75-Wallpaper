@@ -251,6 +251,7 @@ fn show_controls<'a>(
                         // off-step migrated value during layout. Only user
                         // manipulation may replace the canonical JSON value.
                         if super::percent_ui::slider_edited(ui, &response) {
+                            let number = number.clamp(min, max);
                             value = if number.fract() == 0. && number.abs() < 9e15 {
                                 json!(number as i64)
                             } else {
@@ -721,42 +722,43 @@ mod tests {
     #[test]
     fn arbitrary_slider_changes_only_its_canonical_value_on_real_input() {
         use egui::{Event, Modifiers, PointerButton};
-        let schema = json!({"version":1,"groups":[{"id":"extension","label":"Extension","controls":[{"id":"brand_new_parameter","type":"slider","label":"New parameter","default":17,"min":0,"max":70,"step":1,"binding":{"target":"plugin.custom"}}]}]});
-        let ctx = egui::Context::default();
-        let mut values = Map::from_iter([("unrelated".into(), json!(44))]);
-        let mut out = Outcome::default();
-        let mut frame = |events: Vec<Event>| {
-            let _ = ctx.run(
-                RawInput {
-                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400., 400.))),
-                    events,
-                    ..Default::default()
-                },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        out = show(ui, &schema, &mut values, &[]);
-                    });
-                },
-            );
-            out.rendered["brand_new_parameter"]
-        };
-        let rect = frame(vec![]);
-        let p = Pos2::new(rect.right() - 1., rect.center().y);
-        frame(vec![Event::PointerMoved(p)]);
-        frame(vec![Event::PointerButton {
-            pos: p,
-            button: PointerButton::Primary,
-            pressed: true,
-            modifiers: Modifiers::NONE,
-        }]);
-        frame(vec![Event::PointerButton {
-            pos: p,
-            button: PointerButton::Primary,
-            pressed: false,
-            modifiers: Modifiers::NONE,
-        }]);
-        assert_eq!(values["brand_new_parameter"], 70);
-        assert_eq!(values["unrelated"], 44);
+        for (min, max, initial, step, expected) in [
+            (0., 70., 17., 1., json!(70)),
+            (0.4, 1.8, 1.2, 0.05, json!(1.8)),
+        ] {
+            let schema = json!({"version":1,"groups":[{"id":"extension","label":"Extension","controls":[{"id":"brand_new_parameter","type":"slider","label":"New parameter","default":initial,"min":min,"max":max,"step":step,"binding":{"target":"plugin.custom"}}]}]});
+            let ctx = egui::Context::default();
+            let mut values = Map::from_iter([("unrelated".into(), json!(44))]);
+            let mut out = Outcome::default();
+            let mut frame = |events: Vec<Event>| {
+                let _ = ctx.run(
+                    RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400., 400.))),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            out = show(ui, &schema, &mut values, &[]);
+                        });
+                    },
+                );
+                out.rendered["brand_new_parameter"]
+            };
+            let rect = frame(vec![]);
+            let pos = Pos2::new(rect.right() - 1., rect.center().y);
+            frame(vec![Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                frame(vec![Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                }]);
+            }
+            assert_eq!(values["brand_new_parameter"], expected);
+            assert_eq!(values["unrelated"], 44);
+        }
     }
     #[test]
     fn empty_frames_preserve_non_step_migrated_json_and_emit_no_patch() {

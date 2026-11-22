@@ -19,6 +19,9 @@
             "$include": "../../../wallpapers-native/black-hole/settings.json#/groups/2/controls/0"
           },
           {
+            "$include": "../../../wallpapers-native/black-hole/settings.json#/groups/2/controls/1"
+          },
+          {
             "$include": "native-library.json#/controls/conditional-brightness"
           },
           {
@@ -102,9 +105,6 @@
             }
           },
           {
-            "$include": "../../../wallpapers-native/black-hole/settings.json#/groups/2/controls/10"
-          },
-          {
             "$include": "../../../wallpapers-native/black-hole/settings.json#/groups/2/controls/11"
           },
           {
@@ -112,6 +112,9 @@
           },
           {
             "$include": "../../../wallpapers-native/black-hole/settings.json#/groups/2/controls/13"
+          },
+          {
+            "$include": "../../../wallpapers-native/black-hole/settings.json#/groups/2/controls/14"
           }
         ]
       }
@@ -165,6 +168,9 @@
           37,
           18
         ]
+      },
+      "foregroundOpacity": {
+        "label": "载波不透明度"
       }
     }
   },
@@ -216,6 +222,9 @@
           191,
           161
         ]
+      },
+      "foregroundOpacity": {
+        "label": "拓印不透明度"
       }
     }
   },
@@ -234,13 +243,15 @@
         "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0",
         "controls": [
           {
+            "$include": "native-library.json#/controls/foreground-opacity",
+            "id": "fractureOpacity",
+            "label": "碎裂不透明度"
+          },
+          {
             "$include": "native-library.json#/controls/impact-min"
           },
           {
             "$include": "native-library.json#/controls/impact-max"
-          },
-          {
-            "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0/controls/2"
           },
           {
             "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0/controls/3"
@@ -250,6 +261,9 @@
           },
           {
             "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0/controls/5"
+          },
+          {
+            "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/0/controls/6"
           }
         ]
       },
@@ -260,19 +274,22 @@
         "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/2",
         "controls": [
           {
+            "$include": "native-library.json#/controls/background-opacity"
+          },
+          {
             "$include": "native-library.json#/controls/backdrop"
           },
           {
             "$include": "native-library.json#/controls/background-brightness"
           },
           {
-            "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/2/controls/2"
-          },
-          {
             "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/2/controls/3"
           },
           {
             "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/2/controls/4"
+          },
+          {
+            "$include": "../../../wallpapers-native/glass-shatter/settings.json#/groups/2/controls/5"
           }
         ]
       }
@@ -364,7 +381,34 @@
     "version": 1,
     "groups": [
       {
-        "$include": "native-library.json#/groups/atlas-appearance"
+        "$include": "native-library.json#/groups/atlas-appearance",
+        "controls": [
+          {
+            "$include": "native-library.json#/controls/atlas-brightness"
+          },
+          {
+            "$include": "native-library.json#/controls/atlas-foreground-opacity"
+          },
+          {
+            "$include": "native-library.json#/controls/foreground-opacity",
+            "id": "haloOpacity",
+            "label": "弧光晕不透明度",
+            "binding": {
+              "target": "field.haloOpacity"
+            }
+          },
+          {
+            "$include": "native-library.json#/controls/foreground-opacity",
+            "id": "coreOpacity",
+            "label": "触点辉光不透明度",
+            "binding": {
+              "target": "field.coreOpacity"
+            }
+          },
+          {
+            "$include": "native-library.json#/controls/atlas-size"
+          }
+        ]
       },
       {
         "$include": "native-library.json#/groups/atlas-motion"
@@ -425,6 +469,9 @@
           23,
           32
         ]
+      },
+      "foregroundOpacity": {
+        "label": "轨道光弧不透明度"
       }
     }
   },
@@ -463,15 +510,19 @@
             }
           },
           {
+            "$include": "native-library.json#/controls/atlas-foreground-opacity",
+            "label": "不透明度"
+          },
+          {
             "$include": "native-library.json#/controls/atlas-size",
             "label": "喷溅大小",
             "default": 1.2
           },
           {
-            "$include": "../../../wallpapers-native/paintball-native/settings.json#/groups/0/controls/2"
+            "$include": "../../../wallpapers-native/paintball-native/settings.json#/groups/0/controls/3"
           },
           {
-            "$include": "../../../wallpapers-native/paintball-native/settings.json#/groups/0/controls/3"
+            "$include": "../../../wallpapers-native/paintball-native/settings.json#/groups/0/controls/4"
           }
         ]
       },
@@ -553,6 +604,9 @@
               181,
               164
             ]
+          },
+          "backgroundOpacity": {
+            "label": "不透明度"
           }
         }
       }
@@ -626,6 +680,11 @@
         "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0",
         "controls": [
           {
+            "$include": "native-library.json#/controls/foreground-opacity",
+            "id": "rippleOpacity",
+            "label": "涟漪不透明度"
+          },
+          {
             "$include": "native-library.json#/controls/impact-min",
             "default": 0.62,
             "max": 2.4,
@@ -639,9 +698,6 @@
             "binding": {
               "target": "waterSurface.impactMax"
             }
-          },
-          {
-            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0/controls/2"
           },
           {
             "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0/controls/3"
@@ -663,12 +719,19 @@
           },
           {
             "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0/controls/9"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/0/controls/10"
           }
         ]
       },
       {
         "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1",
         "controls": [
+          {
+            "$include": "native-library.json#/controls/background-opacity",
+            "label": "水面不透明度"
+          },
           {
             "$include": "native-library.json#/controls/backdrop",
             "options": [
@@ -703,9 +766,6 @@
             "max": 4
           },
           {
-            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1/controls/2"
-          },
-          {
             "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1/controls/3"
           },
           {
@@ -719,6 +779,9 @@
           },
           {
             "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1/controls/7"
+          },
+          {
+            "$include": "../../../wallpapers-native/stillwater/settings.json#/groups/1/controls/8"
           }
         ]
       }
@@ -775,6 +838,9 @@
           34,
           43
         ]
+      },
+      "foregroundOpacity": {
+        "label": "波纹不透明度"
       }
     }
   }

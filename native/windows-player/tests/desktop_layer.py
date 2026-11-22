@@ -18,6 +18,7 @@ parent = win.api(win.USER,"GetParent",W.HWND,W.HWND)
 sibling = win.api(win.USER,"GetWindow",W.HWND,W.HWND,W.UINT)
 get_prop = win.api(win.USER,"GetPropW",W.HANDLE,W.HWND,W.LPCWSTR)
 bounds = win.api(win.USER,"GetWindowRect",W.BOOL,W.HWND,C.POINTER(W.RECT))
+show_window = win.api(win.USER,"ShowWindowAsync",W.BOOL,W.HWND,C.c_int)
 
 @contextmanager
 def process(args, root, desktop):
@@ -73,6 +74,25 @@ def exercise(root, layout, presentation):
                 assert worker and not active["desktopLayerActive"],active
                 host=top("Action75NativeWindow")[0]
                 assert win.visible(host)
+                def keyboard_bar():
+                    return next(h for h in top("Shell_SecondaryTrayWnd")
+                                if win.text_of(win.window_title,h)=="keyboard bar")
+                def check_taskbars(hidden):
+                    win.wait_for(lambda:bool(win.visible(keyboard_bar()))!=hidden,
+                                 "keyboard taskbar visibility")
+                    assert all(win.visible(h) for h in top("Shell_TrayWnd"))
+                    assert all(win.visible(h) for h in top("Shell_SecondaryTrayWnd") if h!=keyboard_bar())
+                def hide_taskbar(value,fail=False):
+                    return call("setSettings",fail=fail,settings={"hideKeyboardTaskbar":value})
+                assert active["hideKeyboardTaskbar"] is False
+                check_taskbars(False)
+                hide_taskbar("invalid",True)
+                assert hide_taskbar(True)["hideKeyboardTaskbar"] is True
+                check_taskbars(True)
+                assert json.loads((state/"native-player.json").read_text())["hideKeyboardTaskbar"] is True
+                win.checked(show_window(keyboard_bar(),4))  # SW_SHOWNOACTIVATE
+                win.wait_for(lambda:win.visible(keyboard_bar()),"Explorer re-showing the taskbar")
+                check_taskbars(True)
                 def opacity(value,fail=False):
                     return call("setPackSettings",fail=fail,id="tidal-signal",values={"desktop":value})
                 if presentation=="shared":
@@ -84,6 +104,7 @@ def exercise(root, layout, presentation):
                         opacity(value)
                         status=call("status")
                         assert status["nativeWorkerPid"]==worker and status["desktopLayerActive"]==(value<100),status
+                        check_taskbars(True)
                         layers=child(parent_window,"Action75DesktopSurface")
                         assert bool(win.visible(host))==(value==100)
                         if value==100:
@@ -103,8 +124,10 @@ def exercise(root, layout, presentation):
                     assert call("status")["nativeWorkerPid"]==worker
                     assert call("testMonitor",device="",firstKey=True)["keyHandle"]<0
                     assert not win.visible(host) and not win.visible(child(parent_window,"Action75DesktopSurface")[0])
+                    check_taskbars(False)
                     assert call("testMonitor",device="A",width=640,height=360,firstKey=True)["keyHandle"]>0
                     assert win.visible(child(parent_window,"Action75DesktopSurface")[0])
+                    check_taskbars(True)
                     call("testMonitor",device="")
                     win.wait_for(lambda:call("status")["graphicsSuspended"],"detached graphics release")
                     restored=call("testMonitor",device="A",width=640,height=360,firstKey=True)
@@ -121,8 +144,17 @@ def exercise(root, layout, presentation):
                         parent_window=progman
                         win.wait_for(lambda:any(win.visible(h) for h in child(progman,"Action75DesktopSurface")),"restored shell layer")
                         assert call("status")["nativeWorkerPid"]==restored["nativeWorkerPid"]
-                call("stop")
+                        check_taskbars(True)
+                assert hide_taskbar(False)["hideKeyboardTaskbar"] is False
+                check_taskbars(False)
+                hide_taskbar(True)
+                check_taskbars(True)
+                if layout=="classic" and presentation=="native":
+                    assert win.terminate(player.handle,0)
+                else:
+                    call("stop")
                 assert win.wait(player.handle,5000)==0
+                check_taskbars(False)
                 assert not child(parent_window,"Action75DesktopSurface")
     finally:
         win.close_desktop(desktop)

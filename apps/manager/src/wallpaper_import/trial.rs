@@ -8,13 +8,16 @@ use std::{
 
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, E_ACCESSDENIED, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+        Foundation::{
+            CloseHandle, E_ACCESSDENIED, GENERIC_ALL, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT,
+        },
         Security::{
-            CreateRestrictedToken, CreateWellKnownSid, DISABLE_MAX_PRIVILEGE, GetLengthSid,
-            GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, PSID,
-            SID_AND_ATTRIBUTES, SetTokenInformation, TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY,
-            TOKEN_DUPLICATE, TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TokenIntegrityLevel,
-            WinBuiltinAdministratorsSid, WinMediumLabelSid,
+            ACL, ACL_REVISION, AddAccessAllowedAce, CreateRestrictedToken, CreateWellKnownSid,
+            DISABLE_MAX_PRIVILEGE, GetLengthSid, GetSidSubAuthority, GetSidSubAuthorityCount,
+            GetTokenInformation, InitializeAcl, PSID, SID_AND_ATTRIBUTES, SetTokenInformation,
+            TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DEFAULT_DACL, TOKEN_DUPLICATE,
+            TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER, TokenDefaultDacl, TokenIntegrityLevel,
+            TokenUser, WinBuiltinAdministratorsSid, WinLocalSystemSid, WinMediumLabelSid,
         },
         System::{
             JobObjects::{
@@ -91,6 +94,7 @@ fn ordinary_token() -> windows::core::Result<Handle> {
             "无法读取控制台权限",
         )?;
         let source = Handle(source);
+        let elevated = token_integrity(source.0)? > MEDIUM_INTEGRITY;
         CreateWellKnownSid(
             WinBuiltinAdministratorsSid,
             PSID::default(),
@@ -128,7 +132,45 @@ fn ordinary_token() -> windows::core::Result<Handle> {
             ),
             "无法降为普通权限",
         )?;
+        if elevated {
+            checked(
+                set_trial_default_dacl(restricted.0),
+                "无法设置试播进程的默认访问权限",
+            )?;
+        }
         Ok(restricted)
+    }
+}
+
+fn set_trial_default_dacl(token: HANDLE) -> windows::core::Result<()> {
+    let mut user = [0usize; 16];
+    let mut system = [0u32; 17];
+    // ACL header plus two access-allowed ACEs with maximum-length SIDs.
+    let mut storage = [0u32; 40];
+    let acl = storage.as_mut_ptr().cast::<ACL>();
+    let system_sid = PSID(system.as_mut_ptr().cast());
+    unsafe {
+        GetTokenInformation(
+            token,
+            TokenUser,
+            Some(user.as_mut_ptr().cast()),
+            size_of::<[usize; 16]>() as u32,
+            &mut 0,
+        )?;
+        let user_sid = (*user.as_ptr().cast::<TOKEN_USER>()).User.Sid;
+        CreateWellKnownSid(WinLocalSystemSid, PSID::default(), system_sid, &mut 68)?;
+        InitializeAcl(acl, size_of::<[u32; 40]>() as u32, ACL_REVISION)?;
+        // An elevated token's default ACL can grant access through Administrators,
+        // which is deny-only after restriction. Give the trial owner access directly.
+        AddAccessAllowedAce(acl, ACL_REVISION, GENERIC_ALL.0, user_sid)?;
+        AddAccessAllowedAce(acl, ACL_REVISION, GENERIC_ALL.0, system_sid)?;
+        let default_dacl = TOKEN_DEFAULT_DACL { DefaultDacl: acl };
+        SetTokenInformation(
+            token,
+            TokenDefaultDacl,
+            (&default_dacl as *const TOKEN_DEFAULT_DACL).cast(),
+            size_of::<TOKEN_DEFAULT_DACL>() as u32,
+        )
     }
 }
 
@@ -314,12 +356,16 @@ fn run_process(
 
 fn process_integrity(process: HANDLE) -> windows::core::Result<u32> {
     let mut token = HANDLE::default();
+    unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token)? };
+    let token = Handle(token);
+    token_integrity(token.0)
+}
+
+fn token_integrity(token: HANDLE) -> windows::core::Result<u32> {
     let mut buffer = [0usize; 16];
     unsafe {
-        OpenProcessToken(process, TOKEN_QUERY, &mut token)?;
-        let token = Handle(token);
         GetTokenInformation(
-            token.0,
+            token,
             TokenIntegrityLevel,
             Some(buffer.as_mut_ptr().cast()),
             size_of::<[usize; 16]>() as u32,

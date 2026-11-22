@@ -34,7 +34,8 @@ int wmain(int argc, wchar_t **argv) {
     return 0;
   }
   auto instance = GetModuleHandleW(nullptr);
-  for (auto cls : {L"Progman", L"WorkerW", L"SHELLDLL_DefView"}) {
+  for (auto cls : {L"Progman", L"WorkerW", L"SHELLDLL_DefView", L"Shell_TrayWnd",
+                   L"Shell_SecondaryTrayWnd"}) {
     WNDCLASSW wc{};
     wc.hInstance = instance;
     wc.lpszClassName = cls;
@@ -52,7 +53,14 @@ int wmain(int argc, wchar_t **argv) {
   HWND backdrop = window(L"WorkerW", L"background", modern ? progman : nullptr);
   HWND folder = modern ? progman : window(L"WorkerW", L"folder", nullptr);
   HWND icons = window(L"SHELLDLL_DefView", L"icons", folder);
-  if (!progman || !backdrop || !folder || !icons ||
+  auto bar = [&](const wchar_t *cls, const wchar_t *title, int x) {
+    return CreateWindowExW(WS_EX_NOACTIVATE, cls, title, WS_POPUP | WS_VISIBLE,
+                           x, 330, 640, 30, nullptr, nullptr, instance, nullptr);
+  };
+  const auto primary = bar(L"Shell_TrayWnd", L"primary bar", -700);
+  const auto selected = bar(L"Shell_SecondaryTrayWnd", L"keyboard bar", 0);
+  const auto other = bar(L"Shell_SecondaryTrayWnd", L"other secondary bar", 800);
+  if (!progman || !backdrop || !folder || !icons || !primary || !selected || !other ||
       !SetWindowPos(modern ? icons : folder, HWND_TOP, 0, 0, 0, 0,
                     SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE))
     return 3;

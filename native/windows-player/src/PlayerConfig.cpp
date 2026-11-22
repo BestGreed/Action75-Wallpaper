@@ -141,4 +141,12 @@ const KeyMapping* PlayerConfig::findUsage(std::uint16_t usage) const noexcept {
     return it == keys.end() ? nullptr : &*it;
 }
 
+std::optional<KeyMapping> PlayerConfig::fnKey() const {
+    const auto* alt = findCode("AltRight");
+    const auto* ctrl = findCode("ControlRight");
+    if (!alt || !ctrl) return std::nullopt;
+    // Fn sits between the two calibrated keys and has no Keyboard/Keypad usage.
+    return KeyMapping{"Fn", 0, (alt->x + ctrl->x) * .5f, (alt->y + ctrl->y) * .5f};
+}
+
 } // namespace action75

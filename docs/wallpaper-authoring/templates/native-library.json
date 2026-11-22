@@ -49,6 +49,9 @@
           "$include": "#/controls/atlas-brightness"
         },
         {
+          "$include": "#/controls/atlas-foreground-opacity"
+        },
+        {
           "$include": "#/controls/atlas-size"
         }
       ]
@@ -276,6 +279,9 @@
           "appearance": "brightness"
         },
         {
+          "$include": "#/controls/atlas-background-opacity"
+        },
+        {
           "id": "backgroundSaturation",
           "type": "slider",
           "label": "饱和度",
@@ -373,6 +379,9 @@
       "label": "背景",
       "controls": [
         {
+          "$include": "#/controls/background-opacity"
+        },
+        {
           "id": "backgroundStyle",
           "type": "select",
           "label": "背景",
@@ -449,6 +458,9 @@
       "id": "color",
       "label": "色彩与光",
       "controls": [
+        {
+          "$include": "#/controls/foreground-opacity"
+        },
         {
           "id": "palette",
           "type": "palette",
@@ -1004,6 +1016,41 @@
         "target": "blackHole.nebulaTint"
       },
       "surface": "background"
+    },
+    "layer-opacity": {
+      "type": "slider",
+      "default": 100,
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "%",
+      "appearance": "opacity",
+      "advanced": false
+    },
+    "foreground-opacity": {
+      "$include": "#/controls/layer-opacity",
+      "id": "foregroundOpacity",
+      "label": "按键特效不透明度",
+      "surface": "foreground"
+    },
+    "background-opacity": {
+      "$include": "#/controls/layer-opacity",
+      "id": "backgroundOpacity",
+      "label": "背景不透明度",
+      "surface": "background"
+    },
+    "atlas-foreground-opacity": {
+      "$include": "#/controls/foreground-opacity",
+      "label": "闪光不透明度",
+      "binding": {
+        "target": "foreground.opacity"
+      }
+    },
+    "atlas-background-opacity": {
+      "$include": "#/controls/background-opacity",
+      "binding": {
+        "target": "background.opacity"
+      }
     }
   }
 }

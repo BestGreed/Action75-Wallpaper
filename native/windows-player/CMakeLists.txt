@@ -118,7 +118,7 @@ endif()
 set_target_properties(Action75WallpaperWorker PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<1:${ACTION75_DIST_DIR}/Action75Native>")
 foreach(host Action75Native Action75Perf)
     add_executable(${host} WIN32 cmake/ProcessHeap.manifest
-        src/main.cpp src/IpcServer.cpp src/Dx12Output.cpp
+        src/main.cpp src/IpcServer.cpp src/Dx12Output.cpp src/KeyboardTaskbar.cpp
         src/SpriteBurst.cpp src/KeycapEffect.cpp src/FieldEffect.cpp src/ProceduralBurst.cpp src/PixelFluid.cpp)
     target_include_directories(${host} PRIVATE include)
     target_link_libraries(${host} PRIVATE action75_pack_backdrop

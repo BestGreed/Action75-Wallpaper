@@ -11,6 +11,7 @@ pub enum Icon {
     Devices,
     Performance,
     Settings,
+    Shield,
     Search,
     ClosePanel,
     OpenPanel,
@@ -255,7 +256,7 @@ fn focus_outline(ui: &Ui, response: &Response) {
     }
 }
 
-fn paint_icon(ui: &Ui, icon: Icon, center: Pos2, size: f32, color: Color32) {
+pub fn paint_icon(ui: &Ui, icon: Icon, center: Pos2, size: f32, color: Color32) {
     let scale = size / 24.;
     let p = |x: f32, y: f32| center + vec2(x - 12., y - 12.) * scale;
     let painter = ui.painter();
@@ -325,6 +326,21 @@ fn paint_icon(ui: &Ui, icon: Icon, center: Pos2, size: f32, color: Color32) {
                 line([x, middle + 2.], [x, 19.5]);
                 line([x - 2., middle], [x + 2., middle]);
             }
+        }
+        Icon::Shield => {
+            path(&[
+                [12., 3.5],
+                [19., 6.5],
+                [19., 11.5],
+                [17.5, 15.7],
+                [12., 20.5],
+                [6.5, 15.7],
+                [5., 11.5],
+                [5., 6.5],
+                [12., 3.5],
+            ]);
+            line([12., 8.5], [12., 12.]);
+            painter.circle_filled(p(12., 15.), 0.75 * scale, color);
         }
         Icon::Search => {
             painter.circle_stroke(p(10.4, 10.4), 6.1 * scale, stroke);

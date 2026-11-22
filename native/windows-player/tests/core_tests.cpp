@@ -58,6 +58,12 @@ void configTests(const std::filesystem::path& root) {
     const auto merged = action75::PlayerConfig::fromDocuments(base, partial);
     require(merged.findCode("KeyA")->x == 0 && merged.findCode("KeyA")->y == 1, "Accept exact screen edges");
     require(merged.findCode("KeyW")->x == uncalibrated.findCode("KeyW")->x, "Unspecified overrides retain defaults");
+    partial["points"]["AltRight"] = {{"x",0.60},{"y",0.88}};
+    partial["points"]["ControlRight"] = {{"x",0.80},{"y",0.94}};
+    const auto withFn = action75::PlayerConfig::fromDocuments(base, partial);
+    const auto fn = withFn.fnKey();
+    require(fn && fn->code == "Fn" && fn->usage == 0 && close(fn->x, 0.70) && close(fn->y, 0.91) &&
+            withFn.keys.size() == config.keys.size(), "Place Fn between its calibrated neighbors");
     auto invalid = partial;
     invalid["points"]["UnknownKey"] = {{"x",0.5},{"y",0.5}};
     rejects([&] { action75::PlayerConfig::fromDocuments(base, invalid); }, "Reject unknown calibration key");
@@ -180,6 +186,25 @@ void inputTests() {
     require(action75::matchesDeviceGroup(L"HID#OTHER", ""), "Empty group explicitly means all keyboards");
 
     const std::string group = "VID_1CA6&PID_1A0B";
+    using action75::Action75FnReport;
+    const auto consumer = L"\\\\?\\hid#vid_1ca6&pid_1a0b&mi_01&col02#example";
+    require(Action75FnReport::acceptsDevice(consumer, group) &&
+            Action75FnReport::acceptsDevice(consumer, "") &&
+            !Action75FnReport::acceptsDevice(consumer, "VID_1234&PID_ABCD") &&
+            !Action75FnReport::acceptsDevice(L"HID#VID_1CA6&PID_1A0B&MI_01&COL04", ""),
+            "Decode Fn only from the selected Action75 Consumer Control collection");
+    Action75FnReport firstFn, secondFn;
+    const std::uint8_t neutral[]{2, 0, 0};
+    const std::uint8_t volumeUp[]{2, 0xe9, 0};
+    const std::uint8_t differentReport[]{1, 0, 0};
+    require(firstFn.releasedFn(neutral, sizeof(neutral)), "Standalone Fn release emits a tap");
+    require(!firstFn.releasedFn(volumeUp, sizeof(volumeUp)), "Media press is not Fn");
+    require(!firstFn.releasedFn(differentReport, sizeof(differentReport)) &&
+            !firstFn.releasedFn(neutral, sizeof(neutral) - 1), "Ignore unrelated or truncated reports");
+    require(secondFn.releasedFn(neutral, sizeof(neutral)), "Keep media state separate per device");
+    require(!firstFn.releasedFn(neutral, sizeof(neutral)), "Media release does not emit a tap");
+    require(firstFn.releasedFn(neutral, sizeof(neutral)), "The next Fn release still emits a tap");
+
     std::vector<action75::KeyboardDevice> devices{{nullptr, L"HID#VID_1234&PID_ABCD", false}};
     require(!action75::connectedKeyboardGroup(group, devices), "Reject setup when the chosen keyboard is removed");
     devices.push_back({nullptr, L"HID#vid_1ca6&pid_1a0b&mi_02", false});

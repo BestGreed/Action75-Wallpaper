@@ -5,6 +5,7 @@
 #endif
 #include <Windows.h>
 #include "PlayerConfig.h"
+#include <cstddef>
 #include <functional>
 #include <optional>
 #include <unordered_map>
@@ -36,6 +37,15 @@ std::optional<ScanKey> translateScan(std::uint16_t scan, bool extended, bool e1,
                                     std::uint16_t virtualKey);
 bool matchesDeviceGroup(const std::wstring& path, const std::string& group);
 bool connectedKeyboardGroup(const std::string& group, const std::vector<KeyboardDevice>& devices);
+
+class Action75FnReport {
+public:
+    static constexpr std::size_t ReportBytes = 3;
+    static bool acceptsDevice(const std::wstring& path, const std::string& group);
+    bool releasedFn(const std::uint8_t* report, std::size_t size) noexcept;
+private:
+    bool mediaPressed_ = false;
+};
 
 // Only pressed USB usages are retained. No text, key history or injected events.
 // Return true only when the union across selected device collections changes.
@@ -80,12 +90,14 @@ private:
     void release(std::uint16_t usage);
     void emit(const KeyMapping& key, bool down);
     void releaseAll();
+    void processFnReports(HANDLE device, const std::uint8_t* payload, std::size_t size);
     PlayerConfig config_;
     Callback callback_;
     DeviceEnumerator enumerateDevices_;
     HWND window_ = nullptr;
     std::unordered_set<std::uintptr_t> selected_;
     std::unordered_set<std::uintptr_t> rejected_;
+    std::unordered_map<HANDLE, Action75FnReport> fnCollections_;
     KeyboardState state_;
     std::string error_;
     Diagnostics diagnostics_;

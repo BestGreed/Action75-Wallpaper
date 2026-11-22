@@ -30,13 +30,16 @@ public:
     if (!store.hasSchema(id))
       throw std::runtime_error(store.schemaError(id));
     auto rendererSchema = store.current(id).schema;
-    // D3D11 regression tests use only renderer bindings and declared playback controls.
+    // D3D11 regression tests use renderer bindings and playback controls.
+    // Layer opacity belongs to the native plugin.
     for (auto &group : rendererSchema.at("groups")) {
       if (group.contains("playback"))
         continue;
       auto &controls = group.at("controls");
       controls.erase(std::remove_if(controls.begin(), controls.end(),
-          [](const auto &control) { return !control.contains("binding"); }), controls.end());
+          [](const auto &control) {
+            return !control.contains("binding") || control.value("appearance", "") == "opacity";
+          }), controls.end());
     }
     std::ofstream stream(schema_, std::ios::binary);
     stream << rendererSchema.dump();

@@ -1,9 +1,11 @@
 #include "EffekseerBackend.h"
+#include "LegacyNativeSettings.h"
 #include "PackSettings.h"
 #include <d3d11.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -22,10 +24,12 @@ int wmain(int argc, wchar_t **argv) {
   try {
     require(argc >= 2, "Expected Paintball directory");
     const auto pack = std::filesystem::absolute(argv[1]);
-    // Evaluation and preview do not create this state directory.
-    action75::PackSettingsStore settings(std::filesystem::temp_directory_path() /
-                                         "Action75-Pigment-ReadOnly-Test-State");
-    settings.registerPack("paintball-native", pack, pack / "settings.json");
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto scratch = std::filesystem::temp_directory_path() /
+                         ("Action75-Pigment-" + std::to_string(stamp));
+    const action75::test::LegacyNativeSettings legacy(scratch);
+    action75::PackSettingsStore settings(scratch);
+    legacy.registerPack(settings, "paintball-native", pack);
     const auto defaults = settings.evaluate(settings.current("paintball-native"));
     const auto concentrated =
         settings.evaluate(settings.prepare("paintball-native", {{"density", 100}}));

@@ -9,6 +9,7 @@
 #include "FramePacer.h"
 #include "GlassShatter.h"
 #include "IpcServer.h"
+#include "KeyboardTaskbar.h"
 #include "KeycapEffect.h"
 #include "MonitorSelection.h"
 #include "Dx12Output.h"
@@ -572,6 +573,7 @@ private:
   void refreshDesktopLayer();
   void updateVisibility();
   void refreshDisplayGuard();
+  void refreshKeyboardTaskbar();
   void stopEffects();
   void applyAppearance();
   void refreshPacks();
@@ -642,6 +644,7 @@ private:
   std::unique_ptr<RawKeyboard> keyboard_;
   IpcServer server_;
   DisplayGuard displayGuard_;
+  KeyboardTaskbar keyboardTaskbar_;
   NOTIFYICONDATAW tray_{};
   bool exitShortcut_ = false, quittingSession_ = false;
   UINT taskbarCreated_ = 0;
@@ -649,6 +652,8 @@ private:
   bool hasMonitor_ = false, paused_ = false, visible_ = true, dirty_ = true;
   bool persistedPaused_ = false;
   bool exclusiveDisplay_ = false;
+  bool hideKeyboardTaskbar_ = false;
+  bool keyboardTaskbarFailed_ = false;
   bool keyboardZOrderTimer_ = false;
   HANDLE temporaryPauseOwner_ = nullptr;
   DWORD temporaryPauseOwnerPid_ = 0;
@@ -766,6 +771,8 @@ json Player::status() const {
       {"outputReady", outputReady()},
       {"monitorError", monitorError_.empty() ? json(nullptr) : json(monitorError_)},
       {"exclusiveDisplay", exclusiveDisplay_},
+      {"hideKeyboardTaskbar", hideKeyboardTaskbar_},
+      {"keyboardTaskbarFailed", keyboardTaskbarFailed_},
       {"gpuPreference", gpuPreference_ == GpuPreference::Integrated ? "integrated" : "discrete"},
       {"gpuAdapter", utf8(renderer_.adapterName())},
       {"gpuAdapterLuid", renderer_.adapterLuid()},
@@ -977,6 +984,7 @@ void Player::saveSettings() {
                                                         {"deviceGroup", mapping_.deviceGroup},
                                                         {"paused", persistedPaused_},
                                                         {"visible", visible_},
+                                                        {"hideKeyboardTaskbar", hideKeyboardTaskbar_},
                                                         {"exclusiveDisplay", exclusiveDisplay_}});
 }
 void Player::refreshPacks() {
@@ -1316,6 +1324,7 @@ void Player::updateVisibility() {
     }
   }
   refreshDisplayGuard();
+  refreshKeyboardTaskbar();
   dirty_ = true;
 }
 void Player::refreshDisplayGuard() {
@@ -1330,6 +1339,16 @@ void Player::refreshDisplayGuard() {
   displayGuard_.configure(window_, wide(monitorDevice_), monitorIdentity_,
                           exclusiveDisplay_ && visible_ && !packId_.empty(),
                           temporaryPauseOwner_ != nullptr || (hasMonitor_ && !outputReady()));
+}
+void Player::refreshKeyboardTaskbar() {
+  RECT bounds{};
+  if (hideKeyboardTaskbar_ && !quittingSession_ && usesOutputWindow() && visible_ &&
+      outputReady() && !packId_.empty() && GetWindowRect(window_, &bounds)) {
+    keyboardTaskbarFailed_ = !keyboardTaskbar_.hide(window_, bounds);
+  } else {
+    keyboardTaskbar_.restore();
+    keyboardTaskbarFailed_ = false;
+  }
 }
 void Player::stopEffects() {
   resetPluginPointer(false);
@@ -2054,6 +2073,9 @@ json Player::dispatch(const json &request) {
       if (changes.contains("exclusiveDisplay") && !changes["exclusiveDisplay"].is_boolean())
         throw std::runtime_error("Exclusive display must be a boolean");
       const bool exclusiveDisplay = changes.value("exclusiveDisplay", exclusiveDisplay_);
+      if (changes.contains("hideKeyboardTaskbar") && !changes["hideKeyboardTaskbar"].is_boolean())
+        throw std::runtime_error("Hide keyboard taskbar must be a boolean");
+      const bool hideKeyboardTaskbar = changes.value("hideKeyboardTaskbar", hideKeyboardTaskbar_);
       if (monitorChanged && !monitor.empty()) {
         const auto all = monitors();
         const auto selected = std::find_if(all.begin(), all.end(), [&](const Monitor &item) {
@@ -2075,7 +2097,7 @@ json Player::dispatch(const json &request) {
       for (auto setting = changes.begin(); setting != changes.end(); ++setting) {
         const auto &key = setting.key();
         if (key == "fps" || key == "monitorDevice" || key == "monitorIdentity" || key == "deviceGroup" ||
-            key == "exclusiveDisplay")
+            key == "exclusiveDisplay" || key == "hideKeyboardTaskbar")
           continue;
         if (key == "effectBrightness" || key == "effectScale" || key == "effectIntensity" ||
             key == "effectSaturation" || key == "effectColor" || key == "effectPalette" ||
@@ -2110,7 +2132,8 @@ json Player::dispatch(const json &request) {
         updateProfile(*profile, appearance, true);
       }
       const bool rateChanged = fps_ != fps, deviceChanged = mapping_.deviceGroup != group,
-                 guardChanged = exclusiveDisplay_ != exclusiveDisplay;
+                 guardChanged = exclusiveDisplay_ != exclusiveDisplay,
+                 taskbarChanged = hideKeyboardTaskbar_ != hideKeyboardTaskbar;
       fps_ = fps;
       mapping_.deviceGroup = group;
       if (monitorChanged) {
@@ -2118,16 +2141,21 @@ json Player::dispatch(const json &request) {
         monitorIdentity_ = std::move(chosenIdentity);
       }
       exclusiveDisplay_ = exclusiveDisplay;
+      hideKeyboardTaskbar_ = hideKeyboardTaskbar;
       if ((deviceChanged || requireConnectedKeyboard) && keyboard_)
         keyboard_->setConfig(mapping_);
       if (deviceChanged || monitorChanged)
         stopEffects();
       if (monitorChanged)
         chooseMonitor();
-      else if (guardChanged) {
-        if (exclusiveDisplay_)
-          resetPluginPointer();
-        refreshDisplayGuard();
+      else {
+        if (guardChanged) {
+          if (exclusiveDisplay_)
+            resetPluginPointer();
+          refreshDisplayGuard();
+        }
+        if (taskbarChanged)
+          refreshKeyboardTaskbar();
       }
       if (rateChanged)
         pacer_.reset();
@@ -2186,7 +2214,9 @@ json Player::dispatch(const json &request) {
         throw std::runtime_error(error_);
       result = status();
     } else if (action == "testTrigger" && options_.headless) {
-      const auto *key = mapping_.findCode(request.at("code").get<std::string>());
+      const auto code = request.at("code").get<std::string>();
+      const auto fn = code == "Fn" ? mapping_.fnKey() : std::nullopt;
+      const auto *key = fn ? &*fn : mapping_.findCode(code);
       if (!key || (effectId_ < 0 && scene_.empty()) || paused_ || !visible_)
         throw std::runtime_error("Diagnostic key cannot trigger the current state");
       if (request.contains("count") && !request["count"].is_number_integer())
@@ -2380,6 +2410,7 @@ void Player::quitSession(HWND window) {
   quittingSession_ = true;
   resetPluginPointer();
   displayGuard_.stop();
+  keyboardTaskbar_.restore();
   // The event also reaches a panel still creating its first UI window.
   const auto name = L"Local\\" + options_.rootEndpoint + L"-ManagerQuit";
   HANDLE panel = OpenEventW(EVENT_MODIFY_STATE, FALSE, name.c_str());
@@ -2405,6 +2436,7 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
   if (taskbarCreated_ && m == taskbarCreated_) {
     registerTrayIcon();
     refreshDesktopLayer();
+    refreshKeyboardTaskbar();
     return 0;
   }
   if (keyboard_)
@@ -2543,6 +2575,7 @@ LRESULT Player::message(HWND h, UINT m, WPARAM w, LPARAM l) {
     RemovePropW(h, (options_.rootEndpoint + L"-PlayerWindow").c_str());
     resetPluginPointer();
     displayGuard_.stop();
+    keyboardTaskbar_.restore();
     server_.requestStop();
     PostQuitMessage(0);
     return 0;
@@ -2930,6 +2963,7 @@ int Player::run() {
       paused_ = stored.value("paused", false);
       visible_ = stored.value("visible", true);
       exclusiveDisplay_ = stored.value("exclusiveDisplay", false);
+      hideKeyboardTaskbar_ = stored.value("hideKeyboardTaskbar", false);
       legacyPackId_ = packId_;
       for (const char *field :
            {"effectBrightness", "effectScale", "effectIntensity", "effectSaturation", "effectColor",
@@ -2947,6 +2981,7 @@ int Player::run() {
       paused_ = false;
       visible_ = true;
       exclusiveDisplay_ = false;
+      hideKeyboardTaskbar_ = false;
       error_ = std::string("Settings could not be loaded; defaults are active: ") + e.what();
     }
   } else if (!options_.headless) {
@@ -3289,6 +3324,8 @@ static json selfTest(const Options &o) {
   return report;
 }
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
+  if (const auto helper = KeyboardTaskbar::runHelper())
+    return *helper;
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
   HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   HANDLE single = nullptr;

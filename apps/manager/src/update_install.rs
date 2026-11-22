@@ -80,7 +80,7 @@ pub fn installed(root: &Path) -> bool {
 
 pub fn check_download_permission() -> Result<(), String> {
     if win::is_elevated()? {
-        return Err("管理员模式下无法更新。请以普通权限重新打开控制台。".into());
+        return Err("安装更新需要以普通权限重新打开控制台。".into());
     }
     Ok(())
 }
@@ -95,7 +95,7 @@ impl Drop for Event {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Resume {
+pub(crate) struct Resume {
     pid: u32,
     state: Option<PathBuf>,
     pipe: Option<String>,
@@ -103,7 +103,7 @@ struct Resume {
     hardware: bool,
 }
 
-fn status(root: &Path) -> Result<Option<Value>, String> {
+pub(crate) fn status(root: &Path) -> Result<Option<Value>, String> {
     match command(root, json!({"action":"status"})) {
         Ok(v) => Ok(Some(v)),
         Err(e) if e == "播放器未启动" => Ok(None),
@@ -112,7 +112,7 @@ fn status(root: &Path) -> Result<Option<Value>, String> {
 }
 
 impl Resume {
-    fn capture(root: &Path, s: &Value) -> Result<Self, String> {
+    pub(crate) fn capture(root: &Path, s: &Value) -> Result<Self, String> {
         let pid = s["playerPid"]
             .as_u64()
             .and_then(|id| u32::try_from(id).ok())
@@ -136,7 +136,7 @@ impl Resume {
         })
     }
 
-    fn stop(&self, root: &Path) -> Result<(), String> {
+    pub(crate) fn stop(&self, root: &Path) -> Result<(), String> {
         let Some(current) = status(root)? else {
             return Ok(());
         };
@@ -152,10 +152,7 @@ impl Resume {
         }
     }
 
-    fn restore(&self, root: &Path) -> Result<(), String> {
-        if status(root)?.is_some() {
-            return Ok(());
-        }
+    fn launch(&self, root: &Path) -> Command {
         let mut cmd = Command::new(player(root));
         cmd.current_dir(root).arg("--root").arg(root);
         if let Some(state) = &self.state {
@@ -170,7 +167,22 @@ impl Resume {
         if self.hardware {
             cmd.arg("--headless-hardware");
         }
-        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+        cmd
+    }
+
+    pub(crate) fn restore(&self, root: &Path) -> Result<(), String> {
+        self.restore_checked(root, |_| Ok(()))
+    }
+
+    pub(crate) fn restore_checked(
+        &self,
+        root: &Path,
+        check: impl Fn(&Value) -> Result<(), String>,
+    ) -> Result<(), String> {
+        if let Some(existing) = status(root)? {
+            return check(&existing);
+        }
+        let mut child = self.launch(root).spawn().map_err(|e| e.to_string())?;
         restore::confirm(&mut child, Duration::from_secs(12), |remaining| {
             let status = match crate::player_control::command_timeout(
                 root,
@@ -183,6 +195,7 @@ impl Resume {
             };
             status
                 .map(|s| {
+                    check(&s)?;
                     s["playerPid"]
                         .as_u64()
                         .and_then(|pid| u32::try_from(pid).ok())

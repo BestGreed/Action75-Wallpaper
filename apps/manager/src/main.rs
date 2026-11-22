@@ -48,6 +48,20 @@ const NAVIGATION: [(u8, &str, Icon); 5] = [
     (3, "设置", Icon::Settings),
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OrdinaryAction {
+    Import,
+    Update,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Restart {
+    #[default]
+    None,
+    Graphics,
+    Ordinary(OrdinaryAction),
+}
+
 fn main() -> eframe::Result {
     if let Some(code) = core::update_install::helper_mode() {
         std::process::exit(code);
@@ -58,6 +72,9 @@ fn main() -> eframe::Result {
     let mut calibrate = false;
     let mut devices = false;
     let mut open_settings = false;
+    let mut ordinary_playback = None;
+    let mut ordinary_launcher = false;
+    let mut switch_error = None;
     let mut background = false;
     let mut toggle_startup = false;
     let mut game_compatible = false;
@@ -93,6 +110,9 @@ fn main() -> eframe::Result {
             "--calibrate" => calibrate = true,
             "--devices" => devices = true,
             "--settings" => open_settings = true,
+            "--ordinary-playback" => ordinary_playback = args.next(),
+            "--ordinary-launcher" => ordinary_launcher = true,
+            "--mode-switch-error" => switch_error = args.next(),
             "--background" => background = true,
             "--toggle-startup" => toggle_startup = true,
             "--game-compatible" => game_compatible = true,
@@ -103,6 +123,18 @@ fn main() -> eframe::Result {
             "--check" => check = true,
             _ => {}
         }
+    }
+    if ordinary_launcher {
+        let result = core::runtime_identity::installation_endpoint(&root).and_then(|id| {
+            let marker = single_instance::manager_marker(&id);
+            game_compat::open_panel(&root, open_settings, ordinary_playback.as_deref(), |pid| {
+                single_instance::panel_ready(pid, &marker)
+            })
+        });
+        return result.map_err(|error| {
+            core::storage::log(&root, "ERROR", &error);
+            eframe::Error::AppCreation(error.into())
+        });
     }
     if toggle_startup {
         toggle_startup_from_tray(&root);
@@ -176,11 +208,15 @@ fn main() -> eframe::Result {
             .with_min_inner_size([1080., 680.]),
         ..Default::default()
     };
-    let restart_on_exit = Rc::new(Cell::new(false));
+    let restart_on_exit = Rc::new(Cell::new(Restart::None));
     let mut create_manager = |cc: &eframe::CreationContext<'_>| -> Result<
         Box<dyn eframe::App>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
+        if let Some(playback) = ordinary_playback.take() {
+            game_compat::restore_playback(&root, &playback)
+                .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { error.into() })?;
+        }
         instance.mark_window(cc);
         let (api, adapter) = if let Some(state) = &cc.wgpu_render_state {
             ("DirectX 12", Some(state.adapter.get_info().name))
@@ -203,9 +239,11 @@ fn main() -> eframe::Result {
         if updated_panel && update_failed {
             manager.error = "更新安装失败，已重新打开控制台。".into();
         }
+        if let Some(error) = &switch_error {
+            manager.error = error.clone();
+        }
         manager.started_gpu_preference = gpu_preference;
         manager.controller_renderer = renderer;
-        manager.controller_adapter = adapter;
         manager.restart_on_exit = Rc::clone(&restart_on_exit);
         if calibrate {
             manager.tab = 1;
@@ -250,14 +288,34 @@ fn main() -> eframe::Result {
         }
         result => result,
     }?;
-    if restart_on_exit.get() {
+    let restart = restart_on_exit.get();
+    if restart != Restart::None {
         // Release the normal instance lock before the replacement starts.
         drop(instance);
+        let mut switch_error = None;
+        let settings = restart != Restart::Ordinary(OrdinaryAction::Import);
+        if matches!(restart, Restart::Ordinary(_)) {
+            let switched = game_compat::reopen(&root, settings);
+            match switched {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    let message = format!("无法关闭管理员模式，{error}");
+                    core::storage::log(&root, "ERROR", &message);
+                    switch_error = Some(message);
+                }
+            }
+        }
         let result = std::env::current_exe().and_then(|exe| {
             let mut command = Command::new(exe);
-            command.args(["--settings", "--root"]).arg(&root);
+            command.arg("--root").arg(&root);
+            if settings {
+                command.arg("--settings");
+            }
             if game_compatible {
                 command.arg("--game-compatible");
+            }
+            if let Some(error) = switch_error {
+                command.arg("--mode-switch-error").arg(error);
             }
             command.spawn()
         });
@@ -415,9 +473,10 @@ struct Manager {
     graphics_adapters: Option<Result<GraphicsAdapters, String>>,
     graphics_scan_needed: bool,
     restart_pending: bool,
-    restart_on_exit: Rc<Cell<bool>>,
+    restart_on_exit: Rc<Cell<Restart>>,
+    administrator: bool,
+    ordinary_prompt: Option<OrdinaryAction>,
     controller_renderer: String,
-    controller_adapter: Option<String>,
     diagnostics_copied: Option<Instant>,
     updates: update_ui::Updates,
     preview_in_flight: bool,
@@ -560,7 +619,8 @@ impl Manager {
         let (tx, rx) = core::worker(root.clone(), cc.egui_ctx.clone());
         let _ = tx.send(if updated_panel { Job::Full } else { Job::Start });
         let mut manager = Self::with_channels(root, tx, rx);
-        manager.updates.enable(&manager.root);
+        manager.administrator = game_compat::is_elevated().unwrap_or(false);
+        manager.updates.enable(&manager.root, manager.administrator);
         manager.window_frame = window_frame::WindowFrame::attach(cc);
         if manager.window_frame.is_none() {
             cc.egui_ctx
@@ -607,9 +667,10 @@ impl Manager {
             graphics_adapters: None,
             graphics_scan_needed: true,
             restart_pending: false,
-            restart_on_exit: Rc::new(Cell::new(false)),
+            restart_on_exit: Rc::new(Cell::new(Restart::None)),
+            administrator: false,
+            ordinary_prompt: None,
             controller_renderer: String::new(),
-            controller_adapter: None,
             diagnostics_copied: None,
             updates: update_ui::Updates::default(),
             preview_in_flight: false,
@@ -986,7 +1047,7 @@ impl Manager {
                 }
                 Event::RestartPrepared(result) => match result {
                     Ok(()) => {
-                        self.restart_on_exit.set(true);
+                        self.restart_on_exit.set(Restart::Graphics);
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     Err(error) => {
@@ -1584,7 +1645,7 @@ impl Manager {
                 )
                 .on_hover_text("在浏览器中打开壁纸仓库");
             });
-            self.wallpaper_import.button(
+            if self.wallpaper_import.button(
                 ui,
                 self.setup_complete
                     && !self.deleting
@@ -1592,7 +1653,10 @@ impl Manager {
                     && self.compat.is_none()
                     && self.folder_request.is_none()
                     && !self.restart_pending,
-            );
+                self.administrator,
+            ) {
+                self.ordinary_prompt = Some(OrdinaryAction::Import);
+            }
         });
     }
 
@@ -2112,6 +2176,58 @@ impl Manager {
             && !self.profile.dirty()
             && self.folder_request.is_none()
     }
+
+    fn confirm_ordinary_mode(&mut self, ctx: &egui::Context) {
+        let Some(action) = self.ordinary_prompt else {
+            return;
+        };
+        let text = match action {
+            OrdinaryAction::Import => "管理员模式下不允许导入壁纸",
+            OrdinaryAction::Update => "管理员模式下不允许安装更新",
+        };
+        let ready = self.can_install_update();
+        let frame = egui::Frame::popup(&ctx.style()).inner_margin(20);
+        let modal = egui::Modal::new("ordinary-mode".into())
+            .frame(frame)
+            .show(ctx, |ui| {
+                ui.set_width(400.);
+                ui.horizontal_top(|ui| {
+                    let (icon, _) = ui.allocate_exact_size(vec2(26., 26.), Sense::hover());
+                    ui_chrome::paint_icon(
+                        ui, Icon::Shield, icon.center(), 24., ui.visuals().weak_text_color(),
+                    );
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(text).font(ui_style::display_font(20.)));
+                        ui.add_space(3.);
+                        ui.weak("将以普通权限重开控制台，当前壁纸会短暂重载。");
+                    });
+                });
+                ui.add_space(14.);
+                ui.separator();
+                ui.add_space(8.);
+                ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                    ui.spacing_mut().button_padding = vec2(11., 6.);
+                    let confirm = egui::Button::new("关闭管理员模式")
+                        .min_size(vec2(130., 34.))
+                        .fill(ui.visuals().selection.bg_fill);
+                    let confirm = ui.add_enabled(ready, confirm).clicked();
+                    let cancel = ui
+                        .add(egui::Button::new("取消").min_size(vec2(68., 34.)))
+                        .clicked();
+                    (confirm, cancel)
+                })
+                .inner
+            });
+        let (confirm, cancel) = modal.inner;
+        if confirm {
+            self.ordinary_prompt = None;
+            self.restart_on_exit.set(Restart::Ordinary(action));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        } else if cancel || modal.should_close() {
+            self.ordinary_prompt = None;
+        }
+    }
+
     fn diagnostics_setting(&mut self, ui: &mut egui::Ui) {
         setting_row(ui, "完全退出快捷键", |ui, _| {
             ui.label("Ctrl + Alt + Shift + Q");
@@ -2152,7 +2268,11 @@ impl Manager {
             }
         });
         let ready = self.can_install_update();
-        setting_row(ui, "版本更新", |ui, _| self.updates.row(ui, ready));
+        setting_row(ui, "版本更新", |ui, _| {
+            if self.updates.row(ui, ready) {
+                self.ordinary_prompt = Some(OrdinaryAction::Update);
+            }
+        });
     }
 
     fn startup_setting(&mut self, ui: &mut egui::Ui) {
@@ -2274,11 +2394,6 @@ impl Manager {
                 setting_row(ui, "其他显卡", |ui, _| ui.label(names));
             }
         }
-        let selected_adapter = match names {
-            Some([name]) => Some(name.as_str()),
-            _ => adapters.and_then(|list| list.preferred(saved)),
-        };
-        self.active_graphics(ui, selected_adapter);
         let player_preference = match self.status["gpuPreference"].as_str() {
             Some("integrated") => Some(GpuPreference::Integrated),
             Some("discrete") => Some(GpuPreference::Discrete),
@@ -2329,40 +2444,6 @@ impl Manager {
                 self.restart_pending = true;
             }
             Err(_) => self.error = "无法重启软件，控制线程已退出".into(),
-        }
-    }
-
-    fn active_graphics(&self, ui: &mut egui::Ui, selected: Option<&str>) {
-        let controller = self.controller_adapter.as_deref();
-        let player_online = self.status["running"] == true;
-        let player = self.status["gpuAdapter"]
-            .as_str()
-            .filter(|name| player_online && !name.is_empty());
-        if selected.is_some() && selected == controller && selected == player {
-            settings_detail(ui, |ui| {
-                ui.label(
-                    RichText::new("控制台与壁纸播放器正在使用此显卡")
-                        .size(12.)
-                        .weak(),
-                );
-            });
-            return;
-        }
-        if let Some(name) = controller.filter(|_| controller == player) {
-            setting_row(ui, "正在使用", |ui, _| {
-                ui.label(name);
-                ui.label(RichText::new("控制台与壁纸播放器").size(12.).weak());
-            });
-        } else {
-            let player = player.unwrap_or(if player_online {
-                "未报告"
-            } else {
-                "未连接"
-            });
-            setting_row(ui, "控制台显卡", |ui, _| {
-                ui.label(controller.unwrap_or("未报告"))
-            });
-            setting_row(ui, "播放器显卡", |ui, _| ui.label(player));
         }
     }
 
@@ -2763,6 +2844,29 @@ impl Manager {
             if !guard_error.trim().is_empty() {
                 ui.colored_label(ui.visuals().error_fg_color, guard_error);
             }
+            ui.add_space(14.);
+
+            let requested = self.status["hideKeyboardTaskbar"].as_bool();
+            let mut hide_taskbar = requested.unwrap_or(false);
+            if ui
+                .add_enabled(
+                    requested.is_some() && self.status["running"] == true,
+                    egui::Checkbox::new(&mut hide_taskbar, "隐藏键盘副屏任务栏"),
+                )
+                .changed()
+            {
+                self.send(
+                    json!({"action":"setSettings","settings":{"hideKeyboardTaskbar":hide_taskbar}}),
+                );
+            }
+            ui.label(
+                RichText::new("运行期间隐藏所选键盘副屏的 Windows 任务栏。")
+                    .small()
+                    .weak(),
+            );
+            if self.status["keyboardTaskbarFailed"] == true {
+                ui.colored_label(ui.visuals().error_fg_color, "暂时无法隐藏副屏任务栏。");
+            }
         });
         ui.add_space(14.);
 
@@ -2822,12 +2926,12 @@ impl eframe::App for Manager {
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if single_instance::full_exit_requested() {
-            self.restart_on_exit.set(false);
+            self.restart_on_exit.set(Restart::None);
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
         self.events(ctx);
-        if self.restart_on_exit.get() {
+        if self.restart_on_exit.get() != Restart::None {
             return;
         }
         if self.restart_pending && ctx.input(|input| input.viewport().close_requested()) {
@@ -2945,7 +3049,11 @@ impl eframe::App for Manager {
         self.controls(ctx);
         if self.updates.has_update() && self.tab != 3 {
             egui::TopBottomPanel::bottom("available_update").show(ctx, |ui| {
-                ui.horizontal(|ui| self.updates.row(ui, ready));
+                ui.horizontal(|ui| {
+                    if self.updates.row(ui, ready) {
+                        self.ordinary_prompt = Some(OrdinaryAction::Update);
+                    }
+                });
             });
         }
         if !self.error.is_empty()
@@ -3063,6 +3171,7 @@ impl eframe::App for Manager {
         self.calibration.show_viewport(ctx);
         self.wallpaper_import.open_picker(frame, ctx);
         self.wallpaper_import.confirm(ctx);
+        self.confirm_ordinary_mode(ctx);
         self.updates.protect_handoff(ctx);
         self.confirm_delete(ctx);
         if self.monitor_warning.is_none() {
@@ -3072,7 +3181,7 @@ impl eframe::App for Manager {
     }
     fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
         self.calibration.shutdown();
-        if self.compat_replaced || self.restart_on_exit.get() {
+        if self.compat_replaced || self.restart_on_exit.get() == Restart::Graphics {
             // The handoff or restart has already settled the profile writes.
             let _ = self.tx.send(Job::Quit);
             return;
@@ -3563,7 +3672,7 @@ mod manager_tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default()
-                        .show(ctx, |ui| m.wallpaper_import.button(ui, true));
+                        .show(ctx, |ui| m.wallpaper_import.button(ui, true, false));
                 },
             )
         };

@@ -33,6 +33,8 @@ unsafe extern "system" {
     -> i32;
     fn SetPropW(window: Handle, name: *const u16, data: Handle) -> i32;
     fn GetPropW(window: Handle, name: *const u16) -> Handle;
+    fn GetWindowThreadProcessId(window: Handle, pid: *mut u32) -> u32;
+    fn IsWindowVisible(window: Handle) -> i32;
     fn RegisterHotKey(window: Handle, id: i32, modifiers: u32, key: u32) -> i32;
     fn UnregisterHotKey(window: Handle, id: i32) -> i32;
     fn RegisterWindowMessageW(text: *const u16) -> u32;
@@ -80,16 +82,41 @@ unsafe extern "system" fn activate_window(window: Handle, marker: isize) -> i32 
     0
 }
 
+pub fn manager_marker(endpoint: &str) -> Vec<u16> {
+    wide(&format!("{endpoint}-ManagerWindow"))
+}
+
+pub fn panel_ready(pid: u32, marker: &[u16]) -> bool {
+    struct Search<'a> {
+        pid: u32,
+        marker: &'a [u16],
+        found: bool,
+    }
+    unsafe extern "system" fn visit(window: Handle, data: isize) -> i32 {
+        let search = unsafe { &mut *(data as *mut Search<'_>) };
+        let mut pid = 0;
+        unsafe { GetWindowThreadProcessId(window, &mut pid) };
+        if pid == search.pid
+            && unsafe { GetPropW(window, search.marker.as_ptr()) } != 0
+            && unsafe { IsWindowVisible(window) } != 0
+        {
+            search.found = true;
+            return 0;
+        }
+        1
+    }
+    let mut search = Search { pid, marker, found: false };
+    unsafe { EnumWindows(visit, (&mut search as *mut Search<'_>) as isize) };
+    search.found
+}
+
 pub fn acquire(root: &Path, administrator_handoff: bool) -> Result<Option<Instance>, String> {
     let endpoint = installation_endpoint(root)?;
     let name: Vec<u16> = format!("Local\\{endpoint}-Manager")
         .encode_utf16()
         .chain(Some(0))
         .collect();
-    let marker = format!("{endpoint}-ManagerWindow")
-        .encode_utf16()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
+    let marker = manager_marker(&endpoint);
     let handle = unsafe { CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };
     if handle == 0 {
         return Err(std::io::Error::last_os_error().to_string());

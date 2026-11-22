@@ -786,7 +786,11 @@ PackSettingsCandidate PackSettingsStore::prepare(const std::string& id,const jso
   else for(auto value=patch.begin();value!=patch.end();++value) {
     const auto* control=findControl(candidate.schema,value.key());
     if(!control) throw std::runtime_error("Unknown wallpaper setting: "+value.key());
-    validateValue(*control,value.value(),candidate.playback.get(),candidate.authorValues);
+    try {
+      validateValue(*control,value.value(),candidate.playback.get(),candidate.authorValues);
+    } catch(const std::exception& error) {
+      throw std::runtime_error("Wallpaper "+id+", setting "+value.key()+": "+error.what());
+    }
     candidate.values[value.key()]=value.value();
   }
   normalizeImpactRange(candidate,patch);

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -30,6 +31,7 @@ struct PlayerConfig {
     bool tryReload(const std::filesystem::path& projectRoot, std::string& error) noexcept;
     const KeyMapping* findCode(std::string_view code) const noexcept;
     const KeyMapping* findUsage(std::uint16_t usage) const noexcept;
+    std::optional<KeyMapping> fnKey() const;
 };
 
 } // namespace action75
