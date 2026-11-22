@@ -358,7 +358,11 @@ static int runPackSettingsTests() {
       Temporary t;const auto directory=install(t,"repair",allControls());PackSettingsStore store(t.root/"state");
       registerAt(store,"repair",directory);store.commit(store.prepare("repair",{{"brightness",90},{"duration",2.5}}));
       auto changed=allControls();changed["groups"][0]["controls"][6]["max"]=1.5;
-      write(directory/"settings.json",changed);
+      const auto file=directory/"settings.json";
+      const auto previousTime=fs::last_write_time(file);
+      write(file,changed);
+      // This edit keeps the file size, so give the schema cache a distinct timestamp.
+      fs::last_write_time(file,previousTime-std::chrono::hours(1));
       const auto repaired=store.current("repair");
       require(repaired.values["brightness"]==90,"Unrelated valid value changed");
       near(static_cast<float>(repaired.values["duration"].get<double>()),.82,"Invalid old value did not use the declared default");
