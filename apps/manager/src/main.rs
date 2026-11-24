@@ -203,6 +203,7 @@ fn main() -> eframe::Result {
             .with_title(APP_NAME)
             .with_icon(app_icon)
             .with_decorations(false)
+            .with_transparent(true)
             .with_active(!background)
             .with_inner_size(initial_size)
             .with_min_inner_size([1080., 680.]),
@@ -236,6 +237,8 @@ fn main() -> eframe::Result {
         core::storage::log(&root, "INFO", &format!("管理界面使用 {renderer} 渲染"));
         ui_style::install_fonts(&cc.egui_ctx);
         let mut manager = Manager::new(cc, root.clone(), updated_panel);
+        manager.acrylic_available = cc.wgpu_render_state.is_some();
+        manager.update_acrylic();
         if updated_panel && update_failed {
             manager.error = "更新安装失败，已重新打开控制台。".into();
         }
@@ -284,6 +287,7 @@ fn main() -> eframe::Result {
                 &format!("DirectX 12 初始化失败，改用 OpenGL。{error}"),
             );
             options.renderer = eframe::Renderer::Glow;
+            options.viewport = options.viewport.with_transparent(false);
             eframe::run_native(EFRAME_APP_ID, options, Box::new(|cc| create_manager(cc)))
         }
         result => result,
@@ -354,7 +358,7 @@ fn controller_wgpu_options(preference: GpuPreference) -> eframe::egui_wgpu::Wgpu
     use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetupCreateNew};
 
     // DXGI presents a finished surface after the clear and all UI draws.
-    let setup = WgpuSetupCreateNew {
+    let mut setup = WgpuSetupCreateNew {
         instance_descriptor: wgpu::InstanceDescriptor {
             backends: wgpu::Backends::DX12,
             ..Default::default()
@@ -378,6 +382,8 @@ fn controller_wgpu_options(preference: GpuPreference) -> eframe::egui_wgpu::Wgpu
         }),
         ..Default::default()
     };
+    setup.instance_descriptor.backend_options.dx12.presentation_system =
+        wgpu_types::Dx12SwapchainKind::DxgiFromVisual;
     WgpuConfiguration {
         // The controller draws on demand and needs only one frame queued.
         desired_maximum_frame_latency: Some(1),
@@ -407,6 +413,8 @@ impl GalleryCategory {
 }
 
 struct Manager {
+    acrylic_available: bool,
+    acrylic: bool,
     root: PathBuf,
     tx: mpsc::Sender<Job>,
     rx: mpsc::Receiver<Event>,
@@ -642,6 +650,8 @@ impl Manager {
             preferences,
             panel_open,
             panel_width,
+            acrylic_available: false,
+            acrylic: false,
             shell: ui_style::Shell::default(),
             window_frame: None,
             page_reveal: ui_style::Reveal::default(),
@@ -1204,12 +1214,15 @@ impl Manager {
         egui::TopBottomPanel::top("chrome")
             .exact_height(50.)
             .show_separator_line(false)
-            .frame(egui::Frame::new().inner_margin(egui::Margin {
-                left: 28,
-                right: if custom_frame { 10 } else { 28 },
-                top: 9,
-                bottom: 9,
-            }))
+            .frame(
+                egui::Frame::new()
+                    .inner_margin(egui::Margin {
+                        left: 28,
+                        right: if custom_frame { 10 } else { 28 },
+                        top: 9,
+                        bottom: 9,
+                    }),
+            )
             .show(ctx, |ui| {
                 if self.restart_pending {
                     ui.disable();
@@ -1231,6 +1244,7 @@ impl Manager {
                                     && current != theme
                                 {
                                     self.preferences.interface.theme = theme;
+                                    self.update_acrylic();
                                     self.remember_interface();
                                     ctx.request_repaint();
                                 }
@@ -1315,6 +1329,34 @@ impl Manager {
                     });
                 });
             });
+    }
+
+    fn update_acrylic(&mut self) {
+        let acrylic =
+            self.acrylic_available && self.preferences.interface.theme == InterfaceTheme::Graphite;
+        if acrylic == self.acrylic {
+            return;
+        }
+        let Some(frame) = self.window_frame.as_ref() else {
+            return;
+        };
+        if acrylic {
+            match frame.enable_acrylic() {
+                Ok(provider) => {
+                    self.acrylic = true;
+                    core::storage::log(
+                        &self.root,
+                        "INFO",
+                        &format!("已启用 Desktop Acrylic（{provider}）"),
+                    );
+                }
+                Err(error) => core::storage::log(&self.root, "WARN", &error),
+            }
+        } else {
+            frame.disable_acrylic();
+            self.acrylic = false;
+            core::storage::log(&self.root, "INFO", "白色主题使用实色背景");
+        }
     }
 
     fn remember_interface(&mut self) {
@@ -2921,7 +2963,11 @@ impl eframe::App for Manager {
     }
 
     fn clear_color(&self, _: &egui::Visuals) -> [f32; 4] {
-        self.shell.clear_color(self.preferences.interface.theme)
+        if self.acrylic {
+            [0.; 4]
+        } else {
+            self.shell.clear_color(self.preferences.interface.theme)
+        }
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
@@ -3023,7 +3069,7 @@ impl eframe::App for Manager {
             }
         }
         if !idle_minimized {
-            self.shell.paint(ctx, self.preferences.interface.theme);
+            self.shell.paint(ctx, self.preferences.interface.theme, self.acrylic);
             self.top_bar(ctx);
             self.header(ctx);
         }
