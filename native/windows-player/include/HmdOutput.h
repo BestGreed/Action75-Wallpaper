@@ -12,6 +12,11 @@
 namespace action75 {
 void appendHmdMonitors(std::vector<Monitor> &monitors);
 
+struct CalibrationMark {
+  float x, y;
+  bool selected;
+};
+
 class HmdOutput {
 public:
   static constexpr unsigned Width = 1920, Height = 720;
@@ -26,6 +31,7 @@ public:
   bool initializeD3D11Bridge(ID3D11Device *, ID3D11DeviceContext *, std::string &error);
   bool presentD3D11(ID3D11Texture2D *, std::string &error);
   bool blank(std::string &error);
+  bool showCalibration(const std::vector<CalibrationMark> &marks, std::string &error);
   bool copyFrame(ID3D12Resource*, ID3D12Fence*, UINT64 workerDone, std::string& error);
   bool waitForLatestScanout();
   std::uint64_t sampleOffscreenRgb(unsigned x, unsigned y);
@@ -33,6 +39,7 @@ public:
   bool hasPerFrameScanoutSignal() const { return !offscreen_ && !vblankPaced_; }
 
 private:
+  bool presentPattern(const std::vector<CalibrationMark> *marks, std::string &error);
   struct Buffer {
     winrt::com_ptr<ID3D12Resource> texture;
     winrt::com_ptr<ID3D12CommandAllocator> commands;

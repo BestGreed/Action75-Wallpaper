@@ -292,6 +292,14 @@ bool HmdOutput::waitForVblank() {
 }
 
 bool HmdOutput::blank(std::string &error) {
+  return presentPattern(nullptr, error);
+}
+
+bool HmdOutput::showCalibration(const std::vector<CalibrationMark> &marks, std::string &error) {
+  return presentPattern(&marks, error);
+}
+
+bool HmdOutput::presentPattern(const std::vector<CalibrationMark> *marks, std::string &error) {
   try {
     const D3D12_HEAP_PROPERTIES heap{D3D12_HEAP_TYPE_DEFAULT, D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
                                      D3D12_MEMORY_POOL_UNKNOWN, 1, 1};
@@ -314,7 +322,30 @@ bool HmdOutput::blank(std::string &error) {
     check_hresult(device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.get(),
                                              nullptr, IID_PPV_ARGS(clear.put())));
     constexpr float black[]{0, 0, 0, 1};
-    clear->ClearRenderTargetView(rtv, black, 0, nullptr);
+    constexpr float background[]{0.025f, 0.032f, 0.045f, 1};
+    clear->ClearRenderTargetView(rtv, marks ? background : black, 0, nullptr);
+    if (marks) {
+      std::vector<D3D12_RECT> ordinary, selected;
+      const auto rect = [](LONG x, LONG y, LONG halfWidth, LONG halfHeight) {
+        return D3D12_RECT{std::max(0L, x - halfWidth), std::max(0L, y - halfHeight),
+                         std::min(LONG(Width), x + halfWidth + 1),
+                         std::min(LONG(Height), y + halfHeight + 1)};
+      };
+      for (const auto &mark : *marks) {
+        auto &cross = mark.selected ? selected : ordinary;
+        const auto x = static_cast<LONG>(std::lround(mark.x * (Width - 1)));
+        const auto y = static_cast<LONG>(std::lround(mark.y * (Height - 1)));
+        const LONG arm = mark.selected ? 18 : 10;
+        cross.push_back(rect(x, y, arm, 1));
+        cross.push_back(rect(x, y, 1, arm));
+      }
+      constexpr float normal[]{0.34f, 0.65f, 0.72f, 1};
+      constexpr float active[]{1, 0.69f, 0.25f, 1};
+      if (!ordinary.empty())
+        clear->ClearRenderTargetView(rtv, normal, static_cast<UINT>(ordinary.size()), ordinary.data());
+      if (!selected.empty())
+        clear->ClearRenderTargetView(rtv, active, static_cast<UINT>(selected.size()), selected.data());
+    }
     barrier(clear.get(), texture.get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON);
     check_hresult(clear->Close());
     ID3D12CommandList *commands[]{clear.get()};

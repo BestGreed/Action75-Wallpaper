@@ -6,6 +6,7 @@
 
 namespace action75 {
 class HmdOutput;
+struct CalibrationMark;
 class Dx12CompositionSurface {
 public:
   Dx12CompositionSurface() = default;
@@ -34,6 +35,7 @@ public:
   bool composes() const { return composition_ != nullptr; }
   bool hasWindowPresentation() const { return chain_ || composes(); }
   bool blankHmd(std::string &error);
+  bool showCalibration(const std::vector<CalibrationMark> &marks, std::string &error);
   bool usesHmd() const { return hmd_ != nullptr; }
   LUID compositionAdapter() const { return compositionAdapter_; }
   std::shared_ptr<Dx12CompositionSurface> makeCompositionSurface(std::string &error);
@@ -87,6 +89,7 @@ public:
   ~PlayerOutput();
   Dx12Output *dx12() const { return dx12_.get(); }
   bool blankHmd(std::string &error);
+  bool showCalibration(const std::vector<CalibrationMark> &marks, std::string &error);
   bool usesHmd() const { return hmd11_ || (dx12_ && dx12_->usesHmd()); }
   bool initialize(HWND window, unsigned w, unsigned h, bool offscreen, std::string &error,
                   bool hardware = false, GpuPreference preference = GpuPreference::Discrete,

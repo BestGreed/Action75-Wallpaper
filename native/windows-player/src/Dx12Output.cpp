@@ -409,6 +409,9 @@ bool Dx12Output::copyFrame(ID3D12Resource *src, ID3D12Fence *fence, UINT64 done,
 bool Dx12Output::blankHmd(std::string &error) {
   return hmd_ && hmd_->blank(error);
 }
+bool Dx12Output::showCalibration(const std::vector<CalibrationMark> &marks, std::string &error) {
+  return hmd_ && hmd_->showCalibration(marks, error);
+}
 HRESULT Dx12Output::present() {
   if (composes())
     return compositionPresent_;
@@ -530,6 +533,9 @@ bool PlayerOutput::initialize(HWND window, unsigned w, unsigned h, bool offscree
 }
 bool PlayerOutput::blankHmd(std::string &error) {
   return hmd11_ ? hmd11_->blank(error) : dx12_ && dx12_->blankHmd(error);
+}
+bool PlayerOutput::showCalibration(const std::vector<CalibrationMark> &marks, std::string &error) {
+  return hmd11_ ? hmd11_->showCalibration(marks, error) : dx12_ && dx12_->showCalibration(marks, error);
 }
 bool PlayerOutput::present(std::string &error) {
   if (hmd11_) {

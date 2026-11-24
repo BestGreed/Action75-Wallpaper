@@ -655,6 +655,7 @@ private:
   bool exitShortcut_ = false, quittingSession_ = false;
   UINT taskbarCreated_ = 0;
   HICON icon_ = nullptr;
+  std::optional<std::vector<CalibrationMark>> calibrationPreview_;
   bool hasMonitor_ = false, paused_ = false, visible_ = true, dirty_ = true;
   bool persistedPaused_ = false;
   bool exclusiveDisplay_ = false;
@@ -770,6 +771,7 @@ json Player::status() const {
       {"packSettingsRevision", activeProfile_ ? activeProfile_->revision : 0},
       {"importedRevision", activeImportedPack_ ? activeImportedPack_->importedRevision : ""},
       {"deviceGroup", mapping_.deviceGroup},
+      {"calibrationPreviewActive", temporaryPauseOwner_ && calibrationPreview_ && renderer_.usesHmd()},
       {"calibrationRevision", mapping_.revision},
       {"calibrationError", mapping_.calibrationError.empty() ? json(nullptr)
                                                              : json(mapping_.calibrationError)},
@@ -1130,7 +1132,7 @@ void Player::refreshDesktopLayer() {
     SetTimer(window_,MonitorTopologyTimer,1000,nullptr);
     return;
   }
-  desktopLayer_.show(visible_ && outputReady() && !packId_.empty());
+  desktopLayer_.show(visible_ && !temporaryPauseOwner_ && outputReady() && !packId_.empty());
 }
 
 void Player::updateProfile(PackSettingsCandidate &profile, const PackAppearance &appearance,
@@ -1314,14 +1316,14 @@ void Player::updateVisibility() {
   }
   if (!pluginPointerEnabled())
     resetPluginPointer();
-  if (desktopActive_) desktopLayer_.show(visible_ && outputReady() && !packId_.empty());
+  if (desktopActive_) desktopLayer_.show(visible_ && !temporaryPauseOwner_ && outputReady() && !packId_.empty());
   if (window_ && options_.testWindow != TestWindow::None) {
     const bool showing = !desktopActive_ && visible_ && outputReady() && !packId_.empty();
     if (showing != (IsWindowVisible(window_) != FALSE))
       ShowWindow(window_, showing ? SW_SHOWNOACTIVATE : SW_HIDE);
   }
   if (window_ && !options_.headless) {
-    const bool showing = usesOutputWindow() && !desktopActive_ && visible_ &&
+    const bool showing = usesOutputWindow() && !desktopActive_ && visible_ && !temporaryPauseOwner_ &&
                          outputReady() && !packId_.empty();
     const auto style = GetWindowLongPtrW(window_, GWL_EXSTYLE);
     const bool pointerInteraction = pluginPointerEnabled() || canClickScene();
@@ -1359,7 +1361,7 @@ void Player::refreshDisplayGuard() {
 }
 void Player::refreshKeyboardTaskbar() {
   RECT bounds{};
-  if (hideKeyboardTaskbar_ && !quittingSession_ && usesOutputWindow() && visible_ &&
+  if (hideKeyboardTaskbar_ && !quittingSession_ && !temporaryPauseOwner_ && usesOutputWindow() && visible_ &&
       outputReady() && !packId_.empty() && GetWindowRect(window_, &bounds)) {
     keyboardTaskbarFailed_ = !keyboardTaskbar_.hide(window_, bounds);
   } else {
@@ -2184,6 +2186,29 @@ json Player::dispatch(const json &request) {
         error_ = std::string("Settings applied for this session: ") + exception.what();
       }
       result = status();
+    } else if (action == "previewCalibration") {
+      if (!temporaryPauseOwner_ || request.at("ownerPid").get<DWORD>() != temporaryPauseOwnerPid_)
+        throw std::runtime_error("Calibration preview does not own the player pause");
+      const auto &points = request.at("points");
+      if (!points.is_array() || points.size() > 128)
+        throw std::runtime_error("Invalid calibration preview points");
+      std::vector<CalibrationMark> marks;
+      marks.reserve(points.size());
+      for (const auto &point : points) {
+        if (!point.is_array() || point.size() != 3 || !point[0].is_number() ||
+            !point[1].is_number() || !point[2].is_boolean())
+          throw std::runtime_error("Invalid calibration preview point");
+        const float x = point[0].get<float>(), y = point[1].get<float>();
+        if (!std::isfinite(x) || !std::isfinite(y) || x < 0 || x > 1 || y < 0 || y > 1)
+          throw std::runtime_error("Invalid calibration preview coordinates");
+        marks.push_back({x, y, point[2].get<bool>()});
+      }
+      if (hmdSelected_ && !renderer_.hasRenderTarget() && !graphicsSuspended_ &&
+          !initializeOutput(true, HmdOutput::Width, HmdOutput::Height, false, error_))
+        throw std::runtime_error(error_);
+      calibrationPreview_ = std::move(marks);
+      dirty_ = true;
+      result = status();
     } else if (action == "pause" || action == "resume") {
       const bool temporary = request.value("temporary", false);
       if (temporary && action == "pause") {
@@ -2198,12 +2223,14 @@ json Player::dispatch(const json &request) {
           CloseHandle(temporaryPauseOwner_);
         temporaryPauseOwner_ = owner;
         temporaryPauseOwnerPid_ = pid;
+        calibrationPreview_.reset();
       } else if (temporary) {
         if (temporaryPauseOwner_ &&
             request.value("ownerPid", temporaryPauseOwnerPid_) == temporaryPauseOwnerPid_) {
           CloseHandle(temporaryPauseOwner_);
           temporaryPauseOwner_ = nullptr;
           temporaryPauseOwnerPid_ = 0;
+          calibrationPreview_.reset();
         }
       } else {
         persistedPaused_ = action == "pause";
@@ -2815,6 +2842,17 @@ void Player::render() {
   auto now = std::chrono::steady_clock::now();
   float elapsed = std::chrono::duration<float>(now - lastFrame_).count();
   lastFrame_ = now;
+  if (temporaryPauseOwner_ && calibrationPreview_ && renderer_.usesHmd()) {
+    if (renderer_.showCalibration(*calibrationPreview_, error_))
+      ++framesRendered_;
+    else if (gpuDeviceLost())
+      scheduleDeviceRecovery(error_);
+    else
+      diagnostics_.write("WARN", error_);
+    dirty_ = false;
+    pacer_.rendered(now, renderFps(), false, phaseReset);
+    return;
+  }
   auto begin = now;
   if (perf_)
     perf_->begin(renderer_.context());
@@ -3157,6 +3195,7 @@ int Player::run() {
       CloseHandle(temporaryPauseOwner_);
       temporaryPauseOwner_ = nullptr;
       temporaryPauseOwnerPid_ = 0;
+      calibrationPreview_.reset();
       paused_ = persistedPaused_;
       updateVisibility();
       lastFrame_ = FramePacer::Clock::now();
@@ -3195,7 +3234,7 @@ int Player::run() {
     auto plan = deviceRetryAt_
         ? FramePacer::Plan{false, true, *deviceRetryAt_ - now}
         : pacer_.plan(now, renderer_.hasRenderTarget() &&
-                               (offscreenOnly() || (visible_ && outputReady())),
+                               (offscreenOnly() || ((visible_ || (temporaryPauseOwner_ && calibrationPreview_ && hmdSelected_)) && outputReady())),
                       dirty_, hasMotion(), requestedInterval);
     const auto wallpaperRetryAt = canRetryWallpaper
         ? std::optional{missingWallpaper_->retryAt} : std::nullopt;
