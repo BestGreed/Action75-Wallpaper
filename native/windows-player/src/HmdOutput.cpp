@@ -7,9 +7,11 @@
 #include "HmdOutput.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 
@@ -55,7 +57,196 @@ void barrier(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
   list->ResourceBarrier(1, &transition);
 }
 
+bool isAction75(std::wstring_view path) {
+  constexpr std::wstring_view prefix = LR"(\\?\DISPLAY#HIV1230#)";
+  return path.size() > prefix.size() &&
+         _wcsnicmp(path.data(), prefix.data(), prefix.size()) == 0;
+}
+
+std::wstring deviceInstance(std::wstring path, std::wstring_view kind) {
+  const auto suffix = path.rfind(L"#{");
+  require(path.compare(0, 4, LR"(\\?\)") == 0 && suffix != std::wstring::npos &&
+              suffix > 4 + kind.size() && path[4 + kind.size()] == L'#' &&
+              _wcsnicmp(path.data() + 4, kind.data(), kind.size()) == 0,
+          L"Invalid display device path");
+  path = path.substr(4, suffix - 4);
+  std::replace(path.begin(), path.end(), L'#', L'\\');
+  require(path.find(L'"') == std::wstring::npos, L"Invalid display device instance");
+  return path;
+}
+
+std::wstring adapterInstance(const DisplayTarget &target) {
+  const auto luid = target.Adapter().Id();
+  DISPLAYCONFIG_ADAPTER_NAME adapter{};
+  adapter.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME;
+  adapter.header.size = sizeof(adapter);
+  adapter.header.adapterId = {luid.LowPart, luid.HighPart};
+  check_hresult(HRESULT_FROM_WIN32(DisplayConfigGetDeviceInfo(&adapter.header)));
+  return deviceInstance(adapter.adapterDevicePath, L"PCI");
+}
+
+struct RegistryKey {
+  HKEY value = nullptr;
+  ~RegistryKey() { if (value) RegCloseKey(value); }
+};
+
+class Action75Classification {
+public:
+  Action75Classification(const std::wstring &instance, const DisplayTarget &target) {
+    const auto params = L"SYSTEM\\CurrentControlSet\\Enum\\" + instance + L"\\Device Parameters";
+    const auto overridePath = params + L"\\EDID_OVERRIDE";
+    RegistryKey overrideKey;
+    const auto overrideStatus =
+        RegOpenKeyExW(HKEY_LOCAL_MACHINE, overridePath.c_str(), 0, KEY_READ, &overrideKey.value);
+    require(overrideStatus == ERROR_FILE_NOT_FOUND || overrideStatus == ERROR_PATH_NOT_FOUND,
+            L"Remove the Action75 EDID override before switching output modes");
+
+    const auto monitor = target.TryGetMonitor();
+    require(bool(monitor), L"Cannot read Action75 monitor identity");
+    const auto edid = monitor.GetDescriptor(DisplayMonitorDescriptorKind::Edid);
+    const auto serial = displaySerialFromEdid({edid.begin(), edid.end()});
+    const auto tag = serial.find(L":text:");
+    require(tag != std::wstring::npos, L"Action75 has no usable EDID serial number");
+    const auto text = serial.substr(tag + 6);
+    require(!text.empty() && std::all_of(text.begin(), text.end(), [](wchar_t c) {
+      return (c >= L'0' && c <= L'9') || (c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z');
+    }), L"Action75 EDID serial is not supported for mode switching");
+
+    const auto prefix = L"HIV1230" + text + L"_";
+    RegistryKey store;
+    check_hresult(HRESULT_FROM_WIN32(RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers\\MonitorDataStore",
+        0, KEY_ENUMERATE_SUB_KEYS, &store.value)));
+    std::wstring match;
+    for (DWORD index = 0;; ++index) {
+      wchar_t name[256]{};
+      DWORD length = ARRAYSIZE(name);
+      const auto status = RegEnumKeyExW(store.value, index, name, &length, nullptr, nullptr, nullptr, nullptr);
+      if (status == ERROR_NO_MORE_ITEMS) break;
+      check_hresult(HRESULT_FROM_WIN32(status));
+      if (length <= prefix.size() || _wcsnicmp(name, prefix.c_str(), prefix.size()) != 0) continue;
+      require(match.empty(), L"More than one Action75 classification cache matches this monitor");
+      match.assign(name, length);
+    }
+    require(!match.empty(), L"Cannot find the Action75 classification cache");
+    check_hresult(HRESULT_FROM_WIN32(RegOpenKeyExW(store.value, match.c_str(), 0,
+        KEY_QUERY_VALUE | KEY_SET_VALUE, &key_.value)));
+    DWORD old = 0, size = sizeof(old);
+    const auto status = RegGetValueW(key_.value, nullptr, Flag, RRF_RT_REG_DWORD, nullptr, &old, &size);
+    if (status != ERROR_FILE_NOT_FOUND) {
+      check_hresult(HRESULT_FROM_WIN32(status));
+      original_ = old;
+    }
+  }
+
+  void set(std::optional<DWORD> value) const {
+    const auto status = value
+        ? RegSetValueExW(key_.value, Flag, 0, REG_DWORD,
+              reinterpret_cast<const BYTE *>(&*value), sizeof(*value))
+        : RegDeleteValueW(key_.value, Flag);
+    if (!value && status == ERROR_FILE_NOT_FOUND) return;
+    check_hresult(HRESULT_FROM_WIN32(status));
+  }
+  void restore() const { set(original_); }
+
+private:
+  static constexpr auto Flag = L"HMDDevicePresent";
+  RegistryKey key_;
+  std::optional<DWORD> original_;
+};
+
+bool restartDisplayDevice(const std::wstring &instance) {
+  wchar_t system[MAX_PATH]{};
+  const auto length = GetSystemDirectoryW(system, ARRAYSIZE(system));
+  require(length > 0 && length < ARRAYSIZE(system), L"Cannot locate Windows system directory");
+  const auto executable = std::wstring(system) + L"\\pnputil.exe";
+  auto command = L"\"" + executable + L"\" /restart-device \"" + instance + L"\"";
+  STARTUPINFOW startup{sizeof(startup)};
+  PROCESS_INFORMATION launched{};
+  if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                     nullptr, nullptr, &startup, &launched))
+    throw_last_error();
+  handle process(launched.hProcess), thread(launched.hThread);
+  require(WaitForSingleObject(process.get(), INFINITE) == WAIT_OBJECT_0,
+          L"Cannot wait for display device restart");
+  DWORD result = 0;
+  if (!GetExitCodeProcess(process.get(), &result)) throw_last_error();
+  return result == 0;
+}
+
+bool modeReady(const DisplayTarget &target, const std::wstring &path, bool hmd) {
+  if (hmd) return target.UsageKind() == DisplayMonitorUsageKind::HeadMounted;
+  if (target.UsageKind() != DisplayMonitorUsageKind::Standard) return false;
+  const auto active = monitors();
+  return std::any_of(active.begin(), active.end(), [&](const Monitor &m) {
+    return !m.primary && _wcsicmp(m.identity.path.c_str(), path.c_str()) == 0;
+  });
+}
+
+bool waitForDisplayMode(const std::wstring &path, bool hmd, std::chrono::seconds timeout) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  do {
+    try {
+      const auto manager = DisplayManager::Create(DisplayManagerOptions::None);
+      for (const auto &target : manager.GetCurrentTargets()) {
+        if (target.IsConnected() && _wcsicmp(target.DeviceInterfacePath().c_str(), path.c_str()) == 0 &&
+            modeReady(target, path, hmd))
+          return true;
+      }
+    } catch (const hresult_error &) {
+      // Display.Core may be temporarily unavailable during a device restart.
+    }
+    Sleep(300);
+  } while (std::chrono::steady_clock::now() < deadline);
+  return false;
+}
 } // namespace
+
+bool switchAction75DisplayMode(bool hmd) {
+  using namespace std::chrono_literals;
+  try {
+    handle operation(CreateMutexW(nullptr, TRUE, L"Local\\Action75DisplayModeSwitch"));
+    const auto mutexStatus = GetLastError();
+    if (!operation) check_hresult(HRESULT_FROM_WIN32(mutexStatus));
+    require(mutexStatus != ERROR_ALREADY_EXISTS, L"Another Action75 mode switch is already running");
+    std::wstring path, instance, adapter;
+    std::unique_ptr<Action75Classification> classification;
+    {
+      const auto manager = DisplayManager::Create(DisplayManagerOptions::None);
+      DisplayTarget selected{nullptr};
+      for (const auto &target : manager.GetCurrentTargets()) {
+        if (!target.IsConnected() || !isAction75(target.DeviceInterfacePath())) continue;
+        require(!selected, L"More than one Action75 display is connected");
+        selected = target;
+      }
+      require(bool(selected), L"Cannot find a connected Action75 display");
+      path = selected.DeviceInterfacePath().c_str();
+      if (modeReady(selected, path, hmd)) return false;
+      instance = deviceInstance(path, L"DISPLAY");
+      adapter = adapterInstance(selected);
+      classification = std::make_unique<Action75Classification>(instance, selected);
+    }
+    classification->set(hmd ? std::optional<DWORD>{1} : std::nullopt);
+    bool adapterRestarted = false;
+    try {
+      restartDisplayDevice(instance);
+      if (waitForDisplayMode(path, hmd, 8s)) return false;
+      adapterRestarted = true;
+      require(restartDisplayDevice(adapter), L"Windows could not restart the Action75 graphics adapter");
+      require(waitForDisplayMode(path, hmd, 25s), L"Action75 did not enter the requested display mode");
+      return true;
+    } catch (...) {
+      classification->restore();
+      if (adapterRestarted)
+        restartDisplayDevice(adapter);
+      else
+        restartDisplayDevice(instance);
+      throw;
+    }
+  } catch (const hresult_error &error) {
+    throw std::runtime_error(describe(error));
+  }
+}
 
 void appendHmdMonitors(std::vector<Monitor> &monitors) {
   try {

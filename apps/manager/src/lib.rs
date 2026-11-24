@@ -267,7 +267,10 @@ pub enum Job {
         write: pack_model::FinalWrite,
         done: mpsc::Sender<Result<(), String>>,
     },
-    PrepareRestart(pack_model::FinalWrite),
+    PrepareRestart {
+        write: pack_model::FinalWrite,
+        output_mode: Option<bool>,
+    },
     Full,
     ReadDevices,
     RefreshDevices,
@@ -392,7 +395,10 @@ pub enum Event {
     Startup(Result<startup::StartupState, String>),
     GraphicsAdapters(Result<graphics_adapters::GraphicsAdapters, String>),
     GpuPreferenceSaved(Result<storage::GpuPreference, String>),
-    RestartPrepared(Result<(), String>),
+    RestartPrepared {
+        output_mode: Option<bool>,
+        result: Result<(), String>,
+    },
     RequestFailed(String),
     SetupFinished(Result<(), String>),
     MigrationFinished(Result<(), String>),
@@ -449,12 +455,19 @@ pub fn worker(
                     let _ = done.send(result);
                     break;
                 }
-                Job::PrepareRestart(write) => Ok(Event::RestartPrepared(
-                    preview
+                Job::PrepareRestart { write, output_mode } => {
+                    let result = preview
                         .save(&root, write)
-                        .and_then(|_| game_compat::stop_player(&root))
-                        .inspect_err(|error| storage::log(&root, "ERROR", error)),
-                )),
+                        .and_then(|_| {
+                            if output_mode.is_none() {
+                                game_compat::stop_player(&root)
+                            } else {
+                                Ok(())
+                            }
+                        })
+                        .inspect_err(|error| storage::log(&root, "ERROR", error));
+                    Ok(Event::RestartPrepared { output_mode, result })
+                }
                 Job::SetExclusive {
                     generation,
                     request,
