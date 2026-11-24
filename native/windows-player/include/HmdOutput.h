@@ -11,6 +11,7 @@
 
 namespace action75 {
 void appendHmdMonitors(std::vector<Monitor> &monitors);
+bool switchAction75DisplayMode(bool hmd);
 
 struct CalibrationMark {
   float x, y;

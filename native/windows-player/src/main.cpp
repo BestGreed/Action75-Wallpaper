@@ -198,6 +198,7 @@ struct Options {
   fs::path root, stateDir;
   std::wstring pipe, rootEndpoint;
   std::string command;
+  std::optional<bool> switchDisplayMode;
   bool selfTest = false, headless = false, probe = false, hardwareHeadless = false,
        perfStats = false, dx12PresentStats = false;
   bool preferVolumeAtlas = false, backdropCopy = true;
@@ -225,6 +226,12 @@ static Options options() {
       o.explicitPipe = true;
     } else if (arg == L"--command")
       o.command = utf8(value());
+    else if (arg == L"--switch-action75-mode") {
+      const auto mode = value();
+      if (mode != L"hmd" && mode != L"extended")
+        throw std::runtime_error("Expected Action75 mode: hmd or extended");
+      o.switchDisplayMode = mode == L"hmd";
+    }
     else if (arg == L"--self-test")
       o.selfTest = true;
     else if (arg == L"--headless-test")
@@ -3392,6 +3399,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
   HANDLE single = nullptr;
   try {
     auto o = options();
+    if (o.switchDisplayMode) {
+      const auto restartedAdapter = switchAction75DisplayMode(*o.switchDisplayMode);
+      stdoutJson({{"ok", true}, {"adapterRestarted", restartedAdapter}});
+      if (SUCCEEDED(com))
+        CoUninitialize();
+      return 0;
+    }
     if (o.importTrial) {
       SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
       const auto resultFile = o.root / L"trial-result.json";
