@@ -2487,6 +2487,10 @@ impl Manager {
         }
     }
     fn monitor_guide(&mut self, ui: &mut egui::Ui) {
+        if self.monitors.iter().any(|monitor| monitor["hmd"] == true) {
+            ui.label("已检测到 Action75 HMD。选择这块屏幕即可直接输出壁纸。");
+            return;
+        }
         let dark = ui.visuals().dark_mode;
         let (fill, accent) = if dark {
             (
@@ -2676,6 +2680,21 @@ impl Manager {
         if self.setup_complete {
             return;
         }
+        if self.setup_monitor.is_none() {
+            let mut hmds = self.monitors.iter().filter(|monitor| {
+                monitor["hmd"] == true && monitor_ui::selection_key(monitor).is_some()
+            });
+            if let Some(hmd) = hmds.next()
+                && hmds.next().is_none()
+            {
+                self.setup_monitor = Some(hmd.clone());
+            }
+        }
+        if self.setup_device.is_empty()
+            && setup_keyboard_connected(&self.devices, "VID_1CA6&PID_1A0B")
+        {
+            self.setup_device = "VID_1CA6&PID_1A0B".into();
+        }
         egui::Modal::new(egui::Id::new("first-run-setup")).show(ctx, |ui| {
             ui.set_width(440.);
             ui.heading("连接 Action75");
@@ -2818,39 +2837,42 @@ impl Manager {
             }
             ui.add_space(14.);
 
-            if let (_, Some(request)) = exclusive_ui::show(ui, &mut self.exclusive) {
-                if self
-                    .tx
-                    .send(Job::SetExclusive {
-                        generation: request.generation,
-                        request: request.json(),
-                    })
-                    .is_err()
-                {
-                    self.exclusive
-                        .fail(request.generation, "控制线程已退出".into());
+            let hmd = self.status["hmdSelected"] == true;
+            if !hmd {
+                if let (_, Some(request)) = exclusive_ui::show(ui, &mut self.exclusive) {
+                    if self
+                        .tx
+                        .send(Job::SetExclusive {
+                            generation: request.generation,
+                            request: request.json(),
+                        })
+                        .is_err()
+                    {
+                        self.exclusive
+                            .fail(request.generation, "控制线程已退出".into());
+                    }
                 }
+                ui.label(
+                    RichText::new("开启并生效后，鼠标无法进入键盘副屏。校准时会暂时解除保护。")
+                        .small()
+                        .weak(),
+                );
+                let guard_error = if !self.exclusive.error.is_empty() {
+                    self.exclusive.error.as_str()
+                } else {
+                    self.status["displayGuardError"].as_str().unwrap_or("")
+                };
+                if !guard_error.trim().is_empty() {
+                    ui.colored_label(ui.visuals().error_fg_color, guard_error);
+                }
+                ui.add_space(14.);
             }
-            ui.label(
-                RichText::new("开启并生效后，鼠标无法进入键盘副屏。校准时会暂时解除保护。")
-                    .small()
-                    .weak(),
-            );
-            let guard_error = if !self.exclusive.error.is_empty() {
-                self.exclusive.error.as_str()
-            } else {
-                self.status["displayGuardError"].as_str().unwrap_or("")
-            };
-            if !guard_error.trim().is_empty() {
-                ui.colored_label(ui.visuals().error_fg_color, guard_error);
-            }
-            ui.add_space(14.);
 
             let requested = self.status["hideKeyboardTaskbar"].as_bool();
             let mut hide_taskbar = requested.unwrap_or(false);
             if ui
                 .add_enabled(
-                    requested.is_some() && self.status["running"] == true,
+                    !hmd && requested.is_some() && self.status["running"] == true,
                     egui::Checkbox::new(&mut hide_taskbar, "隐藏键盘副屏任务栏"),
                 )
                 .changed()

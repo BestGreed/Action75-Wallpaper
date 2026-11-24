@@ -1325,7 +1325,15 @@ fn configure_first_run(
         "settings":settings,
         "requireConnectedKeyboard":true
     }))?;
-    if applied["selectedKeyboardDevices"].as_u64() == Some(0) {
+    let keyboard_connected = applied["selectedKeyboardDevices"].as_u64() != Some(0);
+    if keyboard_connected && applied["hmdSelected"] == true {
+        if applied["packId"].as_str().is_none_or(str::is_empty) {
+            let _ = request(json!({"action":"selectPack","id":"black-hole"}));
+        }
+        request(json!({"action":"show"}))?;
+        return Ok(());
+    }
+    if !keyboard_connected {
         return Err("所选键盘已断开，请连接后刷新设备，或选择其他键盘。".into());
     }
     request(json!({"action":"selectPack","id":"paintball-native"}))?;
@@ -2419,6 +2427,33 @@ mod tests {
         submit(&mut requests, Some(1)).unwrap();
         assert_eq!(requests[1]["action"], "selectPack");
         assert_eq!(requests[2]["action"], "show");
+    }
+
+    #[test]
+    fn hmd_setup_preserves_playback_and_can_finish_without_a_bundled_wallpaper() {
+        for active in ["black-hole", ""] {
+            let mut requests = Vec::new();
+            configure_first_run("HMD:panel", Some("panel"), "keyboard", |request| {
+                let result = match request["action"].as_str() {
+                    Some("setSettings") => Ok(json!({
+                        "selectedKeyboardDevices": 1, "hmdSelected": true, "packId": active
+                    })),
+                    Some("selectPack") => Err("missing bundled wallpaper".into()),
+                    Some("show") => Ok(Value::Null),
+                    _ => panic!("unexpected request"),
+                };
+                requests.push(request);
+                result
+            })
+            .unwrap();
+            assert_eq!(requests[0]["settings"]["monitorDevice"], "HMD:panel");
+            if active.is_empty() {
+                assert_eq!(requests[1], json!({"action":"selectPack","id":"black-hole"}));
+            } else {
+                assert_eq!(requests.len(), 2);
+            }
+            assert_eq!(requests.last().unwrap()["action"], "show");
+        }
     }
 
     #[test]
